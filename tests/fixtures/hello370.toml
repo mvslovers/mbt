@@ -14,9 +14,9 @@ space     = ["TRK", 5, 2, 5]
 [mvs.build.datasets.ncalib]
 suffix    = "NCALIB"
 dsorg     = "PO"
-recfm     = "FB"
-lrecl     = 80
-blksize   = 3120
+recfm     = "U"
+lrecl     = 0
+blksize   = 32760
 space     = ["TRK", 5, 2, 5]
 
 [mvs.build.datasets.syslmod]

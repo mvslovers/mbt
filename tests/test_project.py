@@ -39,9 +39,9 @@ class TestProjectLoadHello370(unittest.TestCase):
         ds = self.config.build_datasets["ncalib"]
         self.assertEqual(ds.suffix, "NCALIB")
         self.assertEqual(ds.dsorg, "PO")
-        self.assertEqual(ds.recfm, "FB")
-        self.assertEqual(ds.lrecl, 80)
-        self.assertEqual(ds.blksize, 3120)
+        self.assertEqual(ds.recfm, "U")
+        self.assertEqual(ds.lrecl, 0)
+        self.assertEqual(ds.blksize, 32760)
         self.assertEqual(ds.space, ["TRK", 5, 2, 5])
         self.assertEqual(ds.unit, "SYSDA")
         self.assertIsNone(ds.volume)
