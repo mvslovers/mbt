@@ -15,4 +15,3 @@ examples/**/contrib/
 .DS_Store
 
 # Internal
-prompts.txt
