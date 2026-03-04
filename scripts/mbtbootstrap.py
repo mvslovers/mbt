@@ -100,8 +100,8 @@ def _receive_xmit(client: MvsMFClient, config: MbtConfig,
         dsn_short = target_dsn.rsplit(".", 1)[-1]
         log_file = _save_job_log(result, dsn_short)
         raise MvsMFError(
-            f"RECEIVE job failed (RC={result.rc}) for {xmit_dsn}"
-            f" — log saved to {log_file}"
+            f"RECEIVE job failed (RC={result.rc}) for {xmit_dsn}\n"
+            f"[mbt]        Log saved to {log_file}"
         )
 
 
@@ -312,7 +312,7 @@ def main() -> int:
                     try:
                         _receive_xmit(client, config, xmit_dsn, target_dsn)
                     except MvsMFError as e:
-                        _log_error(f"RECEIVE failed for {target_dsn}: {e}")
+                        _log_error(f"RECEIVE failed for {target_dsn}:\n{e}")
                         return EXIT_MAINFRAME
                     finally:
                         # Delete temp XMIT staging DS after each RECEIVE
