@@ -1,11 +1,9 @@
 # mbt — MVS Build Tool
 
-> **Work in Progress** — Milestones 1–3 implemented. Not yet ready for production use.
-
 Cross-compile, assemble, link, and package [MVS 3.8j](https://en.wikipedia.org/wiki/MVS) projects from a modern host.
 
 mbt is a reusable Git submodule that centralizes the full build pipeline for
-[mvslovers](https://github.com/mvslovers) projects targeting MVS 3.8j
+[mvslovers](https://github.com/mvslovers) projects targeting MVS 3.8j on Hercules.
 
 ---
 
@@ -18,14 +16,16 @@ C source (.c)
               └─► IEWL (NCAL)   link to NCALIB
                     └─► IEWL (final)   build load module
                           └─► IEBCOPY   install to target dataset
+                                └─► TRANSMIT   package as XMIT for release
 ```
 
 **Key properties:**
 
 - Single `project.toml` per project — no Makefile boilerplate
-- Zero external Python dependencies — stdlib only (`tomllib`, `urllib`, `string`)
+- 2-line Makefile integrates the full pipeline via `make`
+- Zero external Python dependencies — stdlib only
 - All MVS communication via [mvsMF](https://github.com/mvslovers/mvsmf) REST API
-- GitHub Releases as package registry — versioned deps, lockfile, header extraction
+- GitHub Releases as package registry — versioned deps with lockfile
 - Works with any reachable MVS 3.8j system (local Hercules, remote TK4-, MVS/CE)
 
 ---
@@ -36,50 +36,59 @@ C source (.c)
 |------|---------|---------|
 | Python | 3.12+ | Build scripts (stdlib only) |
 | GNU Make | any | Orchestration |
-| [c2asm370](https://github.com/mvslovers/c2asm370) | any | C → S/370 cross-compiler |
-| [mvsMF](https://github.com/mvslovers/mvsmf) | any | MVS REST API (running on Hercules) |
+| [c2asm370](https://github.com/mvslovers/c2asm370) | any | C to S/370 cross-compiler |
+| [mvsMF](https://github.com/mvslovers/mvsmf) | any | MVS REST API (running on target system) |
 
 ---
 
-## Configuration
+## Quick Start
 
-### Global — `~/.mbt/config.toml`
+### 1. Add mbt as submodule
+
+```sh
+cd your-project
+git submodule add https://github.com/mvslovers/mbt.git mbt
+```
+
+### 2. Create your Makefile
+
+```makefile
+MBT_ROOT := mbt
+include $(MBT_ROOT)/mk/core.mk
+```
+
+That's it. All build targets are now available.
+
+### 3. Configure MVS connection
+
+Create `~/.mbt/config.toml`:
 
 ```toml
 [mvs]
-deps_volume = "WORK00"   # volume for RECEIVE of dependency XMIT files
+host        = "myhost.lan"
+port        = 1080
+user        = "IBMUSER"
+pass        = "SYS1"
+hlq         = "IBMUSER"
+deps_hlq    = "IBMUSER.DEPS"
+deps_volume = "WORK00"
+
+[jes]
+jobclass = "A"
+msgclass = "H"
 
 [system.maclibs]
 sys1    = "SYS1.MACLIB"
 amodgen = "SYS1.AMODGEN"
-sys2    = "SYS2.MACLIB"
 ```
 
-### Per-project — `.env`
-
-```sh
-MBT_MVS_HOST=localhost
-MBT_MVS_PORT=1080
-MBT_MVS_USER=IBMUSER
-MBT_MVS_PASS=sys1
-MBT_MVS_HLQ=IBMUSER
-```
-
-See `.env.example` in each project for the full list.
-
----
-
-## Project definition — `project.toml`
+### 4. Create project.toml
 
 ```toml
 [project]
-name    = "hello370"
+name    = "myapp"
 version = "1.0.0"
-type    = "application"      # runtime | library | module | application
-
-[build.sources]
-asm_dirs = ["asm/"]          # hand-written assembler
-# c_dirs = ["src/"]          # C sources (compiled via c2asm370), default
+type    = "application"
 
 [mvs.build.datasets.punch]
 suffix  = "OBJECT"
@@ -105,92 +114,231 @@ lrecl   = 0
 blksize = 32760
 space   = ["TRK", 5, 2, 5]
 
-[mvs.install]
-naming = "fixed"             # fixed: HLQ.name | vrm: HLQ.PROJECT.VRM.SUFFIX
-
-[mvs.install.datasets.syslmod]
-name = "LOAD"                # installs to IBMUSER.LOAD
-
-[link.module]
-name    = "HELLO"
-# entry defaults to @@CRT0 for application/module types
-# include defaults to ["@@CRT1", name]
-options = ["LIST", "XREF", "LET"]
-
 [dependencies]
 "mvslovers/crent370" = ">=1.0.0"
 
+[link.module]
+name    = "MYAPP"
+options = ["LIST", "XREF", "LET"]
+
 [artifacts]
 mvs = true
-
-[release]
-github        = "mvslovers/hello370"
-version_files = ["project.toml"]
 ```
 
----
-
-## Build pipeline
-
-From the project directory (where `project.toml` lives):
+### 5. Build
 
 ```sh
-# 1. Resolve and provision dependencies on MVS
-python3 /path/to/mbt/scripts/mbtbootstrap.py
-
-# 2. Compile C sources + assemble all modules
-python3 /path/to/mbt/scripts/mvsasm.py
-
-# 3. Final linkedit → load module
-python3 /path/to/mbt/scripts/mvslink.py
-
-# 4. Install to target dataset
-python3 /path/to/mbt/scripts/mvsinstall.py
-```
-
-Or assemble a single member:
-
-```sh
-python3 /path/to/mbt/scripts/mvsasm.py --member HELLO
+make doctor         # verify environment
+make bootstrap      # resolve deps, provision datasets on MVS
+make build          # cross-compile C + assemble on MVS
+make link           # final linkedit
+make package        # create release artifacts in dist/
 ```
 
 ---
 
-## Project types
+## Make Targets
 
-| Type | NCAL assembly | Final link | Install |
-|------|--------------|------------|---------|
-| `runtime` | ✓ | — | — |
-| `library` | ✓ | — | — |
-| `module` | ✓ | ✓ | optional |
-| `application` | ✓ | ✓ | optional |
+| Target | Description |
+|--------|-------------|
+| `make doctor` | Check environment (Python, c2asm370, MVS connectivity) |
+| `make bootstrap` | Resolve dependencies, upload to MVS, allocate datasets |
+| `make build` | Cross-compile C sources and assemble all modules on MVS |
+| `make link` | Final linkedit to produce load module |
+| `make install` | Copy build datasets to install datasets (IEBCOPY) |
+| `make package` | Create release artifacts in `dist/` |
+| `make release VERSION=1.2.0` | Bump version, tag, push |
+| `make graph` | Display dependency tree |
+| `make datasets` | List all project datasets with status |
+| `make clean` | Remove local build artifacts |
+| `make distclean` | Full cleanup (contrib/, .mbt/, asm/*.s) |
 
 ---
 
-## Dependency management
+## Configuration
 
-Dependencies are declared in `[dependencies]` with semver constraints and
-resolved from GitHub Releases. On bootstrap, mbt:
+Configuration is resolved in priority order:
 
-1. Resolves the best matching version from the GitHub Releases API
-2. Downloads the release XMIT archive
-3. Uploads and `RECEIVE`s it on MVS into `{deps_hlq}.{DEP}.{VRM}.*`
-4. Extracts headers into `contrib/{dep}-{version}/include/`
+1. **Environment variables** (`MBT_MVS_HOST`, `MBT_MVS_PORT`, etc.)
+2. **Project-local `.env`** file
+3. **Global `~/.mbt/config.toml`**
+4. **Built-in defaults**
+
+### Environment variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MBT_MVS_HOST` | `localhost` | MVS hostname or IP |
+| `MBT_MVS_PORT` | `1080` | mvsMF API port |
+| `MBT_MVS_USER` | `IBMUSER` | MVS userid |
+| `MBT_MVS_PASS` | | MVS password |
+| `MBT_MVS_HLQ` | `IBMUSER` | High-level qualifier for datasets |
+| `MBT_MVS_DEPS_HLQ` | `{HLQ}.DEPS` | HLQ for dependency datasets |
+| `MBT_MVS_DEPS_VOLUME` | | Volume for RECEIVE (required if no PUBLIC volume) |
+| `MBT_JES_JOBCLASS` | `A` | JES job class |
+| `MBT_JES_MSGCLASS` | `H` | JES message class |
+| `MBT_BUILD_ID` | | CI build number (enables CI dataset naming) |
+
+---
+
+## Project Types
+
+| Type | Description | NCAL Link | Final Link | Artifacts |
+|------|-------------|-----------|------------|-----------|
+| `runtime` | C runtime library (e.g. crent370) | yes | no | ncalib, maclib |
+| `library` | Reusable library (e.g. ufs370) | yes | no | ncalib, maclib |
+| `module` | Loadable module | yes | yes | syslmod |
+| `application` | Standalone program (e.g. httpd) | yes | yes | syslmod |
+
+---
+
+## Dependency Management
+
+Dependencies are declared in `[dependencies]` with semver constraints:
+
+```toml
+[dependencies]
+"mvslovers/crent370" = ">=1.0.0"
+"mvslovers/ufs370"   = ">=0.9.0,<2.0.0"
+```
+
+On `make bootstrap`, mbt:
+
+1. Resolves the best matching version from GitHub Releases
+2. Downloads release XMIT archives to `~/.mbt/cache/`
+3. Uploads and RECEIVEs them on MVS (`{DEPS_HLQ}.{DEP}.{VRM}.*`)
+4. Extracts headers to `contrib/{dep}-{version}/include/`
 5. Writes a lockfile to `.mbt/mvs.lock`
 
-The lockfile pins exact versions. Check it in — it is reproducible.
+The lockfile pins exact versions for reproducible builds. Commit it.
+
+Use `make bootstrap ARGS=--update` to re-resolve all dependencies.
+
+### Dependency tree
+
+```sh
+$ make graph
+httpd v3.3.1
+ ├─ crent370 v1.0.0
+ ├─ ufs370 v1.0.0
+ │   └─ crent370 v1.0.0
+ └─ mqtt370 v1.0.0
+     ├─ crent370 v1.0.0
+     └─ lua370 v1.0.0
+```
 
 ---
 
-## Reference project
+## Dataset Naming
+
+| Category | Pattern | Example |
+|----------|---------|---------|
+| Build | `{HLQ}.{PROJECT}.{VRM}.{SUFFIX}` | `IBMUSER.HTTPD.V3R3M1.NCALIB` |
+| CI Build | `{HLQ}.{PROJECT}.B{ID}.{SUFFIX}` | `IBMUSER.HTTPD.B42.NCALIB` |
+| Dependency | `{DEPS_HLQ}.{DEP}.{VRM}.{SUFFIX}` | `IBMUSER.DEPS.CRENT370.V1R0M0.MACLIB` |
+| Install (fixed) | `{HLQ}.{name}` | `IBMUSER.HTTPD.LOAD` |
+
+---
+
+## Packaging
+
+`make package` creates release artifacts in `dist/`:
+
+| File | Contents |
+|------|----------|
+| `package.toml` | Auto-generated manifest with metadata, deps, dataset defs |
+| `{name}-{ver}-mvs.tar.gz` | XMIT files for MVS datasets |
+| `{name}-{ver}-headers.tar.gz` | Public headers (libraries only, if `artifacts.headers = true`) |
+
+Which datasets are packaged depends on the project type:
+
+- **application / module**: `syslmod` (the load module)
+- **library / runtime**: `ncalib` + `maclib`
+
+Override with `[artifacts] mvs_datasets = ["syslmod", "ncalib"]`.
+
+---
+
+## CI/CD
+
+mbt provides reusable GitHub Actions workflows:
+
+### Build workflow
+
+```yaml
+# .github/workflows/build.yml
+on: [push, pull_request]
+jobs:
+  build:
+    uses: mvslovers/mbt/.github/workflows/build.yml@main
+    secrets:
+      MVS_HOST: ${{ secrets.MVS_HOST }}
+      MVS_PORT: ${{ secrets.MVS_PORT }}
+      MVS_USER: ${{ secrets.MVS_USER }}
+      MVS_PASS: ${{ secrets.MVS_PASS }}
+```
+
+### Release workflow
+
+```yaml
+# .github/workflows/release.yml
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  release:
+    uses: mvslovers/mbt/.github/workflows/release.yml@main
+    secrets:
+      MVS_HOST: ${{ secrets.MVS_HOST }}
+      MVS_PORT: ${{ secrets.MVS_PORT }}
+      MVS_USER: ${{ secrets.MVS_USER }}
+      MVS_PASS: ${{ secrets.MVS_PASS }}
+```
+
+The release workflow validates that the tag matches `project.toml` version,
+runs the full pipeline, and creates a GitHub Release with `dist/*` as assets.
+
+---
+
+## Releasing a New Version
+
+```sh
+make release VERSION=1.2.0
+```
+
+This updates the version in all files listed in `[release] version_files`,
+commits, tags `v1.2.0`, and pushes. CI then builds and publishes the release.
+
+---
+
+## Directory Structure
+
+```
+your-project/
+├── project.toml          # project definition
+├── Makefile              # 2 lines: MBT_ROOT + include
+├── .env                  # local MVS connection overrides (gitignored)
+├── .mbt/
+│   ├── mvs.lock          # pinned dependency versions (committed)
+│   └── logs/             # JES spool logs on failure
+├── src/                  # C sources
+├── asm/                  # assembler sources + generated .s files
+├── include/              # public headers (libraries)
+├── contrib/              # extracted dependency headers (gitignored)
+├── dist/                 # release artifacts (gitignored)
+└── mbt/                  # this repo (git submodule)
+```
+
+---
+
+## Reference Project
 
 [examples/hello370](examples/hello370/) — a minimal C + assembler application
-that depends on [crent370](https://github.com/mvslovers/crent370). Demonstrates
-the full pipeline end-to-end.
+that depends on crent370. Demonstrates the full pipeline.
 
 ---
 
-## Exit codes
+## Exit Codes
 
 | Code | Meaning |
 |------|---------|

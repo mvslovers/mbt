@@ -1,0 +1,113 @@
+# Reusable release workflow for mbt-based projects.
+#
+# Triggered on version tags (v*). Runs the full pipeline
+# and creates a GitHub Release with artifacts.
+#
+# Usage in consumer project:
+#   on:
+#     push:
+#       tags: ["v*"]
+#   jobs:
+#     release:
+#       uses: mvslovers/mbt/.github/workflows/release.yml@main
+#       secrets:
+#         MVS_HOST: ${{ secrets.MVS_HOST }}
+#         MVS_PORT: ${{ secrets.MVS_PORT }}
+#         MVS_USER: ${{ secrets.MVS_USER }}
+#         MVS_PASS: ${{ secrets.MVS_PASS }}
+
+name: Release
+
+on:
+  workflow_call:
+    secrets:
+      MVS_HOST:
+        required: true
+      MVS_PORT:
+        required: true
+      MVS_USER:
+        required: true
+      MVS_PASS:
+        required: true
+
+env:
+  MBT_MVS_HOST: ${{ secrets.MVS_HOST }}
+  MBT_MVS_PORT: ${{ secrets.MVS_PORT }}
+  MBT_MVS_USER: ${{ secrets.MVS_USER }}
+  MBT_MVS_PASS: ${{ secrets.MVS_PASS }}
+  MBT_BUILD_ID: ${{ github.run_number }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate tag matches project version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PROJECT_VERSION=$(python3 -c "
+          import tomllib
+          with open('project.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          if [ "$TAG" != "$PROJECT_VERSION" ]; then
+            echo "[mbt] ERROR: Tag v$TAG does not match project.toml version $PROJECT_VERSION"
+            exit 1
+          fi
+          echo "VERSION=$TAG" >> "$GITHUB_ENV"
+
+      - name: Cache mbt dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.mbt/cache
+          key: mbt-deps-${{ hashFiles('.mbt/mvs.lock') }}
+          restore-keys: |
+            mbt-deps-
+
+      - name: Clean
+        run: make distclean || true
+
+      - name: Bootstrap
+        run: make bootstrap
+
+      - name: Build
+        run: make build
+
+      - name: Link
+        run: make link
+
+      - name: Package
+        run: make package
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            dist/*
+          generate_release_notes: true
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mbt-logs
+          path: .mbt/logs/
+          if-no-files-found: ignore
+
+      - name: Clean CI datasets
+        if: always()
+        run: make datasets ARGS="--delete-build --quiet" || true

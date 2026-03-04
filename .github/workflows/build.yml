@@ -1,0 +1,79 @@
+# Reusable build workflow for mbt-based projects.
+#
+# Usage in consumer project:
+#   jobs:
+#     build:
+#       uses: mvslovers/mbt/.github/workflows/build.yml@main
+#       secrets:
+#         MVS_HOST: ${{ secrets.MVS_HOST }}
+#         MVS_PORT: ${{ secrets.MVS_PORT }}
+#         MVS_USER: ${{ secrets.MVS_USER }}
+#         MVS_PASS: ${{ secrets.MVS_PASS }}
+
+name: Build
+
+on:
+  workflow_call:
+    secrets:
+      MVS_HOST:
+        required: true
+      MVS_PORT:
+        required: true
+      MVS_USER:
+        required: true
+      MVS_PASS:
+        required: true
+
+env:
+  MBT_MVS_HOST: ${{ secrets.MVS_HOST }}
+  MBT_MVS_PORT: ${{ secrets.MVS_PORT }}
+  MBT_MVS_USER: ${{ secrets.MVS_USER }}
+  MBT_MVS_PASS: ${{ secrets.MVS_PASS }}
+  MBT_BUILD_ID: ${{ github.run_number }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cache mbt dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.mbt/cache
+          key: mbt-deps-${{ hashFiles('.mbt/mvs.lock') }}
+          restore-keys: |
+            mbt-deps-
+
+      - name: Doctor
+        run: make doctor
+
+      - name: Bootstrap
+        run: make bootstrap
+
+      - name: Build
+        run: make build
+
+      - name: Link
+        run: make link
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mbt-logs
+          path: .mbt/logs/
+          if-no-files-found: ignore
+
+      - name: Clean CI datasets
+        if: always()
+        run: make datasets ARGS="--delete-build --quiet" || true
