@@ -114,7 +114,7 @@ def _alloc_dataset(client: MvsMFClient, config: MbtConfig,
     """Allocate one build dataset. Warn and skip if already exists."""
     from mbt.datasets import ResolvedDataset
     if client.dataset_exists(ds.dsn):
-        _log_warn(f"Dataset already exists, skipping: {ds.dsn}")
+        _log(f"Dataset {ds.dsn} already exists, skipping ALLOCATE.")
         return
     _log(f"Allocating {ds.dsn}...")
     client.create_dataset(
@@ -296,7 +296,7 @@ def main() -> int:
 
                     # Skip RECEIVE if target already exists
                     if client.dataset_exists(target_dsn):
-                        _log(f"{target_dsn} already exists, skipping RECEIVE.")
+                        _log(f"Dataset {target_dsn} already exists, skipping RECEIVE.")
                         continue
 
                     # Shared temp XMIT staging DS: {HLQ}.MBT.XMIT.IN
