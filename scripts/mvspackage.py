@@ -67,6 +67,27 @@ def _read_mbt_version() -> str:
     return "0.0.0"
 
 
+# Default artifact dataset keys per project type.
+# Configurable via [artifacts] mvs_datasets = ["syslmod", "ncalib", ...]
+_DEFAULT_MVS_DATASETS = {
+    "application": ["syslmod"],
+    "module":      ["syslmod"],
+    "library":     ["ncalib", "maclib"],
+    "runtime":     ["ncalib", "maclib"],
+}
+
+
+def _artifact_dataset_keys(project) -> list[str]:
+    """Determine which build dataset keys to include in MVS artifacts.
+
+    Uses [artifacts] mvs_datasets if configured, otherwise falls
+    back to type-based defaults.
+    """
+    if project.artifact_mvs_datasets:
+        return project.artifact_mvs_datasets
+    return _DEFAULT_MVS_DATASETS.get(project.type, ["syslmod"])
+
+
 def _generate_package_toml(config: MbtConfig,
                            lockfile: Lockfile | None,
                            dist_dir: Path) -> Path:
@@ -106,8 +127,11 @@ def _generate_package_toml(config: MbtConfig,
         lines.append(f'bundle  = "{name}-{version}-bundle.tar.gz"')
     lines.append("")
 
-    # Provided datasets (from build datasets)
+    # Provided datasets (only artifact datasets, not build intermediates)
+    ds_keys = _artifact_dataset_keys(project)
     for key, ds in project.build_datasets.items():
+        if key not in ds_keys:
+            continue
         lines.append(f"[mvs.provides.datasets.{key}]")
         lines.append(f'suffix    = "{ds.suffix}"')
         lines.append(f'dsorg     = "{ds.dsorg}"')
@@ -175,17 +199,7 @@ def _transmit_dataset(client: MvsMFClient, config: MbtConfig,
         except MvsMFError:
             pass
 
-    # Allocate temp sequential dataset for XMIT output
-    try:
-        client.create_dataset(
-            xmit_dsn, "PS", "FB", 80, 3120,
-            ["TRK", 100, 50], "SYSDA"
-        )
-    except MvsMFError as e:
-        _log_error(f"Cannot allocate XMIT staging dataset {xmit_dsn}: {e}")
-        return None
-
-    # Submit TRANSMIT job
+    # Submit TRANSMIT job (TRANSMIT allocates OUTDSN itself)
     user = config.mvs_user
     jn = "MBTXMIT"
     jc = jobcard(jn, config.jes_jobclass, config.jes_msgclass, "MBT XMIT")
@@ -194,10 +208,9 @@ def _transmit_dataset(client: MvsMFClient, config: MbtConfig,
         f"//XMIT    EXEC PGM=IKJEFT01\n"
         f"//SYSTSPRT DD SYSOUT=*\n"
         f"//SYSTSIN  DD *\n"
-        f" TRANSMIT {user}.DUMMY +\n"
-        f"   DSNAME('{src_dsn}') +\n"
-        f"   OUTDSN('{xmit_dsn}') +\n"
-        f"   NOLOG NONOTIFY\n"
+        f" TRANSMIT {user}.DUMMY -\n"
+        f"   DSNAME('{src_dsn}') -\n"
+        f"   OUTDSN('{xmit_dsn}')\n"
         f"/*\n"
         f"//\n"
     )
@@ -209,7 +222,7 @@ def _transmit_dataset(client: MvsMFClient, config: MbtConfig,
         _cleanup_xmit(client, xmit_dsn)
         return None
 
-    if not result.success and result.rc > 4:
+    if not result.success or result.rc > 4:
         _log_error(f"TRANSMIT failed for {src_dsn} (RC={result.rc})")
         _cleanup_xmit(client, xmit_dsn)
         return None
@@ -256,9 +269,12 @@ def _create_mvs_tarball(config: MbtConfig, client: MvsMFClient,
     prefix = f"{name}-{version}"
 
     build_ds = resolver.build_datasets()
+    ds_keys = _artifact_dataset_keys(project)
     xmit_files: list[tuple[str, bytes]] = []
 
     for key, ds in build_ds.items():
+        if key not in ds_keys:
+            continue
         _log(f"Transmitting {ds.dsn} -> XMIT...")
         data = _transmit_dataset(client, config, ds.dsn)
         if data:

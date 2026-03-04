@@ -99,6 +99,7 @@ class ProjectConfig:
     artifact_headers: bool = False
     artifact_mvs: bool = False
     artifact_bundle: bool = False
+    artifact_mvs_datasets: list[str] = field(default_factory=list)
 
     # [release]
     release_github: str | None = None   # "owner/repo"
@@ -215,6 +216,7 @@ class ProjectConfig:
             artifact_headers=bool(artifacts.get("headers", False)),
             artifact_mvs=bool(artifacts.get("mvs", False)),
             artifact_bundle=bool(artifacts.get("package_bundle", False)),
+            artifact_mvs_datasets=list(artifacts.get("mvs_datasets", [])),
             release_github=release.get("github"),
             release_version_files=list(release.get("version_files", [])),
         )
