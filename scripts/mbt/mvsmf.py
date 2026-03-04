@@ -224,7 +224,7 @@ class MvsMFClient:
                     f"/restjobs/jobs/{jobname}/{jobid}/files/{fid}/records",
                     accept="text/plain"
                 )
-                content = raw.decode("utf-8", errors="replace")
+                content = raw.decode("utf-8", errors="replace").replace("\r", "")
                 parts.append(f"--- {ddname} ---\n{content}")
             except MvsMFError:
                 pass

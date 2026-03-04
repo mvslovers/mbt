@@ -61,6 +61,15 @@ def _make_client(config: MbtConfig) -> MvsMFClient:
     )
 
 
+def _save_job_log(result, context: str) -> Path:
+    """Save job spool output to .mbt/logs/."""
+    log_dir = Path(".mbt/logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"recv-{context}-{result.jobid}.log"
+    log_file.write_text(result.spool, encoding="utf-8")
+    return log_file
+
+
 def _receive_xmit(client: MvsMFClient, config: MbtConfig,
                   xmit_dsn: str, target_dsn: str) -> None:
     """Submit a TSO RECEIVE job to unpack an XMIT file on MVS.
@@ -86,9 +95,13 @@ def _receive_xmit(client: MvsMFClient, config: MbtConfig,
         "RECEIVE_CMD": receive_cmd,
     })
     result = client.submit_jcl(jcl)
-    if not result.success:
+    if not result.success or result.rc > 4:
+        # Save spool output for diagnosis
+        dsn_short = target_dsn.rsplit(".", 1)[-1]
+        log_file = _save_job_log(result, dsn_short)
         raise MvsMFError(
             f"RECEIVE job failed (RC={result.rc}) for {xmit_dsn}"
+            f" — log saved to {log_file}"
         )
 
 
@@ -299,7 +312,8 @@ def main() -> int:
                     try:
                         _receive_xmit(client, config, xmit_dsn, target_dsn)
                     except MvsMFError as e:
-                        _log_warn(f"RECEIVE failed for {target_dsn}: {e}")
+                        _log_error(f"RECEIVE failed for {target_dsn}: {e}")
+                        return EXIT_MAINFRAME
                     finally:
                         # Delete temp XMIT staging DS after each RECEIVE
                         try:
