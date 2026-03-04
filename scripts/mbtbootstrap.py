@@ -84,10 +84,14 @@ def _receive_xmit(client: MvsMFClient, config: MbtConfig,
     if volume:
         receive_cmd = (
             f" RECEIVE INDSN('{xmit_dsn}') -\n"
-            f"  VOLUME('{volume}') DATASET('{target_dsn}')"
+            f"  DATASET('{target_dsn}') -\n"
+            f"  VOLUME('{volume}')"
         )
     else:
-        receive_cmd = f" RECEIVE INDSN('{xmit_dsn}')"
+        receive_cmd = (
+            f" RECEIVE INDSN('{xmit_dsn}') -\n"
+            f"  DATASET('{target_dsn}')"
+        )
     jcl = render_template("receive.jcl.tpl", {
         "JOBCARD": jc,
         "XMIT_DSN": xmit_dsn,
