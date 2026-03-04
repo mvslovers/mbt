@@ -1,0 +1,22 @@
+#!/bin/sh
+# mbt CLI entrypoint
+# Usage: mbt <command> [args...]
+# Example: mbt doctor, mbt bootstrap --update
+
+set -e
+
+MBT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+export MBT_ROOT
+
+COMMAND="${1:?Usage: mbt <command> [args...]}"
+shift
+
+SCRIPT="$MBT_ROOT/scripts/mbt${COMMAND}.py"
+
+if [ ! -f "$SCRIPT" ]; then
+    echo "[mbt] ERROR: Unknown command '$COMMAND'" >&2
+    echo "[mbt] Available: doctor, config, bootstrap, graph, datasets" >&2
+    exit 2
+fi
+
+exec python3 "$SCRIPT" "$@"

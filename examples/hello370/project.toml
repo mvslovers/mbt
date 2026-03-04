@@ -1,0 +1,51 @@
+[project]
+name    = "hello370"
+version = "1.0.0"
+type    = "application"
+
+[mvs.build.datasets.punch]
+suffix   = "OBJECT"
+dsorg    = "PO"
+recfm    = "FB"
+lrecl    = 80
+blksize  = 3120
+space    = ["TRK", 5, 2, 5]
+
+[mvs.build.datasets.ncalib]
+suffix   = "NCALIB"
+dsorg    = "PO"
+recfm    = "FB"
+lrecl    = 80
+blksize  = 3120
+space    = ["TRK", 5, 2, 5]
+
+[mvs.build.datasets.syslmod]
+suffix   = "LOAD"
+dsorg    = "PO"
+recfm    = "U"
+lrecl    = 0
+blksize  = 32760
+space    = ["TRK", 5, 2, 5]
+
+[build.sources]
+asm_dirs = ["asm/"]
+
+[link.module]
+name    = "HELLO"
+options = ["LIST", "XREF", "LET"]
+
+[dependencies]
+"mvslovers/crent370" = ">=1.0.0"
+
+[mvs.install]
+naming = "fixed"
+
+[mvs.install.datasets.syslmod]
+name = "LOAD"
+
+[artifacts]
+mvs = true
+
+[release]
+github        = "mvslovers/hello370"
+version_files = ["project.toml"]

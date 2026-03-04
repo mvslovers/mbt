@@ -1,0 +1,15 @@
+[mvs]
+host     = "testhost"
+port     = 9090
+user     = "TESTUSER"
+password = "testpass"
+hlq      = "TESTHLQ"
+deps_hlq = "TESTHLQ.DEPS"
+
+[jes]
+jobclass = "B"
+msgclass = "X"
+
+[system.maclibs]
+SYS1 = "SYS1.MACLIB"
+AMOD = "SYS1.AMODGEN"

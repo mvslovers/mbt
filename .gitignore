@@ -1,0 +1,18 @@
+# Local configuration — never commit
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# mbt build artifacts
+.mbt/logs/
+examples/**/src/*.s
+examples/**/contrib/
+
+# OS
+.DS_Store
+
+# Internal
+prompts.txt
