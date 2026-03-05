@@ -38,6 +38,7 @@ C source (.c)
 | GNU Make | any | Orchestration |
 | [c2asm370](https://github.com/mvslovers/c2asm370) | any | C to S/370 cross-compiler |
 | [mvsMF](https://github.com/mvslovers/mvsmf) | any | MVS REST API (running on target system) |
+| [NJE38](https://www.cbttape.org/njepkg.htm) | 3.0.0+ | TRANSMIT / RECEIVE support on MVS target |
 
 ---
 
@@ -186,16 +187,17 @@ Configuration is resolved in priority order:
 | `MBT_BUILD_ID` | | CI build number (enables CI dataset naming) |
 
 > **MVS/CE users:** `MBT_MVS_DEPS_VOLUME` must be set in your `.env` file.
-> MVS/CE has limited free space on its public volume, so RECEIVE must be
-> directed to a specific volume (e.g. `PUB000`). Without this setting,
-> dependency bootstrap will fail. This is a workaround specific to MVS/CE
-> and is not required on TK4- or other Hercules configurations with a
-> usable public volume.
+> MVS/CE ships with NJE38 2.3.0, whose RECEIVE cannot locate a public
+> volume on its own. Whether this is a bug in NJE38 2.3.0 or a MVS/CE
+> sysgen issue is still under investigation. Until resolved, set a volume
+> explicitly:
 >
 > ```sh
 > # .env
 > MBT_MVS_DEPS_VOLUME=PUB000
 > ```
+>
+> This workaround is not required on TK4- or TK5.
 
 ---
 
