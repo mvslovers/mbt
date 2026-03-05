@@ -83,12 +83,13 @@ def _load_package_cache(lockfile: Lockfile | None) -> dict:
 
 
 def _compile_c_sources(project, lockfile_deps: dict,
+                       package_cache: dict,
                        member_filter: str | None) -> bool:
     """Cross-compile .c files in c_dirs to .s using c2asm370.
 
     Core flags: -S -O1
     Extended by project cflags from [build] in project.toml.
-    Include paths: ./include + contrib/{dep}-{ver}/include per dep.
+    Include paths: ./include + contrib/{pkg_name}-{ver}/include per dep.
 
     Returns True on success, False on any compile error.
     """
@@ -99,7 +100,9 @@ def _compile_c_sources(project, lockfile_deps: dict,
         include_flags.append("-I./include")
     for dep_key, dep_version in lockfile_deps.items():
         repo = dep_key.split("/")[-1]
-        inc = Path("contrib") / f"{repo}-{dep_version}" / "include"
+        pkg = package_cache.get(dep_key, {})
+        pkg_name = pkg.get("package", {}).get("name") or repo
+        inc = Path("contrib") / f"{pkg_name}-{dep_version}" / "include"
         if inc.is_dir():
             include_flags.append(f"-I{inc}")
 
@@ -302,7 +305,7 @@ def main() -> int:
     maclibs = resolver.syslib_maclibs(lockfile_deps, package_cache)
 
     # Compile C sources → .s (c2asm370, runs on host)
-    if not _compile_c_sources(project, lockfile_deps, args.member):
+    if not _compile_c_sources(project, lockfile_deps, package_cache, args.member):
         return EXIT_BUILD
 
     # Find .s/.asm source files (includes freshly compiled ones)
