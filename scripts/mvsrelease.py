@@ -172,7 +172,7 @@ def main() -> int:
         if result.returncode != 0:
             _log_error(f"git commit failed: {result.stderr}")
             return EXIT_CONFIG
-    _log(f"Committed: {commit_msg}")
+        _log(f"Committed: {commit_msg}")
 
     # Git tag
     result = _git("tag", tag)
