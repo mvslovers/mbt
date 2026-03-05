@@ -693,8 +693,6 @@ space     = ["TRK", 10, 5, 10]
 | `release`    | `make release`       | Update version, tag, push (CI does rest)   |
 | `clean`      | `make clean`         | Delete members + temp files                |
 | `distclean`  | `make distclean`     | Delete build datasets + cache + lockfile   |
-| `run-mvs`    | `make run-mvs`       | Start MVS/CE Docker container              |
-| `stop-mvs`   | `make stop-mvs`      | Stop MVS/CE Docker container               |
 
 ### 8.2 Bootstrap Behavior
 
@@ -1235,9 +1233,6 @@ mbt/
 │       ├── copy.jcl.tpl
 │       ├── delete.jcl.tpl
 │       └── receive.jcl.tpl
-├── docker/
-│   ├── docker-compose.yml           # MVS/CE container
-│   └── Makefile                     # run-mvs / stop-mvs
 ├── .github/
 │   └── workflows/
 │       ├── build.yml                # Reusable build workflow

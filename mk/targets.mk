@@ -1,8 +1,7 @@
 # mk/targets.mk — Standard build targets
 
 .PHONY: doctor bootstrap build link install package \
-        release clean distclean graph datasets \
-        run-mvs stop-mvs
+        release clean distclean graph datasets
 
 doctor:
 	@python3 $(MBT_SCRIPTS)/mbtdoctor.py --project project.toml
@@ -52,9 +51,3 @@ distclean: clean
 	@echo "[mbt] Deep clean..."
 	@rm -rf contrib/ .mbt/
 
-# Docker targets
-run-mvs:
-	@$(MAKE) -C $(MBT_ROOT)/docker up
-
-stop-mvs:
-	@$(MAKE) -C $(MBT_ROOT)/docker down
