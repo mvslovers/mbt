@@ -118,7 +118,10 @@ def main() -> int:
     old_version = project.version
     tag = f"v{new_version}"
 
-    _log(f"Releasing {project.name} {old_version} -> {new_version}")
+    if old_version == new_version:
+        _log(f"Releasing {project.name} {new_version}")
+    else:
+        _log(f"Releasing {project.name} {old_version} -> {new_version}")
 
     # Check for clean working tree
     result = _git("status", "--porcelain")
@@ -138,35 +141,37 @@ def main() -> int:
         version_files = [args.project]
 
     if args.dry_run:
-        _log(f"Would update version in: {', '.join(version_files)}")
-        _log(f"Would commit: 'Release {tag}'")
+        if old_version != new_version:
+            _log(f"Would update version in: {', '.join(version_files)}")
+            _log(f"Would commit: 'Release {tag}'")
         _log(f"Would tag: {tag}")
         _log("Would push to origin")
         return EXIT_SUCCESS
 
-    # Update version in all version files
+    # Update version in all version files (skip when version unchanged)
     changed_files = []
-    for vf in version_files:
-        vf_path = Path(vf)
-        _log(f"Updating {vf_path}...")
-        if _update_version_in_file(vf_path, old_version, new_version):
-            changed_files.append(str(vf_path))
-        else:
-            _log_error(f"Failed to update version in {vf_path}")
+    if old_version != new_version:
+        for vf in version_files:
+            vf_path = Path(vf)
+            _log(f"Updating {vf_path}...")
+            if _update_version_in_file(vf_path, old_version, new_version):
+                changed_files.append(str(vf_path))
+            else:
+                _log_error(f"Failed to update version in {vf_path}")
+                return EXIT_CONFIG
+
+        # Git add
+        result = _git("add", *changed_files)
+        if result.returncode != 0:
+            _log_error(f"git add failed: {result.stderr}")
             return EXIT_CONFIG
 
-    # Git add
-    result = _git("add", *changed_files)
-    if result.returncode != 0:
-        _log_error(f"git add failed: {result.stderr}")
-        return EXIT_CONFIG
-
-    # Git commit
-    commit_msg = f"Release {tag}"
-    result = _git("commit", "-m", commit_msg)
-    if result.returncode != 0:
-        _log_error(f"git commit failed: {result.stderr}")
-        return EXIT_CONFIG
+        # Git commit
+        commit_msg = f"Release {tag}"
+        result = _git("commit", "-m", commit_msg)
+        if result.returncode != 0:
+            _log_error(f"git commit failed: {result.stderr}")
+            return EXIT_CONFIG
     _log(f"Committed: {commit_msg}")
 
     # Git tag
