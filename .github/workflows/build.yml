@@ -9,8 +9,6 @@
 # Usage in consumer project:
 #
 #   on:
-#     push:
-#       branches: [main]
 #     pull_request:
 #
 #   jobs:
