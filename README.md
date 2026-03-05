@@ -150,11 +150,12 @@ make package        # create release artifacts in dist/
 |--------|-------------|
 | `make doctor` | Check environment (Python, c2asm370, MVS connectivity) |
 | `make bootstrap` | Resolve dependencies, upload to MVS, allocate datasets |
+| `make update-deps` | Re-resolve all dependencies (ignore lockfile) and bootstrap |
 | `make build` | Cross-compile C sources and assemble all modules on MVS |
 | `make link` | Final linkedit to produce load module |
 | `make install` | Copy build datasets to install datasets (IEBCOPY) |
 | `make package` | Create release artifacts in `dist/` |
-| `make release VERSION=1.2.0` | Bump version, tag, push |
+| `make release VERSION=1.2.0` | Bump version, tag, push, then bootstrap new datasets |
 | `make graph` | Display dependency tree |
 | `make datasets` | List all project datasets with status |
 | `make clean` | Remove local build artifacts |

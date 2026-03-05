@@ -1,6 +1,6 @@
 # mk/targets.mk — Standard build targets
 
-.PHONY: doctor bootstrap build link install package \
+.PHONY: doctor bootstrap update-deps build link install package \
         release clean distclean graph datasets
 
 doctor:
@@ -8,6 +8,9 @@ doctor:
 
 bootstrap:
 	@python3 $(MBT_SCRIPTS)/mbtbootstrap.py --project project.toml $(ARGS)
+
+update-deps:
+	@python3 $(MBT_SCRIPTS)/mbtbootstrap.py --project project.toml --update
 
 build: _cross_compile _assemble
 
@@ -36,6 +39,7 @@ package:
 
 release:
 	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml $(VERSION)
+	@$(MAKE) bootstrap
 
 graph:
 	@python3 $(MBT_SCRIPTS)/mbtgraph.py --project project.toml
