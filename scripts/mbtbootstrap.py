@@ -260,11 +260,11 @@ def main() -> int:
     # Step 5+6: Upload XMIT files and RECEIVE them
     for dep_key, dep_version in resolved.items():
         owner, repo = dep_key.split("/", 1)
-        dep_name = repo.upper()
         dep_vrm = Version.parse(dep_version).to_vrm()
         cache_dir = download_dependency(owner, repo, dep_version)
         pkg = package_cache.get(dep_key, {})
         pkg_name = pkg.get("package", {}).get("name") or repo
+        dep_name = pkg_name.upper()[:8]
 
         # Find MVS tarball in cache (named after project name, not repo name)
         mvs_tarball_name = f"{pkg_name}-{dep_version}-mvs.tar.gz"
