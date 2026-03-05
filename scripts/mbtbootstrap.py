@@ -233,8 +233,10 @@ def main() -> int:
     for dep_key, dep_version in resolved.items():
         owner, repo = dep_key.split("/", 1)
         cache_dir = download_dependency(owner, repo, dep_version)
+        pkg = package_cache.get(dep_key, {})
+        pkg_name = pkg.get("package", {}).get("name") or repo
         try:
-            inc_dir = extract_headers(cache_dir, repo, dep_version)
+            inc_dir = extract_headers(cache_dir, pkg_name, dep_version)
             _log(f"Headers: {inc_dir}")
         except Exception as e:
             # Not all deps have headers; log warning and continue
@@ -261,18 +263,19 @@ def main() -> int:
         dep_name = repo.upper()
         dep_vrm = Version.parse(dep_version).to_vrm()
         cache_dir = download_dependency(owner, repo, dep_version)
+        pkg = package_cache.get(dep_key, {})
+        pkg_name = pkg.get("package", {}).get("name") or repo
 
-        # Find MVS tarball in cache
-        mvs_tarball_name = f"{repo}-{dep_version}-mvs.tar.gz"
+        # Find MVS tarball in cache (named after project name, not repo name)
+        mvs_tarball_name = f"{pkg_name}-{dep_version}-mvs.tar.gz"
         mvs_tarball = cache_dir / mvs_tarball_name
         if not mvs_tarball.exists():
             _log_warn(f"No MVS tarball for {dep_key}, skipping upload.")
             continue
 
         # Extract XMIT files from tarball and upload each.
-        # Naming convention: {repo}-{version}-{ds_key}.xmit
+        # Naming convention: {pkg_name}-{version}-{ds_key}.xmit
         # e.g. crent370-1.0.0-ncalib.xmit → ds_key=ncalib, suffix=NCALIB
-        pkg = package_cache.get(dep_key, {})
         provides = (
             pkg.get("mvs", {}).get("provides", {}).get("datasets", {})
         )
@@ -284,8 +287,8 @@ def main() -> int:
                         continue
                     xmit_basename = Path(member_info.name).name
 
-                    # Extract ds_key by stripping "{repo}-{version}-" prefix
-                    prefix = f"{repo}-{dep_version}-"
+                    # Extract ds_key by stripping "{pkg_name}-{version}-" prefix
+                    prefix = f"{pkg_name}-{dep_version}-"
                     bare = Path(xmit_basename).stem  # remove .xmit
                     if bare.startswith(prefix):
                         ds_key = bare[len(prefix):].lower()
