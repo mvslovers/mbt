@@ -177,11 +177,23 @@ def main() -> int:
     lockfile_path = Path(".mbt") / "mvs.lock"
     lockfile = Lockfile.load(lockfile_path)
 
-    if lockfile is not None and not args.update:
+    declared_keys = set(project.dependencies.keys())
+    locked_keys = set(lockfile.dependencies.keys()) if lockfile else set()
+    lockfile_stale = declared_keys != locked_keys
+
+    if lockfile is not None and not args.update and not lockfile_stale:
         _log("Using existing lockfile.")
         resolved = dict(lockfile.dependencies)
     else:
-        if project.dependencies:
+        if lockfile_stale and lockfile is not None:
+            added = declared_keys - locked_keys
+            removed = locked_keys - declared_keys
+            if added:
+                _log(f"New dependencies detected: {', '.join(sorted(added))}")
+            if removed:
+                _log(f"Removed dependencies detected: {', '.join(sorted(removed))}")
+
+        if project.dependencies and not lockfile_stale:
             _log("Resolving dependencies...")
         try:
             resolved = resolve_dependencies(
