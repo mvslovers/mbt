@@ -102,11 +102,12 @@ class DatasetResolver:
         deps_hlq = self.config.deps_hlq
 
         for dep_key, dep_version in lockfile_deps.items():
-            dep_name = dep_key.split("/")[-1].upper()
             dep_vrm = to_vrm(dep_version)
 
             datasets = []
             pkg = package_cache.get(dep_key, {})
+            pkg_name = pkg.get("package", {}).get("name") or dep_key.split("/")[-1]
+            dep_name = pkg_name.upper()[:8]
             provides = pkg.get("mvs", {}).get("provides", {}).get("datasets", {})
             for ds_key, ds_data in provides.items():
                 suffix = ds_data["suffix"]
