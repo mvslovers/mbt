@@ -336,7 +336,23 @@ mvs            = true                # produce MVS dataset tarball
 package_bundle = false               # produce full install bundle
 ```
 
-### 3.9 [release]
+### 3.9 [system]
+
+Optional. Declares additional system macro libraries to append to the
+SYSLIB concatenation after the built-in defaults (`SYS1.MACLIB`,
+`SYS1.AMODGEN`).
+
+```toml
+[system]
+maclibs = ["SYS2.MACLIB"]
+```
+
+`SYS1.MACLIB` and `SYS1.AMODGEN` are always present and MUST NOT be
+listed here — they are unconditionally included by mbt. Only use this
+section for additional libraries required by a specific project (e.g.
+a private macro library or a second IBM-supplied library).
+
+### 3.10 [release]
 
 ```toml
 [release]
@@ -399,12 +415,12 @@ deps_hlq = "IBMUSER.DEPS"
 [jes]
 jobclass = "A"
 msgclass = "H"
-
-[system.maclibs]
-SYS_MAC_1 = "SYS2.MACLIB"
 ```
 
 This file MUST NOT be committed to any repository.
+
+Only MVS connection and JES parameters belong here. System macro library
+configuration belongs in `project.toml` (see section 3.x).
 
 #### 4.3.1 deps_hlq
 
@@ -705,11 +721,14 @@ concatenation constructed in the following **fixed order**:
 
 1. Project's own MACLIB (if defined)
 2. Dependency MACLIBs — in declaration order from `[dependencies]`
-3. System macro libraries — from `[system.maclibs]` in config
+3. `SYS1.MACLIB` — always present, unconditional
+4. `SYS1.AMODGEN` — always present, unconditional
+5. Additional system MACLIBs — from `[system] maclibs` in `project.toml` (optional)
 
 This order ensures project macros can override dependency macros,
 and dependency macros can override system macros (first-match wins
-in IFOX00 SYSLIB resolution).
+in IFOX00 SYSLIB resolution). `SYS1.MACLIB` and `SYS1.AMODGEN` are
+never configured — they are always appended automatically.
 
 Build failure is determined by `max_rc` (default: 4). Any assembly
 returning RC > `max_rc` is a build failure.

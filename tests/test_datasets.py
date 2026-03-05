@@ -195,14 +195,15 @@ class TestDependencyDatasets(TestDatasetResolverBase):
 class TestSyslibOrder(TestDatasetResolverBase):
 
     def test_syslib_maclibs_no_project_maclib(self):
-        # hello370 has no maclib dataset, so only dep MACLIB + system
+        # hello370 has no maclib dataset: dep MACLIB + SYS1.MACLIB + SYS1.AMODGEN
         r = self._resolver()
         lockfile_deps = {"mvslovers/crent370": "1.0.0"}
         maclibs = r.syslib_maclibs(lockfile_deps, CRENT370_CACHE)
-        # crent370 provides MACLIB
-        self.assertEqual(len(maclibs), 1)
+        # crent370 first, then system defaults
         self.assertIn("CRENT370", maclibs[0])
         self.assertIn("MACLIB", maclibs[0])
+        self.assertIn("SYS1.MACLIB", maclibs)
+        self.assertIn("SYS1.AMODGEN", maclibs)
 
     def test_syslib_maclibs_with_project_maclib(self):
         # Add a maclib to the project
@@ -220,15 +221,31 @@ class TestSyslibOrder(TestDatasetResolverBase):
         self.assertIn("HELLO370", maclibs[0])
         self.assertIn("CRENT370", maclibs[1])
 
-    def test_syslib_maclibs_with_system(self):
-        (Path(self._tmp) / "config.toml").write_text(
-            '[system.maclibs]\nSYS1 = "SYS1.MACLIB"\n', encoding="utf-8"
-        )
+    def test_syslib_maclibs_always_includes_defaults(self):
+        r = self._resolver()
+        maclibs = r.syslib_maclibs({}, {})
+        self.assertIn("SYS1.MACLIB", maclibs)
+        self.assertIn("SYS1.AMODGEN", maclibs)
+
+    def test_syslib_maclibs_defaults_after_deps(self):
         r = self._resolver()
         lockfile_deps = {"mvslovers/crent370": "1.0.0"}
         maclibs = r.syslib_maclibs(lockfile_deps, CRENT370_CACHE)
-        # crent370 MACLIB + system MACLIB
-        self.assertEqual(maclibs[-1], "SYS1.MACLIB")
+        sys1_idx = maclibs.index("SYS1.MACLIB")
+        crent_idx = next(i for i, m in enumerate(maclibs) if "CRENT370" in m)
+        self.assertGreater(sys1_idx, crent_idx)
+
+    def test_syslib_maclibs_project_extras_appended(self):
+        toml_with_system = HELLO_TOML + '\n[system]\nmaclibs = ["SYS2.MACLIB"]\n'
+        self._proj.write_text(toml_with_system, encoding="utf-8")
+        r = self._resolver()
+        maclibs = r.syslib_maclibs({}, {})
+        self.assertIn("SYS1.MACLIB", maclibs)
+        self.assertIn("SYS1.AMODGEN", maclibs)
+        self.assertIn("SYS2.MACLIB", maclibs)
+        # extras come after defaults
+        self.assertGreater(maclibs.index("SYS2.MACLIB"),
+                           maclibs.index("SYS1.AMODGEN"))
 
     def test_syslib_ncalibs_order(self):
         r = self._resolver()

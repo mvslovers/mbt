@@ -237,6 +237,19 @@ class TestProjectSourceDirs(unittest.TestCase):
         c = ProjectConfig.load(self._write(toml))
         self.assertEqual(c.max_rc, 8)
 
+    def test_system_maclibs_default_empty(self):
+        toml = "[project]\nname=\"foo\"\nversion=\"1.0.0\"\ntype=\"library\"\n"
+        c = ProjectConfig.load(self._write(toml))
+        self.assertEqual(c.system_maclibs, [])
+
+    def test_system_maclibs_parsed(self):
+        toml = (
+            "[project]\nname=\"foo\"\nversion=\"1.0.0\"\ntype=\"library\"\n"
+            "[system]\nmaclibs = [\"SYS2.MACLIB\", \"MYLIB.MACLIB\"]\n"
+        )
+        c = ProjectConfig.load(self._write(toml))
+        self.assertEqual(c.system_maclibs, ["SYS2.MACLIB", "MYLIB.MACLIB"])
+
 
 class TestProjectValidTypes(unittest.TestCase):
 

@@ -76,10 +76,16 @@ deps_volume = "WORK00"
 [jes]
 jobclass = "A"
 msgclass = "H"
+```
 
-[system.maclibs]
-sys1    = "SYS1.MACLIB"
-amodgen = "SYS1.AMODGEN"
+`SYS1.MACLIB` and `SYS1.AMODGEN` are always included in the SYSLIB
+concatenation — no configuration required. If your project needs
+additional system macro libraries (e.g. `SYS2.MACLIB`), declare them
+in `project.toml`:
+
+```toml
+[system]
+maclibs = ["SYS2.MACLIB"]
 ```
 
 ### 4. Create project.toml

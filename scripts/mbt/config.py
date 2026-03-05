@@ -238,12 +238,3 @@ class MbtConfig:
     def is_ci(self) -> bool:
         return self.build_id is not None
 
-    @property
-    def system_maclibs(self) -> list[str]:
-        """System macro libraries from global config.
-
-        Reads [system.maclibs] section. Returns values
-        in declaration order.
-        """
-        section = self._global.get("system", {}).get("maclibs", {})
-        return list(section.values())

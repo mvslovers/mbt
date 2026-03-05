@@ -211,10 +211,11 @@ class TestExtractHeaders(unittest.TestCase):
         cache_dir.mkdir(parents=True, exist_ok=True)
         tarball = cache_dir / f"{dep_name}-{dep_version}-headers.tar.gz"
         buf = io.BytesIO()
+        prefix = f"{dep_name}-{dep_version}"
         with tarfile.open(fileobj=buf, mode="w:gz") as tf:
             for fname in header_files:
                 content = f"/* {fname} */\n".encode()
-                info = tarfile.TarInfo(name=f"include/{fname}")
+                info = tarfile.TarInfo(name=f"{prefix}/include/{fname}")
                 info.size = len(content)
                 tf.addfile(info, io.BytesIO(content))
         tarball.write_bytes(buf.getvalue())

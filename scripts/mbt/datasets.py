@@ -9,6 +9,9 @@ from dataclasses import dataclass
 from .config import MbtConfig
 from .version import to_vrm
 
+# Always present in every SYSLIB concatenation (MVS 3.8j / TK4- baseline)
+DEFAULT_SYSTEM_MACLIBS = ["SYS1.MACLIB", "SYS1.AMODGEN"]
+
 
 @dataclass
 class ResolvedDataset:
@@ -185,7 +188,8 @@ class DatasetResolver:
         Order (fixed, per spec section 8.3):
         1. Project's own MACLIB (if defined)
         2. Dependency MACLIBs (declaration order)
-        3. System MACLIBs (from config)
+        3. SYS1.MACLIB and SYS1.AMODGEN (always present)
+        4. Additional system MACLIBs from [system] maclibs in project.toml
 
         Returns:
             List of fully qualified dataset names
@@ -205,8 +209,9 @@ class DatasetResolver:
                     if ds.suffix == "MACLIB":
                         result.append(ds.dsn)
 
-        # 3. System MACLIBs
-        result.extend(self.config.system_maclibs)
+        # 3. System MACLIBs: hardcoded defaults + project extras
+        result.extend(DEFAULT_SYSTEM_MACLIBS)
+        result.extend(self.config.project.system_maclibs)
         return result
 
     def syslib_ncalibs(self,

@@ -101,6 +101,9 @@ class ProjectConfig:
     artifact_bundle: bool = False
     artifact_mvs_datasets: list[str] = field(default_factory=list)
 
+    # [system]
+    system_maclibs: list[str] = field(default_factory=list)  # appended after defaults
+
     # [release]
     release_github: str | None = None   # "owner/repo"
     release_version_files: list[str] = field(default_factory=list)
@@ -151,6 +154,7 @@ class ProjectConfig:
         link = data.get("link", {})
         artifacts = data.get("artifacts", {})
         release = data.get("release", {})
+        system = data.get("system", {})
 
         # Build datasets
         build_datasets = {}
@@ -217,6 +221,7 @@ class ProjectConfig:
             artifact_mvs=bool(artifacts.get("mvs", False)),
             artifact_bundle=bool(artifacts.get("package_bundle", False)),
             artifact_mvs_datasets=list(artifacts.get("mvs_datasets", [])),
+            system_maclibs=list(system.get("maclibs", [])),
             release_github=release.get("github"),
             release_version_files=list(release.get("version_files", [])),
         )

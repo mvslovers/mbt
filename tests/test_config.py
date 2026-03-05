@@ -199,17 +199,6 @@ class TestMbtConfigGlobalToml(unittest.TestCase):
         cfg = self._cfg({"MBT_MVS_HOST": "envhost"})
         self.assertEqual(cfg.mvs_host, "envhost")
 
-    def test_system_maclibs(self):
-        self._global_cfg.write_text(
-            '[system.maclibs]\nSYS1 = "SYS1.MACLIB"\nAMOD = "SYS1.AMODGEN"\n',
-            encoding="utf-8",
-        )
-        cfg = self._cfg()
-        self.assertEqual(cfg.system_maclibs, ["SYS1.MACLIB", "SYS1.AMODGEN"])
-
-    def test_system_maclibs_empty_when_absent(self):
-        cfg = self._cfg()
-        self.assertEqual(cfg.system_maclibs, [])
 
 
 class TestMbtConfigSourced(unittest.TestCase):
