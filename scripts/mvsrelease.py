@@ -181,8 +181,13 @@ def main() -> int:
         return EXIT_CONFIG
     _log(f"Tagged: {tag}")
 
-    # Git push
-    result = _git("push", "origin", "HEAD", "--tags")
+    # Git push: commit (if any) first, then tag separately
+    if changed_files:
+        result = _git("push", "origin", "HEAD")
+        if result.returncode != 0:
+            _log_error(f"git push failed: {result.stderr}")
+            return EXIT_CONFIG
+    result = _git("push", "origin", tag)
     if result.returncode != 0:
         _log_error(f"git push failed: {result.stderr}")
         return EXIT_CONFIG
