@@ -193,13 +193,12 @@ def main() -> int:
             if removed:
                 _log(f"Removed dependencies detected: {', '.join(sorted(removed))}")
 
-        if project.dependencies and not lockfile_stale:
-            _log("Resolving dependencies...")
+        _log("Resolving dependencies...")
         try:
             resolved = resolve_dependencies(
                 project.dependencies,
                 lockfile=lockfile,
-                update=args.update,
+                update=args.update or lockfile_stale,
             )
         except DependencyError as e:
             _log_error(str(e))
