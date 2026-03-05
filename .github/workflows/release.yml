@@ -1,45 +1,43 @@
 # Reusable release workflow for mbt-based projects.
 #
-# Triggered on version tags (v*). Runs the full pipeline
-# and creates a GitHub Release with artifacts.
+# Triggered on version tags (v*). Starts MVS/CE in Docker,
+# runs the full build pipeline, and creates a GitHub Release
+# with dist/* as assets.
 #
 # Usage in consumer project:
+#
 #   on:
 #     push:
 #       tags: ["v*"]
+#
 #   jobs:
 #     release:
 #       uses: mvslovers/mbt/.github/workflows/release.yml@main
-#       secrets:
-#         MVS_HOST: ${{ secrets.MVS_HOST }}
-#         MVS_PORT: ${{ secrets.MVS_PORT }}
-#         MVS_USER: ${{ secrets.MVS_USER }}
-#         MVS_PASS: ${{ secrets.MVS_PASS }}
 
 name: Release
 
 on:
   workflow_call:
-    secrets:
-      MVS_HOST:
-        required: true
-      MVS_PORT:
-        required: true
-      MVS_USER:
-        required: true
-      MVS_PASS:
-        required: true
 
 env:
-  MBT_MVS_HOST: ${{ secrets.MVS_HOST }}
-  MBT_MVS_PORT: ${{ secrets.MVS_PORT }}
-  MBT_MVS_USER: ${{ secrets.MVS_USER }}
-  MBT_MVS_PASS: ${{ secrets.MVS_PASS }}
-  MBT_BUILD_ID: ${{ github.run_number }}
+  MBT_MVS_HOST:       localhost
+  MBT_MVS_PORT:       1080
+  MBT_MVS_USER:       IBMUSER
+  MBT_MVS_PASS:       sys1
+  MBT_MVS_DEPS_HLQ:   MBTDEPS
+  MBT_MVS_DEPS_VOLUME: PUB000
+  MBT_BUILD_ID:       ${{ github.run_number }}
 
 jobs:
   release:
     runs-on: ubuntu-latest
+
+    services:
+      mvs:
+        image: ghcr.io/mvslovers/mvsce-builder:latest
+        ports:
+          - 3270:3270
+          - 1080:1080
 
     steps:
       - name: Checkout
@@ -51,6 +49,27 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install c2asm370
+        run: |
+          curl -fsSL -o /tmp/c2asm370.tar.gz \
+            https://github.com/mvslovers/c2asm370/releases/download/v1.2/c2asm370-linux-x86.tar.gz
+          sudo tar xzf /tmp/c2asm370.tar.gz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/c2asm370
+          sudo apt-get update && sudo apt-get install -y libc6-i386
+
+      - name: Wait for MVS IPL
+        run: |
+          echo "Waiting for mvsMF API..."
+          for i in $(seq 1 120); do
+            if curl -sf -u IBMUSER:sys1 http://localhost:1080/zosmf/info >/dev/null 2>&1; then
+              echo "mvsMF ready after ~${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "mvsMF not ready after 120s"
+          exit 1
 
       - name: Validate tag matches project version
         run: |
@@ -71,11 +90,7 @@ jobs:
         with:
           path: ~/.mbt/cache
           key: mbt-deps-${{ hashFiles('.mbt/mvs.lock') }}
-          restore-keys: |
-            mbt-deps-
-
-      - name: Clean
-        run: make distclean || true
+          restore-keys: mbt-deps-
 
       - name: Bootstrap
         run: make bootstrap
@@ -84,7 +99,17 @@ jobs:
         run: make build
 
       - name: Link
-        run: make link
+        run: |
+          TYPE=$(python3 -c "
+          import tomllib
+          with open('project.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['type'])
+          ")
+          if [ "$TYPE" = "application" ] || [ "$TYPE" = "module" ]; then
+            make link
+          else
+            echo "[mbt] Project type '$TYPE' — skipping final link."
+          fi
 
       - name: Package
         run: make package
@@ -96,8 +121,7 @@ jobs:
           name: ${{ github.ref_name }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
-          files: |
-            dist/*
+          files: dist/*
           generate_release_notes: true
 
       - name: Upload build logs

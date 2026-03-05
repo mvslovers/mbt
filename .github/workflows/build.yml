@@ -1,70 +1,136 @@
 # Reusable build workflow for mbt-based projects.
 #
+# Starts MVS/CE in Docker, installs c2asm370, and runs the
+# build pipeline. Supports incremental builds for pull requests:
+# only changed source modules are assembled (no final link).
+# Full builds assemble everything and run the final link step
+# for application/module project types.
+#
 # Usage in consumer project:
+#
+#   on:
+#     push:
+#       branches: [main]
+#     pull_request:
+#
 #   jobs:
 #     build:
 #       uses: mvslovers/mbt/.github/workflows/build.yml@main
-#       secrets:
-#         MVS_HOST: ${{ secrets.MVS_HOST }}
-#         MVS_PORT: ${{ secrets.MVS_PORT }}
-#         MVS_USER: ${{ secrets.MVS_USER }}
-#         MVS_PASS: ${{ secrets.MVS_PASS }}
+#       with:
+#         incremental: ${{ github.event_name == 'pull_request' }}
+#         base_sha:    ${{ github.event.pull_request.base.sha || '' }}
 
 name: Build
 
 on:
   workflow_call:
-    secrets:
-      MVS_HOST:
-        required: true
-      MVS_PORT:
-        required: true
-      MVS_USER:
-        required: true
-      MVS_PASS:
-        required: true
+    inputs:
+      incremental:
+        description: "Only assemble changed modules (no final link)"
+        type: boolean
+        default: false
+      base_sha:
+        description: "Base commit SHA for git diff (required when incremental=true)"
+        type: string
+        default: ""
 
 env:
-  MBT_MVS_HOST: ${{ secrets.MVS_HOST }}
-  MBT_MVS_PORT: ${{ secrets.MVS_PORT }}
-  MBT_MVS_USER: ${{ secrets.MVS_USER }}
-  MBT_MVS_PASS: ${{ secrets.MVS_PASS }}
-  MBT_BUILD_ID: ${{ github.run_number }}
+  MBT_MVS_HOST:       localhost
+  MBT_MVS_PORT:       1080
+  MBT_MVS_USER:       IBMUSER
+  MBT_MVS_PASS:       sys1
+  MBT_MVS_DEPS_HLQ:   MBTDEPS
+  MBT_MVS_DEPS_VOLUME: PUB000
+  MBT_BUILD_ID:       ${{ github.run_number }}
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    services:
+      mvs:
+        image: ghcr.io/mvslovers/mvsce-builder:latest
+        ports:
+          - 3270:3270
+          - 1080:1080
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
+      - name: Install c2asm370
+        run: |
+          curl -fsSL -o /tmp/c2asm370.tar.gz \
+            https://github.com/mvslovers/c2asm370/releases/download/v1.2/c2asm370-linux-x86.tar.gz
+          sudo tar xzf /tmp/c2asm370.tar.gz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/c2asm370
+          sudo apt-get update && sudo apt-get install -y libc6-i386
+
+      - name: Wait for MVS IPL
+        run: |
+          echo "Waiting for mvsMF API..."
+          for i in $(seq 1 120); do
+            if curl -sf -u IBMUSER:sys1 http://localhost:1080/zosmf/info >/dev/null 2>&1; then
+              echo "mvsMF ready after ~${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "mvsMF not ready after 120s"
+          exit 1
+
       - name: Cache mbt dependencies
         uses: actions/cache@v4
         with:
           path: ~/.mbt/cache
           key: mbt-deps-${{ hashFiles('.mbt/mvs.lock') }}
-          restore-keys: |
-            mbt-deps-
-
-      - name: Doctor
-        run: make doctor
+          restore-keys: mbt-deps-
 
       - name: Bootstrap
         run: make bootstrap
 
-      - name: Build
+      - name: Build (incremental)
+        if: inputs.incremental
+        run: |
+          CHANGED=$(git diff --name-only "${{ inputs.base_sha }}"..."${{ github.sha }}" \
+            | grep -E '\.(c|s|asm)$' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "[mbt] No source files changed, skipping assembly."
+            exit 0
+          fi
+          MEMBERS=$(echo "$CHANGED" | while read -r f; do
+            basename "$f" | sed 's/\..*//' | tr '[:lower:]' '[:upper:]' | cut -c1-8
+          done | sort -u)
+          echo "[mbt] Changed members: $MEMBERS"
+          for MEMBER in $MEMBERS; do
+            python3 mbt/scripts/mvsasm.py --project project.toml --member "$MEMBER"
+          done
+
+      - name: Build (full)
+        if: ${{ !inputs.incremental }}
         run: make build
 
       - name: Link
-        run: make link
+        if: ${{ !inputs.incremental }}
+        run: |
+          TYPE=$(python3 -c "
+          import tomllib
+          with open('project.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['type'])
+          ")
+          if [ "$TYPE" = "application" ] || [ "$TYPE" = "module" ]; then
+            make link
+          else
+            echo "[mbt] Project type '$TYPE' — skipping final link."
+          fi
 
       - name: Upload build logs
         if: always()
