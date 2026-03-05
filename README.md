@@ -180,10 +180,22 @@ Configuration is resolved in priority order:
 | `MBT_MVS_PASS` | | MVS password |
 | `MBT_MVS_HLQ` | `IBMUSER` | High-level qualifier for datasets |
 | `MBT_MVS_DEPS_HLQ` | `{HLQ}.DEPS` | HLQ for dependency datasets |
-| `MBT_MVS_DEPS_VOLUME` | | Volume for RECEIVE (required if no PUBLIC volume) |
+| `MBT_MVS_DEPS_VOLUME` | | Volume for RECEIVE — see note below |
 | `MBT_JES_JOBCLASS` | `A` | JES job class |
 | `MBT_JES_MSGCLASS` | `H` | JES message class |
 | `MBT_BUILD_ID` | | CI build number (enables CI dataset naming) |
+
+> **MVS/CE users:** `MBT_MVS_DEPS_VOLUME` must be set in your `.env` file.
+> MVS/CE has limited free space on its public volume, so RECEIVE must be
+> directed to a specific volume (e.g. `PUB000`). Without this setting,
+> dependency bootstrap will fail. This is a workaround specific to MVS/CE
+> and is not required on TK4- or other Hercules configurations with a
+> usable public volume.
+>
+> ```sh
+> # .env
+> MBT_MVS_DEPS_VOLUME=PUB000
+> ```
 
 ---
 
