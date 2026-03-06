@@ -1,6 +1,6 @@
 """mbt release executor — version bump, tag, and push.
 
-Three scenarios (auto-detected from current vs requested version):
+Two modes:
 
 A. Normal dev-to-release (main case):
    Current version has -dev suffix, requested VERSION is the release.
@@ -10,10 +10,6 @@ A. Normal dev-to-release (main case):
 
 B. Prerelease (--prerelease):
    Current version stays unchanged. Force-push tag v{current}.
-   No file modifications, no version bump.
-
-C. Rebuild existing release (tag checkout):
-   Current version == VERSION (no -dev suffix). Tag + force-push only.
    No file modifications, no version bump.
 
 Usage:
@@ -216,17 +212,6 @@ def _scenario_b(project) -> int:
     return EXIT_SUCCESS
 
 
-def _scenario_c(project, release_ver: str) -> int:
-    """Scenario C: rebuild — tag + push only, no file changes."""
-    tag = f"v{release_ver}"
-    _log(f"Rebuilding {tag}...")
-    if not _git_tag(tag, force=True):
-        return EXIT_CONFIG
-    if not _git_push_tag(tag, force=True):
-        return EXIT_CONFIG
-    _log(f"Tag {tag} pushed.")
-    return EXIT_SUCCESS
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(
@@ -282,44 +267,38 @@ def main() -> int:
 
     version_files = project.release_version_files or [args.project]
 
-    if current == release_ver:
-        # Scenario C: already at release version
-        return _scenario_c(project, release_ver)
+    if current_v.pre is None:
+        _log_error(
+            f"Cannot release {release_ver}: current version is '{current}'. "
+            f"Expected '{release_ver}-dev'."
+        )
+        return EXIT_CONFIG
 
-    if current_v.pre is not None:
-        # Expect current = release_ver + "-dev" (or similar prerelease)
-        release_v = Version.parse(release_ver)
-        if (current_v.major, current_v.minor, current_v.patch) != (
-                release_v.major, release_v.minor, release_v.patch):
-            _log_error(
-                f"Cannot release {release_ver}: current version is {current}. "
-                f"Expected {release_ver}-dev or run with a matching VERSION."
-            )
-            return EXIT_CONFIG
-        # Scenario A
-        if args.next_version:
-            next_ver = args.next_version
-            try:
-                nv = Version.parse(next_ver)
-                if nv.pre is None:
-                    _log_error(
-                        f"NEXT_VERSION '{next_ver}' must be a prerelease "
-                        f"(e.g. {next_ver}-dev)"
-                    )
-                    return EXIT_CONFIG
-            except ValueError as e:
-                _log_error(f"Invalid NEXT_VERSION '{next_ver}': {e}")
+    release_v = Version.parse(release_ver)
+    if (current_v.major, current_v.minor, current_v.patch) != (
+            release_v.major, release_v.minor, release_v.patch):
+        _log_error(
+            f"Cannot release {release_ver}: current version is {current}. "
+            f"Expected {release_ver}-dev."
+        )
+        return EXIT_CONFIG
+
+    if args.next_version:
+        next_ver = args.next_version
+        try:
+            nv = Version.parse(next_ver)
+            if nv.pre is None:
+                _log_error(
+                    f"NEXT_VERSION '{next_ver}' must be a prerelease "
+                    f"(e.g. {next_ver}-dev)"
+                )
                 return EXIT_CONFIG
-        else:
-            next_ver = _next_dev_version(Version.parse(release_ver))
-        return _scenario_a(project, version_files, release_ver, next_ver)
-
-    _log_error(
-        f"Cannot release {release_ver}: current version is '{current}'. "
-        f"Expected '{release_ver}-dev' (Scenario A) or "
-        f"'{release_ver}' (Scenario C)."
-    )
-    return EXIT_CONFIG
+        except ValueError as e:
+            _log_error(f"Invalid NEXT_VERSION '{next_ver}': {e}")
+            return EXIT_CONFIG
+    else:
+        next_ver = _next_dev_version(Version.parse(release_ver))
+    return _scenario_a(project, version_files, release_ver, next_ver)
 
 
 if __name__ == "__main__":

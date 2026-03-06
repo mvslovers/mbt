@@ -21,7 +21,7 @@ want `V1R0M1-dev` datasets. It wastes time and creates misleading local state.
 
 ### Use Cases
 
-Three distinct scenarios require different behaviour:
+Two distinct modes:
 
 **Scenario A — Normal dev-to-release flow** *(main case)*
 - Current `project.toml` version: `1.0.0-dev` → datasets: `V1R0M0D`
@@ -35,32 +35,15 @@ Three distinct scenarios require different behaviour:
 - No bump, no `project.toml` change, no dataset change
 - Force-push tag `v1.0.0-dev` → CI builds prerelease artifact
 
-**Scenario C — Rebuild an existing release** *(tag checked out)*
-- Current `project.toml` version: `1.0.0` (no `-dev` suffix)
-- `make release VERSION=1.0.0`
-- `project.toml` is not touched — version already matches
-- Tag and push only; no bump, no bootstrap
-
 ### Solution
 
 #### Makefile targets
 
 ```makefile
 make prerelease                                      # Scenario B
-make release VERSION=1.0.0                          # Scenario A or C (auto-detected)
+make release VERSION=1.0.0                          # Scenario A
 make release VERSION=1.0.0 NEXT_VERSION=2.0.0-dev   # Scenario A with explicit next version
 ```
-
-#### Scenario detection in `mvsrelease.py`
-
-Detection is based on comparing the current version in `project.toml` against
-the requested `VERSION`:
-
-| Current version | Requested VERSION | Detected scenario |
-|-----------------|-------------------|-------------------|
-| `1.0.0-dev`     | `1.0.0`           | A — bump, tag, next-dev |
-| `1.0.0`         | `1.0.0`           | C — tag + push only |
-| anything else   | any               | Error with clear message |
 
 #### Scenario A — step by step
 
@@ -164,14 +147,14 @@ make release VERSION=1.0.0 NEXT_VERSION=2.0.0-dev
 
 ### Changes Required
 
-1. **`mvsrelease.py`**: Implement scenario detection (A vs C). Add pre-check
+1. **`mvsrelease.py`**: Implement two-mode logic (A and B). Add pre-check
    for existing tags with actionable error message. Add `--prerelease` flag
    for Scenario B. Remove existing auto-bootstrap call. Print actionable
    message after Scenario A.
 2. **`mbtbootstrap.py`**: Add `--datasets-only` flag — skip dep resolution
    and XMIT upload, allocate only project build datasets.
 3. **`Makefile`**: Add `prerelease` target. Add `bootstrap-datasets` target.
-4. **Spec / README**: Document new targets and three-scenario model.
+4. **Spec / README**: Document new targets and two-mode model.
 
 ---
 
