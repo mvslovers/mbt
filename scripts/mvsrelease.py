@@ -74,7 +74,7 @@ def _update_version_in_file(filepath: Path,
         _log_error(f"Version file not found: {filepath}")
         return False
     content = filepath.read_text(encoding="utf-8")
-    new_content = content.replace(old_version, new_version)
+    new_content = content.replace(f'"{old_version}"', f'"{new_version}"')
     if new_content == content:
         _log_error(f"Version '{old_version}' not found in {filepath}")
         return False
