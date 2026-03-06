@@ -290,6 +290,12 @@ def main() -> int:
                 _log(f"Removing stale contrib: {old_dir}")
                 shutil.rmtree(old_dir)
 
+        # For prerelease deps, force re-extraction (tag may have been re-pushed)
+        if is_pre:
+            current_contrib = Path("contrib") / f"{pkg_name}-{dep_version}"
+            if current_contrib.exists():
+                shutil.rmtree(current_contrib)
+
         try:
             inc_dir = extract_headers(cache_dir, pkg_name, dep_version)
             _log(f"Headers: {inc_dir}")
