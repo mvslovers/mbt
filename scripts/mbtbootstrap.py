@@ -369,8 +369,16 @@ def main() -> int:
                     else:
                         target_dsn = f"{dep_name}.{dep_vrm}.{suffix}"
 
-                    # Skip RECEIVE if target already exists
-                    if client.dataset_exists(target_dsn):
+                    # For prerelease deps, delete and re-RECEIVE (tag may have been re-pushed)
+                    if is_pre and client.dataset_exists(target_dsn):
+                        _log(f"Prerelease dep: deleting stale {target_dsn}...")
+                        try:
+                            client.delete_dataset(target_dsn)
+                        except MvsMFError as e:
+                            _log_warn(f"Could not delete {target_dsn}: {e}")
+
+                    # Skip RECEIVE if target already exists (stable deps only)
+                    if not is_pre and client.dataset_exists(target_dsn):
                         _log(f"Dataset {target_dsn} already exists, skipping RECEIVE.")
                         continue
 
