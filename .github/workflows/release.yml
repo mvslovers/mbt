@@ -124,12 +124,20 @@ jobs:
           files: dist/*
           generate_release_notes: true
 
+      - name: Dump MVS container logs
+        if: failure()
+        run: |
+          docker logs $(docker ps -aq --filter "ancestor=ghcr.io/mvslovers/mvsce-builder:latest") \
+            > /tmp/mvs-docker.log 2>&1 || true
+
       - name: Upload build logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mbt-logs
-          path: .mbt/logs/
+          path: |
+            .mbt/logs/
+            /tmp/mvs-docker.log
           if-no-files-found: ignore
 
       - name: Clean CI datasets
