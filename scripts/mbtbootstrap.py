@@ -18,6 +18,7 @@ Exit codes per spec section 11.1
 """
 
 import sys
+import shutil
 import argparse
 from pathlib import Path
 
@@ -263,8 +264,10 @@ def main() -> int:
     for dep_key, dep_version in resolved.items():
         owner, repo = dep_key.split("/", 1)
         _log(f"Checking {dep_key}@{dep_version}...")
+        is_pre = Version.parse(dep_version).pre is not None
         try:
-            cache_dir = download_dependency(owner, repo, dep_version)
+            cache_dir = download_dependency(owner, repo, dep_version,
+                                            force=is_pre)
         except DependencyError as e:
             _log_error(str(e))
             return EXIT_DEPENDENCY
@@ -275,9 +278,18 @@ def main() -> int:
     # Step 4: Extract headers → contrib/
     for dep_key, dep_version in resolved.items():
         owner, repo = dep_key.split("/", 1)
-        cache_dir = download_dependency(owner, repo, dep_version)
+        is_pre = Version.parse(dep_version).pre is not None
+        cache_dir = download_dependency(owner, repo, dep_version,
+                                        force=is_pre)
         pkg = package_cache.get(dep_key, {})
         pkg_name = pkg.get("package", {}).get("name") or repo
+
+        # Remove stale contrib dirs for other versions of this dep
+        for old_dir in sorted(Path("contrib").glob(f"{pkg_name}-*")):
+            if old_dir.name != f"{pkg_name}-{dep_version}":
+                _log(f"Removing stale contrib: {old_dir}")
+                shutil.rmtree(old_dir)
+
         try:
             inc_dir = extract_headers(cache_dir, pkg_name, dep_version)
             _log(f"Headers: {inc_dir}")

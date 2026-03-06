@@ -143,7 +143,8 @@ def _resolve_one(owner: str, repo: str,
 
 
 def download_dependency(owner: str, repo: str,
-                        version: str) -> Path:
+                        version: str,
+                        force: bool = False) -> Path:
     """Download dependency assets to cache.
 
     Cache structure:
@@ -152,7 +153,8 @@ def download_dependency(owner: str, repo: str,
             {name}-{version}-headers.tar.gz
             {name}-{version}-mvs.tar.gz
 
-    Skips download if cache is already populated.
+    Skips download if cache is already populated, unless force=True.
+    Pass force=True for prerelease versions whose tag may be re-pushed.
 
     Returns:
         Path to cache directory
@@ -160,8 +162,11 @@ def download_dependency(owner: str, repo: str,
     Raises:
         DependencyError: If download fails
     """
+    import shutil
     cache_dir = CACHE_DIR / owner / repo / version
-    if cache_dir.exists() and any(cache_dir.iterdir()):
+    if force and cache_dir.exists():
+        shutil.rmtree(cache_dir)
+    if not force and cache_dir.exists() and any(cache_dir.iterdir()):
         return cache_dir
 
     cache_dir.mkdir(parents=True, exist_ok=True)
