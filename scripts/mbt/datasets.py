@@ -219,9 +219,12 @@ class DatasetResolver:
                        lockfile_deps: dict[str, str],
                        package_cache: dict
                        ) -> list[str]:
-        """Build NCALIB concatenation list for IEWL.
+        """Build SYSLIB DD dataset list for IEWL.
 
-        Order: Project's NCALIB first, then deps in
+        Contains project NCALIB and autocall-compatible dependency
+        NCaLIBs only. Non-autocall deps go to ncalib_dd_dsns() instead.
+
+        Order: project NCALIB first, then autocall deps in
         declaration order.
         """
         result = []
@@ -231,10 +234,45 @@ class DatasetResolver:
         if "ncalib" in build_ds:
             result.append(build_ds["ncalib"].dsn)
 
-        # 2. Dependency NCaLIBs (declaration order)
+        # 2. Autocall dependency NCaLIBs (declaration order)
         dep_datasets = self.dependency_datasets(lockfile_deps, package_cache)
         for dep_key in self.config.project.dependencies:
             if dep_key in dep_datasets:
+                pkg = package_cache.get(dep_key, {})
+                if not pkg.get("link", {}).get("autocall", True):
+                    continue  # non-autocall goes to NCALIB DD only
+                for ds in dep_datasets[dep_key]:
+                    if ds.suffix == "NCALIB":
+                        result.append(ds.dsn)
+
+        return result
+
+    def ncalib_dd_dsns(self,
+                       lockfile_deps: dict[str, str],
+                       package_cache: dict
+                       ) -> list[str]:
+        """Build NCALIB DD dataset list for IEWL.
+
+        Contains project NCALIB (for explicit own-module INCLUDEs)
+        and non-autocall dependency NCaLIBs (for dep_includes INCLUDEs).
+
+        Order: project NCALIB first, then non-autocall deps in
+        declaration order.
+        """
+        result = []
+
+        # 1. Project's NCALIB
+        build_ds = self.build_datasets()
+        if "ncalib" in build_ds:
+            result.append(build_ds["ncalib"].dsn)
+
+        # 2. Non-autocall dependency NCaLIBs (declaration order)
+        dep_datasets = self.dependency_datasets(lockfile_deps, package_cache)
+        for dep_key in self.config.project.dependencies:
+            if dep_key in dep_datasets:
+                pkg = package_cache.get(dep_key, {})
+                if pkg.get("link", {}).get("autocall", True):
+                    continue  # autocall goes to SYSLIB only
                 for ds in dep_datasets[dep_key]:
                     if ds.suffix == "NCALIB":
                         result.append(ds.dsn)

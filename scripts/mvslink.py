@@ -30,10 +30,7 @@ from mbt import (
 from mbt.config import MbtConfig
 from mbt.datasets import DatasetResolver
 from mbt.dependencies import load_package_toml
-from mbt.jcl import (
-    render_template, render_syslib_concat,
-    render_include_concat, jobcard,
-)
+from mbt.jcl import render_template, render_syslib_concat, render_dd_concat, jobcard
 from mbt.lockfile import Lockfile
 from mbt.mvsmf import MvsMFClient, MvsMFError, JobResult
 from mbt.project import ProjectError, LINK_TYPES
@@ -68,6 +65,68 @@ def _make_client(config: MbtConfig) -> MvsMFClient:
         user=config.mvs_user,
         password=config.mvs_pass,
     )
+
+
+def _validate_dep_includes(mod, lockfile_deps: dict,
+                           package_cache: dict) -> None:
+    """Three-stage validation of [link.module.dep_includes].
+
+    Raises:
+        SystemExit with EXIT_CONFIG on any validation failure.
+    """
+    for dep_key, members in mod.dep_includes.items():
+        # Stage 1: dep key declared in [dependencies] / lockfile
+        if dep_key not in lockfile_deps:
+            _log_error(
+                f"dep_includes key '{dep_key}' in module '{mod.name}' "
+                f"is not declared in [dependencies]"
+            )
+            raise SystemExit(2)
+
+        # Stage 2: package.toml cached locally
+        if dep_key not in package_cache:
+            owner, repo = dep_key.split("/", 1)
+            _log_error(
+                f"package.toml for {dep_key} not found in cache.\n"
+                f"[mvslink]        Run 'make bootstrap' first."
+            )
+            raise SystemExit(2)
+
+        # Stage 3: selected members exist in exports list
+        if members != "*":
+            exports = package_cache[dep_key].get("link", {}).get("exports", [])
+            unknown = [m for m in members if m not in exports]
+            if unknown:
+                _log_error(
+                    f"dep_includes '{dep_key}': unknown members: "
+                    f"{', '.join(unknown)}"
+                )
+                raise SystemExit(2)
+
+
+def _build_include_stmts(mod, package_cache: dict) -> str:
+    """Build INCLUDE control statements for the link JCL.
+
+    Rules:
+    - Members starting with '@@' (CRT startup from autocall dep) -> SYSLIB
+    - Other own members (project NCALIB) -> NCALIB
+    - dep_includes members (non-autocall dep NCaLIBs) -> NCALIB
+    """
+    lines = []
+
+    for member in mod.include:
+        if member.startswith("@@"):
+            lines.append(f" INCLUDE SYSLIB({member})")
+        else:
+            lines.append(f" INCLUDE NCALIB({member})")
+
+    for dep_key, members in mod.dep_includes.items():
+        if members == "*":
+            members = package_cache[dep_key].get("link", {}).get("exports", [])
+        for m in members:
+            lines.append(f" INCLUDE NCALIB({m})")
+
+    return "\n".join(lines)
 
 
 def _load_package_cache(lockfile: Lockfile | None) -> dict:
@@ -125,9 +184,13 @@ def main() -> int:
         return EXIT_CONFIG
     syslmod_dsn = syslmod_ds.dsn
 
-    # NCALIB concatenation for IEWL SYSLIB: project NCALIB first, then deps
-    ncalib_dsns = resolver.syslib_ncalibs(lockfile_deps, package_cache)
-    ncalib_concat = render_syslib_concat(ncalib_dsns)
+    # SYSLIB DD: project NCALIB + autocall dep NCaLIBs
+    syslib_dsns = resolver.syslib_ncalibs(lockfile_deps, package_cache)
+    syslib_concat = render_syslib_concat(syslib_dsns)
+
+    # NCALIB DD: project NCALIB + non-autocall dep NCaLIBs
+    ncalib_dsns = resolver.ncalib_dd_dsns(lockfile_deps, package_cache)
+    ncalib_concat = render_dd_concat("NCALIB", ncalib_dsns)
 
     # Connect to mvsMF
     client = _make_client(config)
@@ -141,10 +204,11 @@ def main() -> int:
     for mod in project.link_modules:
         _log(f"Linking {mod.name}...")
 
-        link_options = ",".join(mod.options) if mod.options else "LET,LIST,XREF"
+        # Validate dep_includes before touching JCL
+        _validate_dep_includes(mod, lockfile_deps, package_cache)
 
-        # INCLUDE statements reference the SYSLIB DD (which holds the NCaLIBs)
-        include_stmts = render_include_concat(mod.include, "SYSLIB")
+        link_options = ",".join(mod.options) if mod.options else "LET,LIST,XREF"
+        include_stmts = _build_include_stmts(mod, package_cache)
 
         jc = jobcard(
             f"MBTLK{mod.name[:3]}",
@@ -157,6 +221,7 @@ def main() -> int:
             "MODULE_NAME": mod.name,
             "LINK_OPTIONS": link_options,
             "SYSLMOD_DSN": syslmod_dsn,
+            "SYSLIB_CONCAT": syslib_concat,
             "NCALIB_CONCAT": ncalib_concat,
             "INCLUDE_STMTS": include_stmts,
             "ENTRY_POINT": mod.entry,

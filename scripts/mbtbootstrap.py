@@ -161,6 +161,11 @@ def main() -> int:
         "--no-mvs", action="store_true",
         help="Skip MVS operations (resolve and download only)"
     )
+    parser.add_argument(
+        "--datasets-only", action="store_true",
+        help="Allocate project build datasets only — skip dep resolution "
+             "and XMIT upload (use after version bump when deps unchanged)"
+    )
     args = parser.parse_args()
 
     # Step 1: Load and validate project
@@ -172,6 +177,36 @@ def main() -> int:
 
     project = config.project
     _log(f"Project: {project.name} v{project.version}")
+
+    # --datasets-only: skip dep resolution, download, and XMIT upload.
+    # Go directly to dataset allocation.
+    if args.datasets_only:
+        _log("--datasets-only: skipping dependency resolution and XMIT upload.")
+        client = _make_client(config)
+        if not client.ping():
+            _log_error(
+                f"Cannot reach mvsMF at {config.mvs_host}:{config.mvs_port}"
+            )
+            return EXIT_MAINFRAME
+        resolver = DatasetResolver(config)
+        build_ds = resolver.build_datasets()
+        for key, ds in build_ds.items():
+            try:
+                _alloc_dataset(client, config, ds)
+            except MvsMFError as e:
+                _log_error(f"Dataset allocation failed for {ds.dsn}: {e}")
+                return EXIT_DATASET
+        for key, def_ in project.build_datasets.items():
+            if def_.local_dir and key in build_ds:
+                ds = build_ds[key]
+                _log(f"Uploading local_dir {def_.local_dir} -> {ds.dsn}...")
+                try:
+                    _upload_local_dir(client, ds, def_.local_dir)
+                except MvsMFError as e:
+                    _log_error(f"Upload failed for {ds.dsn}: {e}")
+                    return EXIT_DATASET
+        _log("Bootstrap (datasets only) complete.")
+        return EXIT_SUCCESS
 
     # Step 2: Resolve dependencies
     lockfile_path = Path(".mbt") / "mvs.lock"

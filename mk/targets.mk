@@ -1,13 +1,16 @@
 # mk/targets.mk — Standard build targets
 
-.PHONY: doctor bootstrap update-deps build link install package \
-        release clean distclean graph datasets
+.PHONY: doctor bootstrap bootstrap-datasets update-deps build link install \
+        package prerelease release clean distclean graph datasets
 
 doctor:
 	@python3 $(MBT_SCRIPTS)/mbtdoctor.py --project project.toml
 
 bootstrap:
 	@python3 $(MBT_SCRIPTS)/mbtbootstrap.py --project project.toml $(ARGS)
+
+bootstrap-datasets:
+	@python3 $(MBT_SCRIPTS)/mbtbootstrap.py --project project.toml --datasets-only
 
 update-deps:
 	@python3 $(MBT_SCRIPTS)/mbtbootstrap.py --project project.toml --update
@@ -37,9 +40,13 @@ install:
 package:
 	@python3 $(MBT_SCRIPTS)/mvspackage.py --project project.toml
 
+prerelease:
+	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml --prerelease
+
 release:
-	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml $(VERSION)
-	@$(MAKE) bootstrap
+	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml \
+	    --version $(VERSION) \
+	    $(if $(NEXT_VERSION),--next-version $(NEXT_VERSION),)
 
 graph:
 	@python3 $(MBT_SCRIPTS)/mbtgraph.py --project project.toml

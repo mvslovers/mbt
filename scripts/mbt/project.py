@@ -55,7 +55,8 @@ class LinkModule:
     name: str          # load module name, e.g. "HTTPD"
     entry: str         # entry point (default: @@CRT0)
     options: list[str] # IEWL options, e.g. ["LIST", "XREF", "LET"]
-    include: list[str] # NCALIB members to include (default: ["@@CRT1", name])
+    include: list[str] # own members to include explicitly
+    dep_includes: dict # {dep_key: "*" | [member, ...]} for non-autocall deps
 
 
 @dataclass
@@ -93,6 +94,7 @@ class ProjectConfig:
     install_datasets: dict[str, InstallDataset] = field(default_factory=dict)
 
     # [link]
+    link_autocall: bool = True     # autocall = false marks lib as non-autocall
     link_modules: list[LinkModule] = field(default_factory=list)
 
     # [artifacts]
@@ -181,6 +183,9 @@ class ProjectConfig:
                 name=inst_data["name"],
             )
 
+        # [link] top-level: autocall flag
+        link_autocall = bool(link.get("autocall", True))
+
         # Link module: [link.module] is a single table.
         # Also accept [[link.module]] (array-of-tables) for compat.
         link_modules = []
@@ -189,11 +194,19 @@ class ProjectConfig:
             raw_modules = [raw_modules]
         for mod in raw_modules:
             mod_name = mod["name"]
+            dep_inc_raw = mod.get("dep_includes", {})
+            dep_includes = {}
+            for dk, sel in dep_inc_raw.items():
+                if sel == "*" or isinstance(sel, list):
+                    dep_includes[dk] = sel
+                else:
+                    dep_includes[dk] = [sel]
             link_modules.append(LinkModule(
                 name=mod_name,
                 entry=mod.get("entry", "@@CRT0"),
                 options=list(mod.get("options", [])),
                 include=list(mod.get("include", ["@@CRT1", mod_name])),
+                dep_includes=dep_includes,
             ))
 
         # Source directories — partial override is allowed
@@ -216,6 +229,7 @@ class ProjectConfig:
             build_datasets=build_datasets,
             install_naming=mvs_install.get("naming"),
             install_datasets=install_datasets,
+            link_autocall=link_autocall,
             link_modules=link_modules,
             artifact_headers=bool(artifacts.get("headers", False)),
             artifact_mvs=bool(artifacts.get("mvs", False)),
@@ -284,6 +298,15 @@ class ProjectConfig:
                 f"{', '.join(sorted(LINK_TYPES))}. "
                 f"Current type: '{self.type}'"
             )
+
+        # dep_includes keys must be declared in [dependencies]
+        for mod in self.link_modules:
+            for dep_key in mod.dep_includes:
+                if dep_key not in self.dependencies:
+                    raise ProjectError(
+                        f"[link.module.dep_includes] key '{dep_key}' "
+                        f"is not declared in [dependencies]"
+                    )
 
         # Install section must reference existing build datasets
         for key in self.install_datasets:

@@ -90,7 +90,8 @@ def _artifact_dataset_keys(project) -> list[str]:
 
 def _generate_package_toml(config: MbtConfig,
                            lockfile: Lockfile | None,
-                           dist_dir: Path) -> Path:
+                           dist_dir: Path,
+                           client: "MvsMFClient | None" = None) -> Path:
     """Generate package.toml manifest for this release.
 
     Includes project metadata, resolved dependency versions,
@@ -143,6 +144,16 @@ def _generate_package_toml(config: MbtConfig,
             for s in ds.space
         )
         lines.append(f"space     = [{space_str}]")
+        lines.append("")
+
+    # Link section: autocall flag + exports list for non-autocall libs
+    if not project.link_autocall:
+        lines.append("[link]")
+        lines.append("autocall = false")
+        exports = _enumerate_ncalib_members(config, client)
+        if exports is not None:
+            members_str = ", ".join(f'"{m}"' for m in exports)
+            lines.append(f"exports  = [{members_str}]")
         lines.append("")
 
     out = dist_dir / "package.toml"
@@ -240,6 +251,33 @@ def _transmit_dataset(client: MvsMFClient, config: MbtConfig,
 
     _cleanup_xmit(client, xmit_dsn)
     return data
+
+
+def _enumerate_ncalib_members(config: MbtConfig,
+                              client: "MvsMFClient | None") -> list[str] | None:
+    """List members of the project NCALIB on MVS.
+
+    Returns sorted list of member names, or None if unavailable.
+    """
+    from mbt.datasets import DatasetResolver
+    if client is None:
+        _log_error(
+            "autocall = false requires MVS connection to enumerate NCALIB members. "
+            "Ensure MVS credentials are configured."
+        )
+        return None
+    resolver = DatasetResolver(config)
+    build_ds = resolver.build_datasets()
+    ncalib_ds = build_ds.get("ncalib")
+    if not ncalib_ds:
+        _log_error("No 'ncalib' dataset defined — cannot enumerate exports.")
+        return None
+    try:
+        members = client.list_members(ncalib_ds.dsn)
+        return sorted(members)
+    except MvsMFError as e:
+        _log_error(f"Cannot list members of {ncalib_ds.dsn}: {e}")
+        return None
 
 
 def _cleanup_xmit(client: MvsMFClient, xmit_dsn: str) -> None:
@@ -390,25 +428,29 @@ def main() -> int:
     # Load lockfile for dependency info
     lockfile = Lockfile.load()
 
-    # 1. Generate package.toml
-    pkg_path = _generate_package_toml(config, lockfile, dist_dir)
-    _log(f"Generated {pkg_path}")
-
-    # 2. Headers tarball (no MVS needed)
-    _create_headers_tarball(config, dist_dir)
-
-    # 3+4. MVS tarball and bundle (need MVS connection)
+    # Connect to MVS if needed: MVS artifacts or non-autocall exports
     needs_mvs = project.artifact_mvs or project.artifact_bundle
+    needs_exports = not project.link_autocall
     client = None
     resolver = None
 
-    if needs_mvs:
+    if needs_mvs or needs_exports:
         client = _make_client(config)
         if not client.ping():
             _log_error(
                 f"Cannot reach mvsMF at {config.mvs_host}:{config.mvs_port}"
             )
             return EXIT_MAINFRAME
+
+    # 1. Generate package.toml (client needed for autocall=false exports)
+    pkg_path = _generate_package_toml(config, lockfile, dist_dir, client)
+    _log(f"Generated {pkg_path}")
+
+    # 2. Headers tarball (no MVS needed)
+    _create_headers_tarball(config, dist_dir)
+
+    # 3+4. MVS tarball and bundle
+    if needs_mvs:
         resolver = DatasetResolver(config)
         _create_mvs_tarball(config, client, resolver, dist_dir)
         _create_bundle_tarball(config, client, resolver, dist_dir)

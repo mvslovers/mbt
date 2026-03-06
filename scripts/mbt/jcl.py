@@ -32,10 +32,11 @@ def render_template(template_name: str,
     return tpl.safe_substitute(variables)
 
 
-def render_syslib_concat(datasets: list[str]) -> str:
-    """Generate SYSLIB DD concatenation JCL fragment.
+def render_dd_concat(dd_name: str, datasets: list[str]) -> str:
+    """Generate a named DD concatenation JCL fragment.
 
     Args:
+        dd_name:  DD name, e.g. "SYSLIB" or "NCALIB"
         datasets: List of fully qualified dataset names
 
     Returns:
@@ -46,12 +47,18 @@ def render_syslib_concat(datasets: list[str]) -> str:
         When empty:
           //SYSLIB   DD DUMMY
     """
+    label = f"//{dd_name}"
     if not datasets:
-        return "//SYSLIB   DD DUMMY"
-    lines = [f"//SYSLIB   DD DSN={datasets[0]},DISP=SHR"]
+        return f"{label:<11}DD DUMMY"
+    lines = [f"{label:<11}DD DSN={datasets[0]},DISP=SHR"]
     for dsn in datasets[1:]:
         lines.append(f"//         DD DSN={dsn},DISP=SHR")
     return "\n".join(lines)
+
+
+def render_syslib_concat(datasets: list[str]) -> str:
+    """Generate SYSLIB DD concatenation JCL fragment."""
+    return render_dd_concat("SYSLIB", datasets)
 
 
 def render_include_concat(members: list[str],
