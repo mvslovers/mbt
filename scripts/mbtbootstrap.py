@@ -245,6 +245,14 @@ def main() -> int:
         new_lockfile.save(lockfile_path)
         _log(f"Lockfile written: {lockfile_path}")
 
+    # Warn about prerelease dependencies
+    for dep_key, dep_version in resolved.items():
+        if Version.parse(dep_version).pre is not None:
+            _log_warn(
+                f"{dep_key}@{dep_version} is a prerelease — "
+                f"not suitable for production builds."
+            )
+
     if not resolved:
         _log("No dependencies declared.")
 

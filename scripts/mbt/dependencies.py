@@ -69,9 +69,30 @@ def resolve_dependencies(
     return resolved
 
 
+def _is_exact_prerelease(constraint: str) -> bool:
+    """Return True if constraint is an exact pin to a prerelease version.
+
+    Only a single '=X.Y.Z-pre' constraint qualifies — range operators
+    (>=, <) always resolve stable releases only.
+    """
+    parts = [p.strip() for p in constraint.split(",")]
+    if len(parts) != 1:
+        return False
+    part = parts[0]
+    if not part.startswith("=") or part.startswith(">="):
+        return False
+    try:
+        return Version.parse(part[1:]).pre is not None
+    except ValueError:
+        return False
+
+
 def _resolve_one(owner: str, repo: str,
                  constraint: str) -> str:
     """Query GitHub API and return highest version matching constraint.
+
+    Stable releases only, unless constraint is an exact prerelease pin
+    (e.g. '=1.0.1-dev'), in which case prerelease releases are included.
 
     Raises:
         DependencyError: If no matching release found or API fails
@@ -93,13 +114,16 @@ def _resolve_one(owner: str, repo: str,
             f"Cannot reach GitHub API for {owner}/{repo}: {e.reason}"
         )
 
+    allow_prerelease = _is_exact_prerelease(constraint)
+
     # Collect versions that satisfy the constraint
     candidates = []
     for release in releases:
-        if release.get("draft") or release.get("prerelease"):
+        if release.get("draft"):
+            continue
+        if release.get("prerelease") and not allow_prerelease:
             continue
         tag = release.get("tag_name", "")
-        # Strip leading "v" from tag name
         ver_str = tag.lstrip("v")
         try:
             ver = Version.parse(ver_str)
