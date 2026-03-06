@@ -226,8 +226,8 @@ class MvsMFClient:
                 )
                 content = raw.decode("utf-8", errors="replace").replace("\r", "")
                 parts.append(f"--- {ddname} ---\n{content}")
-            except MvsMFError:
-                pass
+            except MvsMFError as e:
+                parts.append(f"--- {ddname} --- [FAILED TO RETRIEVE: {e}]")
 
         return "\n".join(parts)
 
