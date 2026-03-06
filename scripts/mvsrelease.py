@@ -155,7 +155,7 @@ def _scenario_a(project, version_files: list[str],
     current = project.version
     tag = f"v{release_ver}"
 
-    _log(f"Scenario A: {current} -> {release_ver} -> {next_ver}")
+    _log(f"Releasing {current} -> {release_ver}, next: {next_ver}")
 
     # Pre-check: tag must not already exist
     if _tag_exists_locally(tag):
@@ -207,7 +207,7 @@ def _scenario_b(project) -> int:
     """Scenario B: force-push prerelease tag for current version."""
     current = project.version
     tag = f"v{current}"
-    _log(f"Scenario B: prerelease {tag} (force-push)")
+    _log(f"Prerelease {tag}...")
     if not _git_tag(tag, force=True):
         return EXIT_CONFIG
     if not _git_push_tag(tag, force=True):
@@ -219,7 +219,7 @@ def _scenario_b(project) -> int:
 def _scenario_c(project, release_ver: str) -> int:
     """Scenario C: rebuild — tag + push only, no file changes."""
     tag = f"v{release_ver}"
-    _log(f"Scenario C: rebuild {tag} (tag + push only)")
+    _log(f"Rebuilding {tag}...")
     if not _git_tag(tag, force=True):
         return EXIT_CONFIG
     if not _git_push_tag(tag, force=True):
