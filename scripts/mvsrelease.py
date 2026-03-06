@@ -2,14 +2,16 @@
 
 Two modes:
 
-A. Normal dev-to-release (main case):
+release (--version):
    Current version has -dev suffix, requested VERSION is the release.
    1. Bump version_files to VERSION, commit "release: vVERSION", tag, push.
    2. Bump to NEXT_VERSION (default: patch+1-dev), commit, push.
    3. Print message to run 'make bootstrap'.
 
-B. Prerelease (--prerelease):
-   Current version stays unchanged. Force-push tag v{current}.
+prerelease (--prerelease):
+   Current version stays unchanged. Publishes a prerelease tag v{current}.
+   Old tag is deleted (local + remote) before creating a fresh one to
+   ensure GitHub Actions triggers reliably.
    No file modifications, no version bump.
 
 Usage:
@@ -145,9 +147,9 @@ def _git_push_tag(tag: str, force: bool = False) -> bool:
     return True
 
 
-def _scenario_a(project, version_files: list[str],
+def _do_release(project, version_files: list[str],
                 release_ver: str, next_ver: str) -> int:
-    """Scenario A: dev-to-release bump, tag, push, bump-to-next-dev."""
+    """Bump to release version, tag, push, then bump to next-dev."""
     current = project.version
     tag = f"v{release_ver}"
 
@@ -199,14 +201,23 @@ def _scenario_a(project, version_files: list[str],
     return EXIT_SUCCESS
 
 
-def _scenario_b(project) -> int:
-    """Scenario B: force-push prerelease tag for current version."""
+def _do_prerelease(project) -> int:
+    """Publish a prerelease tag for the current dev version.
+
+    Deletes the old tag (local + remote) before creating a fresh one
+    so that GitHub Actions triggers reliably on the push event.
+    """
     current = project.version
     tag = f"v{current}"
     _log(f"Prerelease {tag}...")
-    if not _git_tag(tag, force=True):
+
+    # Delete old tag to ensure a clean push event (not a force-push).
+    _git("tag", "-d", tag)                        # ignore error if not exists
+    _git("push", "origin", "--delete", tag)        # ignore error if not exists
+
+    if not _git_tag(tag):
         return EXIT_CONFIG
-    if not _git_push_tag(tag, force=True):
+    if not _git_push_tag(tag):
         return EXIT_CONFIG
     _log(f"Prerelease {tag} pushed.")
     return EXIT_SUCCESS
@@ -228,7 +239,7 @@ def main() -> int:
     )
     group.add_argument(
         "--prerelease", action="store_true",
-        help="Force-push prerelease tag for current version (Scenario B)",
+        help="Publish prerelease tag for current dev version",
     )
     parser.add_argument(
         "--next-version",
@@ -250,11 +261,10 @@ def main() -> int:
         _log_error("Working tree is not clean. Commit or stash changes first.")
         return EXIT_CONFIG
 
-    # Scenario B: prerelease
     if args.prerelease:
-        return _scenario_b(project)
+        return _do_prerelease(project)
 
-    # Scenarios A and C: --version required
+    # release: --version required
     release_ver = args.version
     try:
         Version.parse(release_ver)
@@ -298,7 +308,7 @@ def main() -> int:
             return EXIT_CONFIG
     else:
         next_ver = _next_dev_version(Version.parse(release_ver))
-    return _scenario_a(project, version_files, release_ver, next_ver)
+    return _do_release(project, version_files, release_ver, next_ver)
 
 
 if __name__ == "__main__":
