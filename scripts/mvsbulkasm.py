@@ -341,7 +341,7 @@ def main() -> int:
         try:
             result = client.submit_jcl(
                 jcl, wait=True, timeout=timeout,
-                collect_spool=False)
+                jes_only=True)
         except MvsMFError as e:
             _log_error(f"Failed to submit batch {batch_num}: {e}")
             return EXIT_MAINFRAME

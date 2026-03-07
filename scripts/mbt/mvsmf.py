@@ -130,7 +130,8 @@ class MvsMFClient:
     def submit_jcl(self, jcl_text: str,
                    wait: bool = True,
                    timeout: int = 120,
-                   collect_spool: bool = True) -> JobResult:
+                   collect_spool: bool = True,
+                   jes_only: bool = False) -> JobResult:
         """Submit inline JCL and wait for completion.
 
         Endpoint: PUT /zosmf/restjobs/jobs
@@ -140,10 +141,13 @@ class MvsMFClient:
             jcl_text: Complete JCL including JOB card
             wait: If True, poll until job completes
             timeout: Max seconds to wait
-            collect_spool: If False, skip spool collection on
-                success (much faster for multi-step jobs).
-                Spool is still collected when retcode is null
-                (MVS/CE fallback) but limited to JES DDs only.
+            collect_spool: If False, skip spool collection
+                entirely (only useful for single-step jobs
+                where the job-level RC is sufficient).
+            jes_only: If True, collect only JES system DDs
+                (JESMSGLG, JESYSMSG, JESJCL, JESJCLIN).
+                Much faster for multi-step jobs where per-step
+                RCs are needed but step SYSPRINT is not.
 
         Returns:
             JobResult with RC and spool output
@@ -160,7 +164,8 @@ class MvsMFClient:
                 jobid=jobid, jobname=jobname,
                 rc=-1, status="ACTIVE", spool=""
             )
-        return self._poll_job(jobname, jobid, timeout, collect_spool)
+        return self._poll_job(jobname, jobid, timeout,
+                              collect_spool, jes_only)
 
     def collect_spool(self, jobname: str, jobid: str) -> str:
         """Public wrapper for spool collection.
@@ -173,7 +178,8 @@ class MvsMFClient:
 
     def _poll_job(self, jobname: str, jobid: str,
                   timeout: int,
-                  collect_spool: bool = True) -> JobResult:
+                  collect_spool: bool = True,
+                  jes_only: bool = False) -> JobResult:
         """Poll job status until OUTPUT or timeout.
 
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}
@@ -202,15 +208,19 @@ class MvsMFClient:
                 retcode_str = data.get("retcode")
                 if retcode_str is not None:
                     rc, status = self._parse_retcode(retcode_str)
-                    spool = (self._collect_spool(jobname, jobid)
-                             if collect_spool else "")
                 else:
-                    # MVS/CE: retcode is null, must parse from spool.
-                    # Collect only JES DDs when collect_spool=False.
-                    jes_only = not collect_spool
+                    rc, status = (-1, "UNKNOWN")
+
+                if collect_spool:
                     spool = self._collect_spool(
                         jobname, jobid, jes_only=jes_only)
+                else:
+                    spool = ""
+
+                # Fallback: if retcode was null, parse from spool
+                if rc == -1 and spool:
                     rc, status = self._parse_spool_rc(spool)
+
                 return JobResult(
                     jobid=jobid, jobname=jobname,
                     rc=rc, status=status, spool=spool
