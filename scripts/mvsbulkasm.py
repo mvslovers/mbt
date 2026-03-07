@@ -21,6 +21,7 @@ Exit codes per spec section 11.1.
 
 import sys
 import re
+import time
 import argparse
 from pathlib import Path
 
