@@ -65,7 +65,6 @@ def check_mvs_host(config: MbtConfig) -> bool:
     url = f"http://{host}:{port}/zosmf/info"
     try:
         req = urllib.request.Request(url, method="GET")
-        req.add_header("Authorization", "Basic Og==")  # ":" base64
         with urllib.request.urlopen(req, timeout=5) as resp:
             print(f"[mbt] MVS host reachable: {host}:{port} (HTTP {resp.status})")
             return True
