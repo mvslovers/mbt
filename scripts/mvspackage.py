@@ -19,6 +19,8 @@ Exit codes per spec section 11.1
 """
 
 import io
+import shutil
+import subprocess
 import sys
 import tarfile
 import argparse
@@ -401,6 +403,73 @@ def _create_bundle_tarball(config: MbtConfig, client: MvsMFClient,
     return tarball_path
 
 
+def _git_owner_repo() -> tuple[str, str] | None:
+    """Extract owner/repo from git remote 'origin'.
+
+    Parses both SSH (git@github.com:owner/repo.git) and
+    HTTPS (https://github.com/owner/repo.git) URLs.
+    Returns (owner, repo) or None if not determinable.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+
+    url = result.stdout.strip()
+
+    # SSH: git@github.com:owner/repo.git
+    if ":" in url and "@" in url:
+        path = url.split(":", 1)[1]
+    # HTTPS: https://github.com/owner/repo.git
+    elif "/" in url:
+        parts = url.rstrip("/").split("/")
+        if len(parts) >= 2:
+            path = "/".join(parts[-2:])
+        else:
+            return None
+    else:
+        return None
+
+    path = path.removesuffix(".git")
+    parts = path.split("/")
+    if len(parts) >= 2:
+        return parts[-2], parts[-1]
+    return None
+
+
+def _install_to_cache(dist_dir: Path, version: str) -> None:
+    """Copy dist/ artifacts into ~/.mbt/cache for local consumption.
+
+    This allows downstream projects to resolve this dependency
+    locally without a GitHub Release.
+    """
+    from mbt.dependencies import CACHE_DIR
+
+    identity = _git_owner_repo()
+    if identity is None:
+        _log("WARNING: Cannot determine owner/repo from git remote — "
+             "skipping local cache install.")
+        return
+
+    owner, repo = identity
+    cache_dir = CACHE_DIR / owner / repo / version
+
+    if cache_dir.exists():
+        shutil.rmtree(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    for f in dist_dir.iterdir():
+        if f.is_file():
+            shutil.copy2(f, cache_dir / f.name)
+
+    _log(f"Installed to local cache: {cache_dir}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="mbt package — create release artifacts"
@@ -454,6 +523,9 @@ def main() -> int:
         resolver = DatasetResolver(config)
         _create_mvs_tarball(config, client, resolver, dist_dir)
         _create_bundle_tarball(config, client, resolver, dist_dir)
+
+    # Install artifacts to local cache for downstream projects
+    _install_to_cache(dist_dir, project.version)
 
     _log("Packaging complete.")
     return EXIT_SUCCESS
