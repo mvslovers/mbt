@@ -34,8 +34,7 @@ def main():
     variables = build_variables(cfg)
     project_dir = project_path.parent.resolve()
 
-    includes = variables.get("INCLUDES", "").split()
-    includes.insert(0, "-Iinclude")
+    includes = variables.get("INCLUDES", "-Iinclude").split()
     cflags = variables.get("CFLAGS", "-S -O1").split()
     c_dirs = variables.get("C_DIRS", "src/").split()
 

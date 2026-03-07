@@ -12,13 +12,12 @@ MBT_BIN     := $(MBT_ROOT)/bin
 include $(MBT_ROOT)/mk/defaults.mk
 
 # Load config from Python (single invocation).
-# Errors go to stderr; BUILD_VARS is empty on failure.
-BUILD_VARS := $(shell python3 $(MBT_SCRIPTS)/mbtconfig.py \
-    --project project.toml --output shell 2>/dev/null)
+# Write to temp file so $(eval) sees real newlines ($(shell) strips them).
+$(shell python3 $(MBT_SCRIPTS)/mbtconfig.py \
+    --project project.toml --output shell \
+    > .mbt/config.mk 2>/dev/null)
 
-ifdef BUILD_VARS
-$(eval $(BUILD_VARS))
-endif
+-include .mbt/config.mk
 
 # Load rules and targets
 include $(MBT_ROOT)/mk/rules.mk

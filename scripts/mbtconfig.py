@@ -112,7 +112,7 @@ def build_variables(config: MbtConfig) -> dict[str, str]:
     variables["SYSLIB_NCALIBS"] = " ".join(ncalibs)
 
     # Compiler include flags (-I per dep headers dir)
-    includes = []
+    includes = ["-Iinclude"]
     for dep_key, dep_version in lockfile_deps.items():
         dep_short = dep_key.split("/")[-1]
         includes.append(f"-Icontrib/{dep_short}-{dep_version}/include")

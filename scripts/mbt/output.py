@@ -28,7 +28,7 @@ def format_shell(variables: dict[str, str]) -> str:
         if isinstance(value, list):
             value = " ".join(str(v) for v in value)
         lines.append(f"{key}={value}")
-    return "\n".join(lines)
+    return "\n".join(lines) + "\n"
 
 
 def format_json(variables: dict) -> str:
