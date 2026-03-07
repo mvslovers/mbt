@@ -16,16 +16,16 @@ update-deps:
 	@python3 $(MBT_SCRIPTS)/mbtbootstrap.py --project project.toml --update
 
 build:
-	@python3 $(MBT_SCRIPTS)/mvsasm.py --project project.toml
+	@python3 $(MBT_SCRIPTS)/mvsasm.py --project project.toml $(ARGS)
 
 link:
-	@python3 $(MBT_SCRIPTS)/mvslink.py --project project.toml
+	@python3 $(MBT_SCRIPTS)/mvslink.py --project project.toml $(ARGS)
 
 install:
-	@python3 $(MBT_SCRIPTS)/mvsinstall.py --project project.toml
+	@python3 $(MBT_SCRIPTS)/mvsinstall.py --project project.toml $(ARGS)
 
 package:
-	@python3 $(MBT_SCRIPTS)/mvspackage.py --project project.toml
+	@python3 $(MBT_SCRIPTS)/mvspackage.py --project project.toml $(ARGS)
 
 prerelease:
 	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml --prerelease
