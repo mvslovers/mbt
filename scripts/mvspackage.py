@@ -51,6 +51,15 @@ def _log_error(msg: str) -> None:
     print(f"[{MODULE}] ERROR: {msg}", file=sys.stderr)
 
 
+def _save_job_log(result, context: str) -> Path:
+    """Write spool output to .mbt/logs/."""
+    log_dir = Path(".mbt") / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_file = log_dir / f"{MODULE}-{context}-{result.jobid}.log"
+    log_file.write_text(result.spool, encoding="utf-8")
+    return log_file
+
+
 def _make_client(config: MbtConfig) -> MvsMFClient:
     return MvsMFClient(
         host=config.mvs_host,
@@ -236,7 +245,10 @@ def _transmit_dataset(client: MvsMFClient, config: MbtConfig,
         return None
 
     if not result.success or result.rc > 4:
+        log_file = _save_job_log(result, f"xmit-{src_dsn.split('.')[-1]}")
         _log_error(f"TRANSMIT failed for {src_dsn} (RC={result.rc})")
+        _log(f"Job: {result.jobname} / {result.jobid}")
+        _log(f"Log: {log_file}")
         _cleanup_xmit(client, xmit_dsn)
         return None
 
