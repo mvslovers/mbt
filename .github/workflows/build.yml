@@ -98,7 +98,7 @@ jobs:
       - name: Build (incremental)
         if: inputs.incremental
         run: |
-          CHANGED=$(git diff --name-only "${{ inputs.base_sha }}"..."${{ github.sha }}" \
+          CHANGED=$(git diff --diff-filter=d --name-only "${{ inputs.base_sha }}"..."${{ github.sha }}" \
             | grep -E '\.(c|s|asm)$' || true)
           if [ -z "$CHANGED" ]; then
             echo "[mbt] No source files changed, skipping assembly."
