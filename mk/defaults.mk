@@ -7,5 +7,5 @@ CC       ?= c2asm370
 CFLAGS   := -S -O1
 
 # Convention directories
-SRC_DIRS  ?= src/
+C_DIRS    ?= src/
 ASM_DIRS  ?=

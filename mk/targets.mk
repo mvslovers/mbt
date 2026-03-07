@@ -1,7 +1,7 @@
 # mk/targets.mk — Standard build targets
 
 .PHONY: doctor bootstrap bootstrap-datasets update-deps build link install \
-        package prerelease release clean distclean graph datasets
+        package prerelease release clean distclean graph datasets compiledb
 
 doctor:
 	@python3 $(MBT_SCRIPTS)/mbtdoctor.py --project project.toml
@@ -53,6 +53,9 @@ graph:
 
 datasets:
 	@python3 $(MBT_SCRIPTS)/mbtdatasets.py --project project.toml $(ARGS)
+
+compiledb:
+	@python3 $(MBT_SCRIPTS)/mbtcompiledb.py --project project.toml
 
 clean:
 	@echo "[mbt] Cleaning build artifacts..."
