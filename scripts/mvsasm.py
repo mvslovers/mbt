@@ -19,6 +19,7 @@ Exit codes per spec section 11.1.
 """
 
 import sys
+import time
 import argparse
 from pathlib import Path
 
@@ -49,6 +50,14 @@ def _log_warn(msg: str) -> None:
 
 def _log_error(msg: str) -> None:
     print(f"[{_MOD}] ERROR: {msg}", file=sys.stderr)
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as human-readable string."""
+    m, s = divmod(int(seconds), 60)
+    if m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
 
 
 def _save_job_log(result: JobResult, context: str) -> Path:
@@ -279,6 +288,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    t_start = time.monotonic()
+
     try:
         config = MbtConfig(project_path=args.project)
     except (ProjectError, FileNotFoundError) as e:
@@ -323,12 +334,22 @@ def main() -> int:
         return EXIT_MAINFRAME
 
     # Assemble and NCAL-link each source
+    built = 0
     for src, member in sources:
         if not _assemble_one(client, config, maclibs, src, member, build_ds):
+            elapsed = time.monotonic() - t_start
+            _log(f"Build failed after {_fmt_elapsed(elapsed)} "
+                 f"({built}/{len(sources)} modules)")
             return EXIT_BUILD
         if not _ncallink_one(client, config, member, build_ds):
+            elapsed = time.monotonic() - t_start
+            _log(f"Build failed after {_fmt_elapsed(elapsed)} "
+                 f"({built}/{len(sources)} modules)")
             return EXIT_BUILD
+        built += 1
 
+    elapsed = time.monotonic() - t_start
+    _log(f"Build complete: {built} modules in {_fmt_elapsed(elapsed)}")
     return EXIT_SUCCESS
 
 

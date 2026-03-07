@@ -79,6 +79,7 @@ class ProjectConfig:
     cflags: list[str] = field(default_factory=list)
     c_dirs: list[str] = field(default_factory=lambda: ["src/"])
     asm_dirs: list[str] = field(default_factory=list)
+    bulk_batch_size: int = 50
 
     # [dependencies]
     dependencies: dict[str, str] = field(default_factory=dict)
@@ -222,6 +223,7 @@ class ProjectConfig:
             version=proj.get("version", ""),
             type=proj.get("type", ""),
             cflags=list(build.get("cflags", [])),
+            bulk_batch_size=int(build.get("bulk_batch_size", 50)),
             c_dirs=c_dirs,
             asm_dirs=asm_dirs,
             dependencies=dict(deps),
