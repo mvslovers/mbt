@@ -119,7 +119,7 @@ def _compile_c_sources(project, lockfile_deps: dict,
                    + project.cflags
                    + include_flags
                    + ["-o", str(out_s), str(f)])
-            _log(f"Compiling {f.name}...")
+            _log(f"Cross-compiling {f.name}...")
             try:
                 result = subprocess.run(
                     cmd, capture_output=True, text=True

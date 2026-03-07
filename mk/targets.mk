@@ -15,20 +15,7 @@ bootstrap-datasets:
 update-deps:
 	@python3 $(MBT_SCRIPTS)/mbtbootstrap.py --project project.toml --update
 
-build: _cross_compile _assemble
-
-_cross_compile:
-	@for dir in $(C_DIRS); do \
-	    for src in $$dir*.c; do \
-	        [ -f "$$src" ] || continue; \
-	        base=$$(basename $$src .c); \
-	        echo "[mbt] Cross-compiling $$src..."; \
-	        $(CC) $(CFLAGS) $(PROJECT_CFLAGS) $(INCLUDES) \
-	            -o $$dir$$base.s $$src || exit 1; \
-	    done; \
-	done
-
-_assemble:
+build:
 	@python3 $(MBT_SCRIPTS)/mvsasm.py --project project.toml
 
 link:
