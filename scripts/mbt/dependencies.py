@@ -87,9 +87,44 @@ def _is_exact_prerelease(constraint: str) -> bool:
         return False
 
 
+def _resolve_from_cache(owner: str, repo: str,
+                        constraint: str) -> str | None:
+    """Check local cache for a version matching the constraint.
+
+    Scans ~/.mbt/cache/{owner}/{repo}/ for cached versions and
+    returns the highest match, or None if nothing found.
+    """
+    cache_base = CACHE_DIR / owner / repo
+    if not cache_base.is_dir():
+        return None
+
+    allow_prerelease = _is_exact_prerelease(constraint)
+    candidates = []
+    for entry in cache_base.iterdir():
+        if not entry.is_dir():
+            continue
+        ver_str = entry.name
+        try:
+            ver = Version.parse(ver_str)
+        except ValueError:
+            continue
+        if ver.pre is not None and not allow_prerelease:
+            continue
+        if satisfies(ver_str, constraint):
+            candidates.append(ver)
+
+    if not candidates:
+        return None
+    return str(max(candidates))
+
+
 def _resolve_one(owner: str, repo: str,
                  constraint: str) -> str:
     """Query GitHub API and return highest version matching constraint.
+
+    First checks the local cache. If a matching version is found
+    there, uses it without contacting GitHub. Otherwise falls back
+    to the GitHub Releases API.
 
     Stable releases only, unless constraint is an exact prerelease pin
     (e.g. '=1.0.1-dev'), in which case prerelease releases are included.
@@ -97,6 +132,11 @@ def _resolve_one(owner: str, repo: str,
     Raises:
         DependencyError: If no matching release found or API fails
     """
+    # Try local cache first
+    cached = _resolve_from_cache(owner, repo, constraint)
+    if cached is not None:
+        return cached
+
     url = f"{_GH_API}/repos/{owner}/{repo}/releases"
     req = urllib.request.Request(url)
     req.add_header("Accept", "application/vnd.github+json")
