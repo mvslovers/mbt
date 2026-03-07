@@ -24,7 +24,7 @@ _cross_compile:
 	        base=$$(basename $$src .c); \
 	        echo "[mbt] Cross-compiling $$src..."; \
 	        $(CC) $(CFLAGS) $(PROJECT_CFLAGS) $(INCLUDES) \
-	            -o asm/$$base.s $$src || exit 1; \
+	            -o $$dir$$base.s $$src || exit 1; \
 	    done; \
 	done
 
@@ -56,7 +56,8 @@ datasets:
 
 clean:
 	@echo "[mbt] Cleaning build artifacts..."
-	@rm -rf asm/*.s .mbt/logs/ dist/
+	@for dir in $(C_DIRS); do rm -f $$dir*.s $$dir*.o; done
+	@rm -rf .mbt/logs/ dist/
 
 distclean: clean
 	@echo "[mbt] Deep clean..."
