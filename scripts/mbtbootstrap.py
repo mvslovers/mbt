@@ -321,6 +321,7 @@ def main() -> int:
     # Step 5+6: Upload XMIT files and RECEIVE them
     for dep_key, dep_version in resolved.items():
         owner, repo = dep_key.split("/", 1)
+        is_pre = Version.parse(dep_version).pre is not None
         dep_vrm = Version.parse(dep_version).to_vrm()
         cache_dir = download_dependency(owner, repo, dep_version)
         pkg = package_cache.get(dep_key, {})
