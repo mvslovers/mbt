@@ -204,14 +204,15 @@ def download_dependency(owner: str, repo: str,
     """
     import shutil
     cache_dir = CACHE_DIR / owner / repo / version
-    if force and cache_dir.exists():
-        shutil.rmtree(cache_dir)
-    if not force and cache_dir.exists() and any(cache_dir.iterdir()):
+    cache_populated = (
+        cache_dir.exists() and any(cache_dir.iterdir())
+    )
+
+    if not force and cache_populated:
         return cache_dir
 
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    # Fetch release by tag
+    # Try to download from GitHub.  If the release doesn't exist
+    # (e.g. local-only prerelease), fall back to existing cache.
     tag = f"v{version}"
     url = f"{_GH_API}/repos/{owner}/{repo}/releases/tags/{tag}"
     req = urllib.request.Request(url)
@@ -221,14 +222,18 @@ def download_dependency(owner: str, repo: str,
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             release = json.loads(resp.read())
-    except urllib.error.HTTPError as e:
+    except (urllib.error.HTTPError, urllib.error.URLError):
+        if cache_populated:
+            return cache_dir
         raise DependencyError(
-            f"Cannot find release {tag} for {owner}/{repo}: HTTP {e.code}"
+            f"Cannot find release {tag} for {owner}/{repo} "
+            f"and no local cache available"
         )
-    except urllib.error.URLError as e:
-        raise DependencyError(
-            f"Cannot reach GitHub for {owner}/{repo}: {e.reason}"
-        )
+
+    # Download succeeded — refresh cache
+    if force and cache_dir.exists():
+        shutil.rmtree(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     assets = release.get("assets", [])
     for asset in assets:
