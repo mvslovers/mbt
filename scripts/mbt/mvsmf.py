@@ -9,6 +9,7 @@ Auth: HTTP Basic
 All methods raise MvsMFError on communication failures.
 """
 
+import http.client
 import json
 import re
 import time
@@ -16,6 +17,12 @@ import urllib.request
 import urllib.error
 import base64
 from dataclasses import dataclass
+
+# Force HTTP/1.0 — mvsMF's HTTPD server speaks HTTP/1.0 and does not
+# send Content-Length or chunked encoding. Python 3.13+ with HTTP/1.1
+# waits for these headers and times out.
+http.client.HTTPConnection._http_vsn = 10
+http.client.HTTPConnection._http_vsn_str = "HTTP/1.0"
 
 
 class MvsMFError(Exception):

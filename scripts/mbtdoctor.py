@@ -16,11 +16,16 @@ Exit codes:
 
 import sys
 import os
+import http.client
 import shutil
 import urllib.request
 import urllib.error
 import base64
 from pathlib import Path
+
+# Force HTTP/1.0 — mvsMF's HTTPD speaks HTTP/1.0 only
+http.client.HTTPConnection._http_vsn = 10
+http.client.HTTPConnection._http_vsn_str = "HTTP/1.0"
 
 # Add scripts/ dir to path so 'mbt' package is importable
 sys.path.insert(0, str(Path(__file__).parent))

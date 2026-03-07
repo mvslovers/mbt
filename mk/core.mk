@@ -13,6 +13,7 @@ include $(MBT_ROOT)/mk/defaults.mk
 
 # Load config from Python (single invocation).
 # Write to temp file so $(eval) sees real newlines ($(shell) strips them).
+$(shell mkdir -p .mbt)
 $(shell python3 $(MBT_SCRIPTS)/mbtconfig.py \
     --project project.toml --output shell \
     > .mbt/config.mk 2>/dev/null)
