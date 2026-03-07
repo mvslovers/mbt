@@ -129,7 +129,8 @@ class MvsMFClient:
 
     def submit_jcl(self, jcl_text: str,
                    wait: bool = True,
-                   timeout: int = 120) -> JobResult:
+                   timeout: int = 120,
+                   collect_spool: bool = True) -> JobResult:
         """Submit inline JCL and wait for completion.
 
         Endpoint: PUT /zosmf/restjobs/jobs
@@ -139,6 +140,10 @@ class MvsMFClient:
             jcl_text: Complete JCL including JOB card
             wait: If True, poll until job completes
             timeout: Max seconds to wait
+            collect_spool: If False, skip spool collection on
+                success (much faster for multi-step jobs).
+                Spool is still collected when retcode is null
+                (MVS/CE fallback) but limited to JES DDs only.
 
         Returns:
             JobResult with RC and spool output
@@ -155,10 +160,20 @@ class MvsMFClient:
                 jobid=jobid, jobname=jobname,
                 rc=-1, status="ACTIVE", spool=""
             )
-        return self._poll_job(jobname, jobid, timeout)
+        return self._poll_job(jobname, jobid, timeout, collect_spool)
+
+    def collect_spool(self, jobname: str, jobid: str) -> str:
+        """Public wrapper for spool collection.
+
+        Use this to fetch spool after a submit with
+        collect_spool=False, e.g. when a job fails and
+        you need the full spool for diagnostics.
+        """
+        return self._collect_spool(jobname, jobid)
 
     def _poll_job(self, jobname: str, jobid: str,
-                  timeout: int) -> JobResult:
+                  timeout: int,
+                  collect_spool: bool = True) -> JobResult:
         """Poll job status until OUTPUT or timeout.
 
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}
@@ -185,12 +200,16 @@ class MvsMFClient:
 
             if data.get("status") == "OUTPUT":
                 retcode_str = data.get("retcode")
-                spool = self._collect_spool(jobname, jobid)
                 if retcode_str is not None:
                     rc, status = self._parse_retcode(retcode_str)
+                    spool = (self._collect_spool(jobname, jobid)
+                             if collect_spool else "")
                 else:
-                    # MVS/CE mvsMF always returns null retcode;
-                    # parse actual RC from spool output instead.
+                    # MVS/CE: retcode is null, must parse from spool.
+                    # Collect only JES DDs when collect_spool=False.
+                    jes_only = not collect_spool
+                    spool = self._collect_spool(
+                        jobname, jobid, jes_only=jes_only)
                     rc, status = self._parse_spool_rc(spool)
                 return JobResult(
                     jobid=jobid, jobname=jobname,
@@ -204,9 +223,18 @@ class MvsMFClient:
             rc=9999, status="TIMEOUT", spool=spool
         )
 
+    _JES_DDNAMES = {"JESJCLIN", "JESMSGLG", "JESJCL", "JESYSMSG"}
+
     def _collect_spool(self, jobname: str,
-                       jobid: str) -> str:
-        """Collect all spool files for a job.
+                       jobid: str,
+                       jes_only: bool = False) -> str:
+        """Collect spool files for a job.
+
+        Args:
+            jes_only: When True, only collect JES system DDs
+                (JESJCLIN, JESMSGLG, JESJCL, JESYSMSG). This is
+                much faster for multi-step jobs where each step
+                produces its own SYSPRINT/SYSTERM DDs.
 
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}/files
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}/files/{n}/records
@@ -224,6 +252,8 @@ class MvsMFClient:
             fid = f.get("id", "")
             ddname = f.get("ddname", "")
             if not fid:
+                continue
+            if jes_only and ddname not in self._JES_DDNAMES:
                 continue
             try:
                 raw = self._request(

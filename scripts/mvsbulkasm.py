@@ -339,7 +339,9 @@ def main() -> int:
 
         timeout = max(180, len(batch) * 10)
         try:
-            result = client.submit_jcl(jcl, wait=True, timeout=timeout)
+            result = client.submit_jcl(
+                jcl, wait=True, timeout=timeout,
+                collect_spool=False)
         except MvsMFError as e:
             _log_error(f"Failed to submit batch {batch_num}: {e}")
             return EXIT_MAINFRAME
@@ -347,9 +349,12 @@ def main() -> int:
         _log(f"Batch {batch_num} completed: "
              f"{result.jobname} / {result.jobid}")
 
-        log_file = _save_job_log(result, f"batch{batch_num:02d}")
-
         if result.abended or result.status == "JCL ERROR":
+            spool = client.collect_spool(result.jobname, result.jobid)
+            result = JobResult(
+                jobid=result.jobid, jobname=result.jobname,
+                rc=result.rc, status=result.status, spool=spool)
+            log_file = _save_job_log(result, f"batch{batch_num:02d}")
             _log_error(
                 f"Batch {batch_num} failed: "
                 f"{result.status} (RC={result.rc})"
@@ -362,6 +367,7 @@ def main() -> int:
         step_results = _parse_batch_results(
             result.spool, batch, max_rc
         )
+        batch_failed = []
         for member, rc, ok in step_results:
             if ok:
                 total_ok += 1
@@ -371,7 +377,18 @@ def main() -> int:
                     _log(f"{member} RC={rc}")
             else:
                 _log_error(f"{member} failed (RC={rc}, max_rc={max_rc})")
-                failed.append(member)
+                batch_failed.append(member)
+
+        if batch_failed:
+            if not result.spool:
+                spool = client.collect_spool(
+                    result.jobname, result.jobid)
+                result = JobResult(
+                    jobid=result.jobid, jobname=result.jobname,
+                    rc=result.rc, status=result.status, spool=spool)
+            log_file = _save_job_log(result, f"batch{batch_num:02d}")
+            _log(f"Log: {log_file}")
+            failed.extend(batch_failed)
 
     elapsed = time.monotonic() - t_start
     _log(f"Results: {total_ok} OK, {len(failed)} failed "

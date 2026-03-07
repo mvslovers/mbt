@@ -211,13 +211,18 @@ def _assemble_one(client: MvsMFClient, config: MbtConfig,
     })
 
     try:
-        result = client.submit_jcl(jcl, wait=True, timeout=180)
+        result = client.submit_jcl(jcl, wait=True, timeout=180,
+                                   collect_spool=False)
     except MvsMFError as e:
         _log_error(f"Failed to submit assembly job for {member}: {e}")
         return False
 
     max_rc = config.project.max_rc
     if result.rc > max_rc:
+        spool = client.collect_spool(result.jobname, result.jobid)
+        result = JobResult(
+            jobid=result.jobid, jobname=result.jobname,
+            rc=result.rc, status=result.status, spool=spool)
         log_file = _save_job_log(result, member)
         _log_error(f"{member} failed (RC={result.rc}, max_rc={max_rc})")
         _log(f"Job: {result.jobname} / {result.jobid}")
@@ -257,13 +262,18 @@ def _ncallink_one(client: MvsMFClient, config: MbtConfig,
     })
 
     try:
-        result = client.submit_jcl(jcl, wait=True, timeout=120)
+        result = client.submit_jcl(jcl, wait=True, timeout=120,
+                                   collect_spool=False)
     except MvsMFError as e:
         _log_error(f"Failed to submit NCAL link job for {member}: {e}")
         return False
 
     # NCAL link RC=4 is acceptable (minor warnings)
     if result.rc > 4:
+        spool = client.collect_spool(result.jobname, result.jobid)
+        result = JobResult(
+            jobid=result.jobid, jobname=result.jobname,
+            rc=result.rc, status=result.status, spool=spool)
         log_file = _save_job_log(result, f"{member}-ncal")
         _log_error(f"{member} NCAL link failed (RC={result.rc})")
         _log(f"Job: {result.jobname} / {result.jobid}")
