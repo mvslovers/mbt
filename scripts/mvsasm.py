@@ -261,10 +261,7 @@ def _ncallink_one(client: MvsMFClient, config: MbtConfig,
         _log(f"Log: {log_file}")
         return False
 
-    if result.rc > 0:
-        _log_warn(f"{member} NCAL linked with warnings (RC={result.rc})")
-    else:
-        _log(f"{member} NCAL linked (RC={result.rc})")
+    _log(f"{member} NCAL linked (RC={result.rc})")
     return True
 
 
