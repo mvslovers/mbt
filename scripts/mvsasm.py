@@ -1,9 +1,18 @@
 """MVS Assembler executor.
 
-For each .s file found in c_dirs (cross-compiled) and asm_dirs (hand-written):
-  1. Submit single job with ASM (IFOX00) + NCAL link (IEWL) via asm.jcl.tpl
-  2. Wait for result, check RC against max_rc from project.toml
-  3. Write failure log to .mbt/logs/ on error
+Uploads .s source files to a SOURCE PDS on MVS, then submits
+multi-step JCL jobs (ASM + NCAL link per module, batched).
+
+Supports incremental builds via SHA256 stamps (.mbt/stamps/).
+Only changed modules are compiled and assembled unless --force
+is specified.
+
+Pipeline:
+  1. Cross-compile .c → .s (c2asm370, runs on host)
+  2. Filter unchanged modules (stamp check)
+  3. Upload .s to SOURCE PDS via mvsMF REST API
+  4. Submit batch JCL (bulk_batch_size modules per job)
+  5. Parse per-step RCs, update stamps on success
 
 Log format (per spec section 11.2):
     [mvsasm] Assembling HELLO...
@@ -11,12 +20,13 @@ Log format (per spec section 11.2):
     [mvsasm] ERROR: HELLO failed (RC=8, max_rc=4)
 
 Usage:
-    mvsasm.py [--project project.toml] [--member NAME]
+    mvsasm.py [--project project.toml] [--member NAME] [--force]
 
 Exit codes per spec section 11.1.
 """
 
 import sys
+import re
 import time
 import argparse
 from pathlib import Path
@@ -25,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from mbt import (
     EXIT_SUCCESS, EXIT_BUILD, EXIT_CONFIG,
-    EXIT_MAINFRAME, EXIT_INTERNAL,
+    EXIT_MAINFRAME, EXIT_DATASET, EXIT_INTERNAL,
 )
 from mbt.config import MbtConfig
 from mbt.datasets import DatasetResolver
@@ -34,6 +44,7 @@ from mbt.jcl import render_template, render_syslib_concat, jobcard
 from mbt.lockfile import Lockfile
 from mbt.mvsmf import MvsMFClient, MvsMFError, JobResult
 from mbt.project import ProjectError
+from mbt.stamps import compute_hash, needs_build, write_stamp
 
 _MOD = "mvsasm"
 
@@ -91,13 +102,11 @@ def _load_package_cache(lockfile: Lockfile | None) -> dict:
 
 def _compile_c_sources(project, lockfile_deps: dict,
                        package_cache: dict,
-                       member_filter: str | None) -> bool:
+                       member_filter: str | None,
+                       force: bool) -> bool:
     """Cross-compile .c files in c_dirs to .s using c2asm370.
 
-    Core flags: -S -O1
-    Extended by project cflags from [build] in project.toml.
-    Include paths: ./include + contrib/{pkg_name}-{ver}/include per dep.
-
+    Skips unchanged .c files unless force is True.
     Returns True on success, False on any compile error.
     """
     import subprocess
@@ -121,6 +130,8 @@ def _compile_c_sources(project, lockfile_deps: dict,
             member = f.stem.upper()[:8]
             if member_filter and member != member_filter.upper():
                 continue
+            if not force and not needs_build(f, member, "compile"):
+                continue
             out_s = f.with_suffix(".s")
             cmd = (["c2asm370", "-S", "-O1"]
                    + project.cflags
@@ -137,6 +148,7 @@ def _compile_c_sources(project, lockfile_deps: dict,
                         + (result.stderr or result.stdout).rstrip()
                     )
                     return False
+                write_stamp(member, "compile", compute_hash(f))
             except FileNotFoundError:
                 _log_error("c2asm370 not found in PATH")
                 return False
@@ -147,8 +159,6 @@ def _find_sources(project, member_filter: str | None) -> list[tuple[Path, str]]:
     """Find .s source files in c_dirs and asm_dirs.
 
     Returns list of (path, member_name) tuples.
-    c_dirs: .s files (cross-compiled from C or pre-generated)
-    asm_dirs: .s/.asm files (hand-written assembler)
     """
     sources = []
 
@@ -177,71 +187,142 @@ def _find_sources(project, member_filter: str | None) -> list[tuple[Path, str]]:
     return sources
 
 
-def _assemble_one(client: MvsMFClient, config: MbtConfig,
-                  maclibs: list[str],
-                  src: Path, member: str,
-                  build_ds: dict[str, str]) -> bool:
-    """Assemble and NCAL-link one source file in a single job.
+def _filter_unchanged(sources: list[tuple[Path, str]],
+                      force: bool) -> list[tuple[Path, str]]:
+    """Filter out modules whose .s files haven't changed.
 
-    Submits one JCL job with two steps: ASM (IFOX00) + LINK (IEWL NCAL).
-    The LINK step is conditioned on ASM success (COND=(4,LT,ASM)).
-
-    Returns True on success.
+    Returns only modules that need to be assembled.
     """
-    _log(f"Assembling {member}...")
+    if force:
+        return sources
 
-    punch_dsn = build_ds.get("punch")
-    ncalib_dsn = build_ds.get("ncalib")
-    if not punch_dsn:
-        _log_error(
-            f"No 'punch' dataset defined in project (needed for {member})"
-        )
-        return False
+    to_build = []
+    for src, member in sources:
+        if needs_build(src, member, "asm"):
+            to_build.append((src, member))
+    return to_build
 
-    asm_source = src.read_text(encoding="utf-8", errors="replace")
+
+def _upload_sources(client: MvsMFClient,
+                    source_dsn: str,
+                    sources: list[tuple[Path, str]]) -> bool:
+    """Upload .s files to SOURCE PDS as members."""
+    _log(f"Uploading {len(sources)} source files to {source_dsn}...")
+    for src, member in sources:
+        content = src.read_text(encoding="utf-8", errors="replace")
+        try:
+            client.write_member(source_dsn, member, content)
+        except MvsMFError as e:
+            _log_error(f"Failed to upload {member} to {source_dsn}: {e}")
+            return False
+    _log(f"Upload complete.")
+    return True
+
+
+def _ensure_source_pds(client: MvsMFClient,
+                       source_dsn: str,
+                       source_ds,
+                       full_build: bool) -> bool:
+    """Ensure SOURCE PDS exists. Delete+recreate on full builds."""
+    if full_build and client.dataset_exists(source_dsn):
+        _log(f"Deleting {source_dsn} (clean slate)...")
+        try:
+            client.delete_dataset(source_dsn)
+        except MvsMFError as e:
+            _log_error(f"Failed to delete {source_dsn}: {e}")
+            return False
+
+    if not client.dataset_exists(source_dsn):
+        _log(f"Allocating {source_dsn}...")
+        try:
+            client.create_dataset(
+                dsn=source_dsn,
+                dsorg=source_ds.dsorg,
+                recfm=source_ds.recfm,
+                lrecl=source_ds.lrecl,
+                blksize=source_ds.blksize,
+                space=source_ds.space,
+                unit=source_ds.unit,
+                volume=source_ds.volume,
+            )
+        except MvsMFError as e:
+            _log_error(f"Failed to allocate {source_dsn}: {e}")
+            return False
+    return True
+
+
+def _build_batch_jcl(batch: list[str],
+                     batch_num: int,
+                     config: MbtConfig,
+                     maclibs: list[str],
+                     build_ds: dict[str, str]) -> str:
+    """Generate multi-step JCL for a batch of members."""
+    source_dsn = build_ds["source"]
+    punch_dsn = build_ds["punch"]
+    ncalib_dsn = build_ds["ncalib"]
     syslib_concat = render_syslib_concat(maclibs)
 
     jc = jobcard(
-        f"MBTASM{member[:3]}",
+        f"MBTASM{batch_num:02d}",
         config.jes_jobclass,
         config.jes_msgclass,
         "MBTASM",
     )
-    tpl_vars = {
-        "JOBCARD": jc,
-        "MEMBER": member,
-        "SYSLIB_CONCAT": syslib_concat,
-        "PUNCH_DSN": punch_dsn,
-        "ASM_SOURCE": asm_source,
-    }
-    if ncalib_dsn:
-        tpl_vars["NCALIB_DSN"] = ncalib_dsn
-    jcl = render_template("asm.jcl.tpl", tpl_vars)
 
-    try:
-        result = client.submit_jcl(jcl, wait=True, timeout=180,
-                                   collect_spool=False)
-    except MvsMFError as e:
-        _log_error(f"Failed to submit job for {member}: {e}")
-        return False
+    lines = [jc]
+    for idx, member in enumerate(batch, start=1):
+        seq = f"{idx:02d}"
+        step_jcl = render_template("asm-step.jcl.tpl", {
+            "SEQ": seq,
+            "MEMBER": member,
+            "SYSLIB_CONCAT": syslib_concat,
+            "SOURCE_DSN": source_dsn,
+            "PUNCH_DSN": punch_dsn,
+            "NCALIB_DSN": ncalib_dsn,
+        })
+        lines.append(step_jcl)
 
-    max_rc = config.project.max_rc
-    if result.rc > max_rc:
-        spool = client.collect_spool(result.jobname, result.jobid)
-        result = JobResult(
-            jobid=result.jobid, jobname=result.jobname,
-            rc=result.rc, status=result.status, spool=spool)
-        log_file = _save_job_log(result, member)
-        _log_error(f"{member} failed (RC={result.rc}, max_rc={max_rc})")
-        _log(f"Job: {result.jobname} / {result.jobid}")
-        _log(f"Log: {log_file}")
-        return False
+    lines.append("//")
+    return "\n".join(lines)
 
-    if result.rc > 0:
-        _log_warn(f"{member} assembled + linked (RC={result.rc})")
-    else:
-        _log(f"{member} assembled + linked (RC={result.rc})")
-    return True
+
+def _parse_batch_results(spool: str,
+                         batch: list[str],
+                         max_rc: int) -> list[tuple[str, int, bool]]:
+    """Parse per-step results from spool output.
+
+    Returns list of (member, rc, ok) tuples.
+
+    Parses IEF142I messages which have the format:
+      IEF142I jobname stepname - STEP WAS EXECUTED - COND CODE 0000
+
+    Also detects NOT EXECUTED steps (IEF272I) and ABENDs.
+    """
+    results = []
+
+    for idx, member in enumerate(batch, start=1):
+        seq = f"{idx:02d}"
+        asm_step = f"ASM{seq}"
+
+        executed = re.search(
+            rf'IEF142I\s+\S+\s+{asm_step}\s+.*COND CODE\s+(\d+)',
+            spool
+        )
+        if executed:
+            rc = int(executed.group(1))
+        elif re.search(rf'IEF272I\s+\S+\s+{asm_step}\s', spool):
+            rc = 9997
+        elif re.search(rf'{asm_step}\s.*ABEND', spool):
+            rc = 9999
+        elif asm_step in spool:
+            rc = 9999
+        else:
+            rc = -1
+
+        ok = 0 <= rc <= max_rc
+        results.append((member, rc, ok))
+
+    return results
 
 
 def main() -> int:
@@ -255,6 +336,10 @@ def main() -> int:
     parser.add_argument(
         "--member", default=None,
         help="Assemble only this member name (default: all)",
+    )
+    parser.add_argument(
+        "--force", action="store_true",
+        help="Ignore stamps, rebuild all modules",
     )
     args = parser.parse_args()
 
@@ -279,21 +364,47 @@ def main() -> int:
     build_ds_map = resolver.build_datasets()
     build_ds = {k: v.dsn for k, v in build_ds_map.items()}
 
+    if "source" not in build_ds:
+        _log_error(
+            "Build requires [mvs.build.datasets.source] in project.toml"
+        )
+        return EXIT_CONFIG
+    if "punch" not in build_ds or "ncalib" not in build_ds:
+        _log_error("Missing 'punch' or 'ncalib' dataset in project.toml")
+        return EXIT_CONFIG
+
     # Build MACLIB concatenation: project → deps → system
     maclibs = resolver.syslib_maclibs(lockfile_deps, package_cache)
 
-    # Compile C sources → .s (c2asm370, runs on host)
-    if not _compile_c_sources(project, lockfile_deps, package_cache, args.member):
+    # Cross-compile C sources → .s (c2asm370, runs on host)
+    if not _compile_c_sources(project, lockfile_deps, package_cache,
+                              args.member, args.force):
         return EXIT_BUILD
 
     # Find .s/.asm source files (includes freshly compiled ones)
     sources = _find_sources(project, args.member)
     if not sources:
         if args.member:
-            _log_warn(f"Member '{args.member}' not found in c_dirs/asm_dirs, skipping")
+            _log_warn(f"Member '{args.member}' not found in "
+                      f"c_dirs/asm_dirs, skipping")
             return EXIT_SUCCESS
         _log_warn("No .s source files found in c_dirs or asm_dirs")
         return EXIT_SUCCESS
+
+    # Filter unchanged modules (incremental build)
+    to_build = _filter_unchanged(sources, args.force)
+    if not to_build:
+        elapsed = time.monotonic() - t_start
+        _log(f"All {len(sources)} modules up to date "
+             f"({_fmt_elapsed(elapsed)})")
+        return EXIT_SUCCESS
+
+    skipped = len(sources) - len(to_build)
+    if skipped > 0:
+        _log(f"Building {len(to_build)} changed modules "
+             f"({skipped} unchanged, skipped)")
+    else:
+        _log(f"Building {len(to_build)} modules")
 
     # Connect to mvsMF
     client = _make_client(config)
@@ -303,18 +414,113 @@ def main() -> int:
         )
         return EXIT_MAINFRAME
 
-    # Assemble and NCAL-link each source (single job per module)
-    built = 0
-    for src, member in sources:
-        if not _assemble_one(client, config, maclibs, src, member, build_ds):
-            elapsed = time.monotonic() - t_start
-            _log(f"Build failed after {_fmt_elapsed(elapsed)} "
-                 f"({built}/{len(sources)} modules)")
-            return EXIT_BUILD
-        built += 1
+    # Ensure SOURCE PDS exists (delete+recreate on full builds)
+    source_dsn = build_ds["source"]
+    source_ds = build_ds_map["source"]
+    full_rebuild = args.member is None and skipped == 0
+    if not _ensure_source_pds(client, source_dsn, source_ds, full_rebuild):
+        return EXIT_DATASET
+
+    # Upload sources to PDS
+    if not _upload_sources(client, source_dsn, to_build):
+        return EXIT_DATASET
+
+    # Batch and submit JCL
+    members = [member for _, member in to_build]
+    # Precompute hashes for stamp updates after successful assembly
+    member_hashes = {}
+    for src, member in to_build:
+        member_hashes[member] = compute_hash(src)
+
+    batch_size = project.bulk_batch_size
+    batches = [members[i:i + batch_size]
+               for i in range(0, len(members), batch_size)]
+
+    _log(f"Submitting {len(batches)} batch job(s) "
+         f"({len(members)} modules)...")
+
+    max_rc = project.max_rc
+    failed = []
+    total_ok = 0
+
+    for batch_num, batch in enumerate(batches, start=1):
+        if len(batch) > 1:
+            _log(f"Batch {batch_num}/{len(batches)} "
+                 f"({len(batch)} modules: {batch[0]}..{batch[-1]})...")
+        else:
+            _log(f"Assembling {batch[0]}...")
+
+        jcl = _build_batch_jcl(
+            batch, batch_num, config, maclibs, build_ds
+        )
+
+        timeout = max(180, len(batch) * 10)
+        try:
+            result = client.submit_jcl(
+                jcl, wait=True, timeout=timeout,
+                jes_only=True)
+        except MvsMFError as e:
+            _log_error(f"Failed to submit batch {batch_num}: {e}")
+            return EXIT_MAINFRAME
+
+        _log(f"Batch {batch_num} completed: "
+             f"{result.jobname} / {result.jobid}")
+
+        if result.abended or result.status == "JCL ERROR":
+            spool = client.collect_spool(result.jobname, result.jobid)
+            result = JobResult(
+                jobid=result.jobid, jobname=result.jobname,
+                rc=result.rc, status=result.status, spool=spool)
+            log_file = _save_job_log(result, f"batch{batch_num:02d}")
+            _log_error(
+                f"Batch {batch_num} failed: "
+                f"{result.status} (RC={result.rc})"
+            )
+            _log(f"Log: {log_file}")
+            for member in batch:
+                failed.append(member)
+            continue
+
+        step_results = _parse_batch_results(
+            result.spool, batch, max_rc
+        )
+        batch_failed = []
+        for member, rc, ok in step_results:
+            if ok:
+                total_ok += 1
+                write_stamp(member, "asm", member_hashes[member])
+                if rc > 0:
+                    _log_warn(f"{member} RC={rc}")
+                else:
+                    _log(f"{member} RC={rc}")
+            else:
+                _log_error(f"{member} failed (RC={rc}, max_rc={max_rc})")
+                batch_failed.append(member)
+
+        if batch_failed:
+            if not result.spool:
+                spool = client.collect_spool(
+                    result.jobname, result.jobid)
+                result = JobResult(
+                    jobid=result.jobid, jobname=result.jobname,
+                    rc=result.rc, status=result.status, spool=spool)
+            log_file = _save_job_log(result, f"batch{batch_num:02d}")
+            _log(f"Log: {log_file}")
+            failed.extend(batch_failed)
 
     elapsed = time.monotonic() - t_start
-    _log(f"Build complete: {built} modules in {_fmt_elapsed(elapsed)}")
+    if skipped > 0:
+        _log(f"Results: {total_ok} OK, {len(failed)} failed, "
+             f"{skipped} skipped "
+             f"out of {len(sources)} modules in {_fmt_elapsed(elapsed)}")
+    else:
+        _log(f"Results: {total_ok} OK, {len(failed)} failed "
+             f"out of {len(members)} modules in {_fmt_elapsed(elapsed)}")
+
+    if failed:
+        _log_error(f"Failed modules: {', '.join(failed)}")
+        return EXIT_BUILD
+
     return EXIT_SUCCESS
 
 

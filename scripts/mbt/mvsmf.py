@@ -13,6 +13,7 @@ import http.client
 import json
 import re
 import time
+import urllib.parse
 import urllib.request
 import urllib.error
 import base64
@@ -87,7 +88,7 @@ class MvsMFClient:
         Raises:
             MvsMFError: On HTTP errors or connection failures
         """
-        url = f"{self._base_url}{path}"
+        url = f"{self._base_url}{urllib.parse.quote(path, safe='/?=&()')}"
         req = urllib.request.Request(url, method=method)
         req.add_header("Authorization", f"Basic {self._auth}")
         req.add_header("Accept", accept)
