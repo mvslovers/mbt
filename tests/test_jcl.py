@@ -47,6 +47,18 @@ class TestRenderSyslibConcat(unittest.TestCase):
         result = render_syslib_concat(["SYS1.MACLIB"])
         self.assertNotIn("\n\n", result)
 
+    def test_blksize_on_first_dd(self):
+        result = render_syslib_concat(
+            ["CRENT370.NCALIB", "HTTPD.NCALIB"], blksize=32760
+        )
+        lines = result.split("\n")
+        self.assertIn("DCB=BLKSIZE=32760", lines[0])
+        self.assertNotIn("DCB=BLKSIZE", lines[1])
+
+    def test_no_blksize_by_default(self):
+        result = render_syslib_concat(["SYS1.MACLIB", "CRENT370.MACLIB"])
+        self.assertNotIn("DCB=BLKSIZE", result)
+
 
 class TestRenderIncludeConcat(unittest.TestCase):
 

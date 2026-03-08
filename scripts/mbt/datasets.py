@@ -221,20 +221,16 @@ class DatasetResolver:
                        ) -> list[str]:
         """Build SYSLIB DD dataset list for IEWL.
 
-        Contains project NCALIB and autocall-compatible dependency
-        NCaLIBs only. Non-autocall deps go to ncalib_dd_dsns() instead.
+        Contains only autocall-compatible dependency NCaLIBs.
+        The project's own NCALIB is NOT included here — it goes
+        on the NCALIB DD (via ncalib_dd_dsns()) for explicit
+        INCLUDE NCALIB(member) statements only.
 
-        Order: project NCALIB first, then autocall deps in
-        declaration order.
+        Non-autocall deps also go to ncalib_dd_dsns() instead.
         """
         result = []
 
-        # 1. Project's NCALIB
-        build_ds = self.build_datasets()
-        if "ncalib" in build_ds:
-            result.append(build_ds["ncalib"].dsn)
-
-        # 2. Autocall dependency NCaLIBs (declaration order)
+        # Autocall dependency NCaLIBs (declaration order)
         dep_datasets = self.dependency_datasets(lockfile_deps, package_cache)
         for dep_key in self.config.project.dependencies:
             if dep_key in dep_datasets:

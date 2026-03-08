@@ -186,7 +186,7 @@ def main() -> int:
 
     # SYSLIB DD: project NCALIB + autocall dep NCaLIBs
     syslib_dsns = resolver.syslib_ncalibs(lockfile_deps, package_cache)
-    syslib_concat = render_syslib_concat(syslib_dsns)
+    syslib_concat = render_syslib_concat(syslib_dsns, blksize=32760)
 
     # NCALIB DD: project NCALIB + non-autocall dep NCaLIBs
     ncalib_dsns = resolver.ncalib_dd_dsns(lockfile_deps, package_cache)

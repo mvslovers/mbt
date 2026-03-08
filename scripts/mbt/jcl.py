@@ -56,9 +56,26 @@ def render_dd_concat(dd_name: str, datasets: list[str]) -> str:
     return "\n".join(lines)
 
 
-def render_syslib_concat(datasets: list[str]) -> str:
-    """Generate SYSLIB DD concatenation JCL fragment."""
-    return render_dd_concat("SYSLIB", datasets)
+def render_syslib_concat(datasets: list[str],
+                         blksize: int = 0) -> str:
+    """Generate SYSLIB DD concatenation JCL fragment.
+
+    For linkedit SYSLIB, the first DD should specify
+    DCB=BLKSIZE=32760 when concatenating NCALIB (recfm=U)
+    datasets to ensure the linker can read all blocks.
+
+    Args:
+        datasets: List of fully qualified dataset names
+        blksize:  If > 0, add DCB=BLKSIZE= to first DD
+    """
+    label = "//SYSLIB"
+    if not datasets:
+        return f"{label:<11}DD DUMMY"
+    dcb = f",DCB=BLKSIZE={blksize}" if blksize else ""
+    lines = [f"{label:<11}DD DSN={datasets[0]},DISP=SHR{dcb}"]
+    for dsn in datasets[1:]:
+        lines.append(f"//         DD DSN={dsn},DISP=SHR")
+    return "\n".join(lines)
 
 
 def render_include_concat(members: list[str],
