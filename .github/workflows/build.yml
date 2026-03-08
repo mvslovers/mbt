@@ -104,7 +104,20 @@ jobs:
             echo "[mbt] No source files changed, skipping assembly."
             exit 0
           fi
-          MEMBERS=$(echo "$CHANGED" | while read -r f; do
+          # Filter out files that no longer exist (renamed/moved/deleted in later commits)
+          EXISTING=""
+          for f in $CHANGED; do
+            if [ -f "$f" ]; then
+              EXISTING="$EXISTING
+          $f"
+            fi
+          done
+          EXISTING=$(echo "$EXISTING" | sed '/^$/d')
+          if [ -z "$EXISTING" ]; then
+            echo "[mbt] All changed source files were deleted, skipping assembly."
+            exit 0
+          fi
+          MEMBERS=$(echo "$EXISTING" | while read -r f; do
             basename "$f" | sed 's/\..*//' | tr '[:lower:]' '[:upper:]' | cut -c1-8
           done | sort -u)
           echo "[mbt] Changed members: $MEMBERS"

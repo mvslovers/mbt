@@ -49,7 +49,7 @@ compiledb:
 
 clean:
 	@echo "[mbt] Cleaning build artifacts..."
-	@for dir in $(C_DIRS); do rm -f $$dir*.s $$dir*.o; done
+	@for dir in $(C_DIRS); do rm -f "$$dir"/*.s "$$dir"/*.o; done
 	@rm -rf .mbt/logs/ dist/
 
 distclean: clean

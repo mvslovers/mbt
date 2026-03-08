@@ -314,6 +314,33 @@ def main() -> int:
         return EXIT_MAINFRAME
 
     source_dsn = build_ds["source"]
+    source_ds = build_ds_map["source"]
+
+    # Recreate SOURCE PDS to avoid E37 (PDS space exhaustion).
+    # PDS directories cannot be compressed via API, so delete + reallocate.
+    if client.dataset_exists(source_dsn):
+        _log(f"Deleting {source_dsn} (clean slate)...")
+        try:
+            client.delete_dataset(source_dsn)
+        except MvsMFError as e:
+            _log_error(f"Failed to delete {source_dsn}: {e}")
+            return EXIT_DATASET
+    _log(f"Allocating {source_dsn}...")
+    try:
+        client.create_dataset(
+            dsn=source_dsn,
+            dsorg=source_ds.dsorg,
+            recfm=source_ds.recfm,
+            lrecl=source_ds.lrecl,
+            blksize=source_ds.blksize,
+            space=source_ds.space,
+            unit=source_ds.unit,
+            volume=source_ds.volume,
+        )
+    except MvsMFError as e:
+        _log_error(f"Failed to allocate {source_dsn}: {e}")
+        return EXIT_DATASET
+
     if not _upload_sources(client, source_dsn, sources):
         return EXIT_DATASET
 
