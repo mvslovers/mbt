@@ -51,9 +51,15 @@ class TestRenderSyslibConcat(unittest.TestCase):
         result = render_syslib_concat(
             ["CRENT370.NCALIB", "HTTPD.NCALIB"], blksize=32760
         )
+        self.assertIn("DCB=BLKSIZE=32760", result)
+        # DCB on continuation line, not on the continuation DDs
         lines = result.split("\n")
-        self.assertIn("DCB=BLKSIZE=32760", lines[0])
-        self.assertNotIn("DCB=BLKSIZE", lines[1])
+        # First line ends with comma (JCL continuation)
+        self.assertTrue(lines[0].rstrip().endswith(","))
+        # DCB is on second line
+        self.assertIn("DCB=BLKSIZE=32760", lines[1])
+        # Last DD (HTTPD.NCALIB) has no DCB
+        self.assertNotIn("DCB=BLKSIZE", lines[2])
 
     def test_no_blksize_by_default(self):
         result = render_syslib_concat(["SYS1.MACLIB", "CRENT370.MACLIB"])
