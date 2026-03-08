@@ -70,7 +70,7 @@ def build_variables(config: MbtConfig) -> dict[str, str]:
 
     # Compiler
     variables["CC"] = "c2asm370"
-    cflags_parts = ["-S", "-O1"] + project.cflags
+    cflags_parts = ["-S", "-O1", f'-DVERSION="{project.version}"'] + project.cflags
     variables["CFLAGS"] = " ".join(cflags_parts)
 
     # MVS connection
