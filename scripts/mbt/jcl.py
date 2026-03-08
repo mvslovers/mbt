@@ -71,8 +71,11 @@ def render_syslib_concat(datasets: list[str],
     label = "//SYSLIB"
     if not datasets:
         return f"{label:<11}DD DUMMY"
-    dcb = f",DCB=BLKSIZE={blksize}" if blksize else ""
-    lines = [f"{label:<11}DD DSN={datasets[0]},DISP=SHR{dcb}"]
+    first = f"{label:<11}DD DSN={datasets[0]},DISP=SHR"
+    if blksize:
+        # DCB= often exceeds col 71, so use JCL continuation
+        first += ",\n//         DCB=BLKSIZE={0}".format(blksize)
+    lines = [first]
     for dsn in datasets[1:]:
         lines.append(f"//         DD DSN={dsn},DISP=SHR")
     return "\n".join(lines)
