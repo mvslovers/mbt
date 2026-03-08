@@ -124,7 +124,9 @@ class MvsMFClient:
                             "application/json", "application/json")
         if not raw:
             return {}
-        return json.loads(raw)
+        # mvsMF may return non-UTF-8 bytes in JSON responses (e.g. EBCDIC
+        # remnants in spool data). Decode as latin-1 which is byte-transparent.
+        return json.loads(raw.decode("latin-1"))
 
     # --- Job Operations ---
 
