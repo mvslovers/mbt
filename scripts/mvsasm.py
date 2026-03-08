@@ -417,8 +417,8 @@ def main() -> int:
     # Ensure SOURCE PDS exists (delete+recreate on full builds)
     source_dsn = build_ds["source"]
     source_ds = build_ds_map["source"]
-    full_build = args.member is None
-    if not _ensure_source_pds(client, source_dsn, source_ds, full_build):
+    full_rebuild = args.member is None and skipped == 0
+    if not _ensure_source_pds(client, source_dsn, source_ds, full_rebuild):
         return EXIT_DATASET
 
     # Upload sources to PDS
