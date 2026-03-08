@@ -131,7 +131,6 @@ def _compile_c_sources(project, lockfile_deps: dict,
             if member_filter and member != member_filter.upper():
                 continue
             if not force and not needs_build(f, member, "compile"):
-                _log(f"{member} .c unchanged, skipping cross-compile")
                 continue
             out_s = f.with_suffix(".s")
             cmd = (["c2asm370", "-S", "-O1"]
@@ -201,8 +200,6 @@ def _filter_unchanged(sources: list[tuple[Path, str]],
     for src, member in sources:
         if needs_build(src, member, "asm"):
             to_build.append((src, member))
-        else:
-            _log(f"{member} unchanged, skipping")
     return to_build
 
 
