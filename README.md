@@ -97,6 +97,14 @@ name    = "myapp"
 version = "1.0.0"
 type    = "application"
 
+[mvs.build.datasets.source]
+suffix  = "SOURCE"
+dsorg   = "PO"
+recfm   = "FB"
+lrecl   = 80
+blksize = 3120
+space   = ["TRK", 5, 2, 5]
+
 [mvs.build.datasets.punch]
 suffix  = "OBJECT"
 dsorg   = "PO"
@@ -137,10 +145,19 @@ mvs = true
 ```sh
 make doctor         # verify environment
 make bootstrap      # resolve deps, provision datasets on MVS
-make build          # cross-compile C + assemble on MVS
+make build          # cross-compile C + assemble on MVS (incremental)
 make link           # final linkedit
 make package        # create release artifacts in dist/
 ```
+
+`make build` uploads source files to a SOURCE PDS on MVS and submits
+multi-step batch JCL. It is incremental by default — only modules whose
+source files changed since the last successful build are recompiled and
+assembled. Use `--force` to rebuild everything, or `--member NAME` to
+build a single module during development.
+
+The project version from `project.toml` is automatically passed to
+the cross-compiler as `-DVERSION="x.y.z"`.
 
 ---
 
@@ -151,7 +168,9 @@ make package        # create release artifacts in dist/
 | `make doctor` | Check environment (Python, c2asm370, MVS connectivity) |
 | `make bootstrap` | Resolve dependencies, upload to MVS, allocate datasets |
 | `make update-deps` | Re-resolve all dependencies (ignore lockfile) and bootstrap |
-| `make build` | Cross-compile C sources and assemble all modules on MVS |
+| `make build` | Cross-compile and assemble (incremental — only changed modules) |
+| `make build ARGS="--member HELLO"` | Build a single module |
+| `make build ARGS="--force"` | Rebuild all modules (ignore stamps) |
 | `make link` | Final linkedit to produce load module |
 | `make install` | Copy build datasets to install datasets (IEBCOPY) |
 | `make package` | Create release artifacts in `dist/` |
@@ -341,6 +360,7 @@ your-project/
 ├── .env                  # local MVS connection overrides (gitignored)
 ├── .mbt/
 │   ├── mvs.lock          # pinned dependency versions (committed)
+│   ├── stamps/           # SHA256 stamps for incremental builds
 │   └── logs/             # JES spool logs on failure
 ├── src/                  # C sources
 ├── asm/                  # assembler sources + generated .s files
