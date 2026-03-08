@@ -8,6 +8,7 @@ __pycache__/
 
 # mbt build artifacts
 .mbt/logs/
+.mbt/stamps/
 examples/**/src/*.s
 examples/**/contrib/
 
