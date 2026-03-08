@@ -13,9 +13,14 @@ STAMP_DIR = Path(".mbt") / "stamps"
 
 
 def compute_hash(file_path: Path) -> str:
-    """SHA256 hex digest of file contents."""
+    """SHA256 hex digest of file contents and mtime.
+
+    Including mtime ensures that `touch` triggers a rebuild,
+    which is standard practice (consistent with make behavior).
+    """
     h = hashlib.sha256()
     h.update(file_path.read_bytes())
+    h.update(str(file_path.stat().st_mtime_ns).encode())
     return h.hexdigest()
 
 
