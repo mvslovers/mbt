@@ -134,6 +134,7 @@ def _compile_c_sources(project, lockfile_deps: dict,
                 continue
             out_s = f.with_suffix(".s")
             cmd = (["c2asm370", "-S", "-O1"]
+                   + [f'-DVERSION="{project.version}"']
                    + project.cflags
                    + include_flags
                    + ["-o", str(out_s), str(f)])
