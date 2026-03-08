@@ -290,8 +290,8 @@ def main() -> int:
     sources = _find_sources(project, args.member)
     if not sources:
         if args.member:
-            _log_error(f"Member '{args.member}' not found in c_dirs/asm_dirs")
-            return EXIT_BUILD
+            _log_warn(f"Member '{args.member}' not found in c_dirs/asm_dirs, skipping")
+            return EXIT_SUCCESS
         _log_warn("No .s source files found in c_dirs or asm_dirs")
         return EXIT_SUCCESS
 
