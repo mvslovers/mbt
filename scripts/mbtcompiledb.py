@@ -63,7 +63,7 @@ def main():
             command_parts.extend(["-c", str(f.relative_to(project_dir))])
             entries.append({
                 "directory": str(project_dir),
-                "command": " ".join(command_parts),
+                "arguments": command_parts,
                 "file": str(f.relative_to(project_dir))
             })
 
