@@ -129,7 +129,9 @@ class MvsMFClient:
 
     def submit_jcl(self, jcl_text: str,
                    wait: bool = True,
-                   timeout: int = 120) -> JobResult:
+                   timeout: int = 120,
+                   collect_spool: bool = True,
+                   jes_only: bool = False) -> JobResult:
         """Submit inline JCL and wait for completion.
 
         Endpoint: PUT /zosmf/restjobs/jobs
@@ -139,6 +141,13 @@ class MvsMFClient:
             jcl_text: Complete JCL including JOB card
             wait: If True, poll until job completes
             timeout: Max seconds to wait
+            collect_spool: If False, skip spool collection
+                entirely (only useful for single-step jobs
+                where the job-level RC is sufficient).
+            jes_only: If True, collect only JES system DDs
+                (JESMSGLG, JESYSMSG, JESJCL, JESJCLIN).
+                Much faster for multi-step jobs where per-step
+                RCs are needed but step SYSPRINT is not.
 
         Returns:
             JobResult with RC and spool output
@@ -155,10 +164,22 @@ class MvsMFClient:
                 jobid=jobid, jobname=jobname,
                 rc=-1, status="ACTIVE", spool=""
             )
-        return self._poll_job(jobname, jobid, timeout)
+        return self._poll_job(jobname, jobid, timeout,
+                              collect_spool, jes_only)
+
+    def collect_spool(self, jobname: str, jobid: str) -> str:
+        """Public wrapper for spool collection.
+
+        Use this to fetch spool after a submit with
+        collect_spool=False, e.g. when a job fails and
+        you need the full spool for diagnostics.
+        """
+        return self._collect_spool(jobname, jobid)
 
     def _poll_job(self, jobname: str, jobid: str,
-                  timeout: int) -> JobResult:
+                  timeout: int,
+                  collect_spool: bool = True,
+                  jes_only: bool = False) -> JobResult:
         """Poll job status until OUTPUT or timeout.
 
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}
@@ -185,13 +206,21 @@ class MvsMFClient:
 
             if data.get("status") == "OUTPUT":
                 retcode_str = data.get("retcode")
-                spool = self._collect_spool(jobname, jobid)
                 if retcode_str is not None:
                     rc, status = self._parse_retcode(retcode_str)
                 else:
-                    # MVS/CE mvsMF always returns null retcode;
-                    # parse actual RC from spool output instead.
+                    rc, status = (-1, "UNKNOWN")
+
+                if collect_spool:
+                    spool = self._collect_spool(
+                        jobname, jobid, jes_only=jes_only)
+                else:
+                    spool = ""
+
+                # Fallback: if retcode was null, parse from spool
+                if rc == -1 and spool:
                     rc, status = self._parse_spool_rc(spool)
+
                 return JobResult(
                     jobid=jobid, jobname=jobname,
                     rc=rc, status=status, spool=spool
@@ -204,9 +233,18 @@ class MvsMFClient:
             rc=9999, status="TIMEOUT", spool=spool
         )
 
+    _JES_DDNAMES = {"JESJCLIN", "JESMSGLG", "JESJCL", "JESYSMSG"}
+
     def _collect_spool(self, jobname: str,
-                       jobid: str) -> str:
-        """Collect all spool files for a job.
+                       jobid: str,
+                       jes_only: bool = False) -> str:
+        """Collect spool files for a job.
+
+        Args:
+            jes_only: When True, only collect JES system DDs
+                (JESJCLIN, JESMSGLG, JESJCL, JESYSMSG). This is
+                much faster for multi-step jobs where each step
+                produces its own SYSPRINT/SYSTERM DDs.
 
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}/files
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}/files/{n}/records
@@ -224,6 +262,8 @@ class MvsMFClient:
             fid = f.get("id", "")
             ddname = f.get("ddname", "")
             if not fid:
+                continue
+            if jes_only and ddname not in self._JES_DDNAMES:
                 continue
             try:
                 raw = self._request(

@@ -1,11 +1,9 @@
 """MVS Assembler executor.
 
 For each .s file found in c_dirs (cross-compiled) and asm_dirs (hand-written):
-  1. Upload source inline via asm.jcl.tpl
-  2. Submit assembly job (IFOX00), wait for result
-  3. Check RC against max_rc from project.toml
-  4. If RC <= max_rc: submit ncallink.jcl.tpl → NCALIB member
-  5. Write failure log to .mbt/logs/ on error
+  1. Submit single job with ASM (IFOX00) + NCAL link (IEWL) via asm.jcl.tpl
+  2. Wait for result, check RC against max_rc from project.toml
+  3. Write failure log to .mbt/logs/ on error
 
 Log format (per spec section 11.2):
     [mvsasm] Assembling HELLO...
@@ -19,6 +17,7 @@ Exit codes per spec section 11.1.
 """
 
 import sys
+import time
 import argparse
 from pathlib import Path
 
@@ -49,6 +48,14 @@ def _log_warn(msg: str) -> None:
 
 def _log_error(msg: str) -> None:
     print(f"[{_MOD}] ERROR: {msg}", file=sys.stderr)
+
+
+def _fmt_elapsed(seconds: float) -> str:
+    """Format elapsed seconds as human-readable string."""
+    m, s = divmod(int(seconds), 60)
+    if m > 0:
+        return f"{m}m {s}s"
+    return f"{s}s"
 
 
 def _save_job_log(result: JobResult, context: str) -> Path:
@@ -174,10 +181,17 @@ def _assemble_one(client: MvsMFClient, config: MbtConfig,
                   maclibs: list[str],
                   src: Path, member: str,
                   build_ds: dict[str, str]) -> bool:
-    """Upload and assemble one source file. Returns True on success."""
+    """Assemble and NCAL-link one source file in a single job.
+
+    Submits one JCL job with two steps: ASM (IFOX00) + LINK (IEWL NCAL).
+    The LINK step is conditioned on ASM success (COND=(4,LT,ASM)).
+
+    Returns True on success.
+    """
     _log(f"Assembling {member}...")
 
     punch_dsn = build_ds.get("punch")
+    ncalib_dsn = build_ds.get("ncalib")
     if not punch_dsn:
         _log_error(
             f"No 'punch' dataset defined in project (needed for {member})"
@@ -193,22 +207,30 @@ def _assemble_one(client: MvsMFClient, config: MbtConfig,
         config.jes_msgclass,
         "MBTASM",
     )
-    jcl = render_template("asm.jcl.tpl", {
+    tpl_vars = {
         "JOBCARD": jc,
         "MEMBER": member,
         "SYSLIB_CONCAT": syslib_concat,
         "PUNCH_DSN": punch_dsn,
         "ASM_SOURCE": asm_source,
-    })
+    }
+    if ncalib_dsn:
+        tpl_vars["NCALIB_DSN"] = ncalib_dsn
+    jcl = render_template("asm.jcl.tpl", tpl_vars)
 
     try:
-        result = client.submit_jcl(jcl, wait=True, timeout=180)
+        result = client.submit_jcl(jcl, wait=True, timeout=180,
+                                   collect_spool=False)
     except MvsMFError as e:
-        _log_error(f"Failed to submit assembly job for {member}: {e}")
+        _log_error(f"Failed to submit job for {member}: {e}")
         return False
 
     max_rc = config.project.max_rc
     if result.rc > max_rc:
+        spool = client.collect_spool(result.jobname, result.jobid)
+        result = JobResult(
+            jobid=result.jobid, jobname=result.jobname,
+            rc=result.rc, status=result.status, spool=spool)
         log_file = _save_job_log(result, member)
         _log_error(f"{member} failed (RC={result.rc}, max_rc={max_rc})")
         _log(f"Job: {result.jobname} / {result.jobid}")
@@ -216,52 +238,9 @@ def _assemble_one(client: MvsMFClient, config: MbtConfig,
         return False
 
     if result.rc > 0:
-        _log_warn(f"{member} assembled with warnings (RC={result.rc})")
+        _log_warn(f"{member} assembled + linked (RC={result.rc})")
     else:
-        _log(f"{member} assembled (RC={result.rc})")
-    return True
-
-
-def _ncallink_one(client: MvsMFClient, config: MbtConfig,
-                  member: str, build_ds: dict[str, str]) -> bool:
-    """NCAL-link one assembled member into NCALIB. Returns True on success."""
-    punch_dsn = build_ds.get("punch")
-    ncalib_dsn = build_ds.get("ncalib")
-    if not punch_dsn or not ncalib_dsn:
-        _log_warn(
-            f"Skipping NCAL link for {member}: "
-            f"missing 'punch' or 'ncalib' dataset"
-        )
-        return True
-
-    jc = jobcard(
-        f"MBTNL{member[:3]}",
-        config.jes_jobclass,
-        config.jes_msgclass,
-        "MBTNL",
-    )
-    jcl = render_template("ncallink.jcl.tpl", {
-        "JOBCARD": jc,
-        "MEMBER": member,
-        "NCALIB_DSN": ncalib_dsn,
-        "PUNCH_DSN": punch_dsn,
-    })
-
-    try:
-        result = client.submit_jcl(jcl, wait=True, timeout=120)
-    except MvsMFError as e:
-        _log_error(f"Failed to submit NCAL link job for {member}: {e}")
-        return False
-
-    # NCAL link RC=4 is acceptable (minor warnings)
-    if result.rc > 4:
-        log_file = _save_job_log(result, f"{member}-ncal")
-        _log_error(f"{member} NCAL link failed (RC={result.rc})")
-        _log(f"Job: {result.jobname} / {result.jobid}")
-        _log(f"Log: {log_file}")
-        return False
-
-    _log(f"{member} NCAL linked (RC={result.rc})")
+        _log(f"{member} assembled + linked (RC={result.rc})")
     return True
 
 
@@ -278,6 +257,8 @@ def main() -> int:
         help="Assemble only this member name (default: all)",
     )
     args = parser.parse_args()
+
+    t_start = time.monotonic()
 
     try:
         config = MbtConfig(project_path=args.project)
@@ -322,13 +303,18 @@ def main() -> int:
         )
         return EXIT_MAINFRAME
 
-    # Assemble and NCAL-link each source
+    # Assemble and NCAL-link each source (single job per module)
+    built = 0
     for src, member in sources:
         if not _assemble_one(client, config, maclibs, src, member, build_ds):
+            elapsed = time.monotonic() - t_start
+            _log(f"Build failed after {_fmt_elapsed(elapsed)} "
+                 f"({built}/{len(sources)} modules)")
             return EXIT_BUILD
-        if not _ncallink_one(client, config, member, build_ds):
-            return EXIT_BUILD
+        built += 1
 
+    elapsed = time.monotonic() - t_start
+    _log(f"Build complete: {built} modules in {_fmt_elapsed(elapsed)}")
     return EXIT_SUCCESS
 
 

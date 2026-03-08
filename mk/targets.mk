@@ -1,6 +1,6 @@
 # mk/targets.mk — Standard build targets
 
-.PHONY: doctor bootstrap bootstrap-datasets update-deps build link install \
+.PHONY: doctor bootstrap bootstrap-datasets update-deps build bulk-build link install \
         package prerelease release clean distclean graph datasets compiledb
 
 doctor:
@@ -17,6 +17,9 @@ update-deps:
 
 build:
 	@python3 $(MBT_SCRIPTS)/mvsasm.py --project project.toml $(ARGS)
+
+bulk-build:
+	@python3 $(MBT_SCRIPTS)/mvsbulkasm.py --project project.toml $(ARGS)
 
 link:
 	@python3 $(MBT_SCRIPTS)/mvslink.py --project project.toml $(ARGS)

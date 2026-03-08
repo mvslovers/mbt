@@ -106,5 +106,6 @@ def jobcard(jobname: str, jobclass: str,
         f"//{jn_field}JOB ({jobclass}),'{description}',\n"
         f"//          CLASS={jobclass},"
         f"MSGCLASS={msgclass},\n"
-        f"//          MSGLEVEL=(1,1)"
+        f"//          MSGLEVEL=(1,1),\n"
+        f"//          NOTIFY=&SYSUID"
     )

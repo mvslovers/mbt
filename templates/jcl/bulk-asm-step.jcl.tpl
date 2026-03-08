@@ -1,8 +1,7 @@
-$JOBCARD
 //*-----------------------------------------------------------
 //* Assemble + NCAL: $MEMBER
 //*-----------------------------------------------------------
-//ASM     EXEC PGM=IFOX00,
+//ASM$SEQ  EXEC PGM=IFOX00,
 //          PARM='DECK,NOLOAD,TERM,XREF(SHORT)'
 $SYSLIB_CONCAT
 //SYSUT1   DD UNIT=SYSDA,SPACE=(CYL,(1,1))
@@ -12,13 +11,10 @@ $SYSLIB_CONCAT
 //SYSTERM  DD SYSOUT=*
 //SYSPRINT DD SYSOUT=*
 //SYSGO    DD DUMMY
-//SYSIN    DD *
-$ASM_SOURCE
-/*
-//LINK    EXEC PGM=IEWL,PARM='NCAL,LIST,XREF,LET',
-//          COND=(4,LT,ASM)
+//SYSIN    DD DSN=$SOURCE_DSN($MEMBER),DISP=SHR
+//LNK$SEQ  EXEC PGM=IEWL,PARM='NCAL,LIST,XREF,LET',
+//          COND=(4,LT,ASM$SEQ)
 //SYSUT1   DD UNIT=SYSDA,SPACE=(CYL,(1,1))
 //SYSPRINT DD SYSOUT=*
 //SYSLMOD  DD DSN=$NCALIB_DSN($MEMBER),DISP=SHR
 //SYSLIN   DD DSN=$PUNCH_DSN($MEMBER),DISP=SHR
-//
