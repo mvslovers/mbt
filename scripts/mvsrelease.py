@@ -278,7 +278,10 @@ def main() -> int:
     current = project.version
     current_v = Version.parse(current)
 
-    version_files = project.release_version_files or [args.project]
+    version_files = project.release_version_files or []
+    # project.toml is always updated (it's the canonical version source)
+    if args.project not in version_files:
+        version_files.insert(0, args.project)
 
     if current_v.pre is None:
         _log_error(
