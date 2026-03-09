@@ -57,6 +57,7 @@ class LinkModule:
     options: list[str] # IEWL options, e.g. ["LIST", "XREF", "LET"]
     include: list[str] # own members to include explicitly
     dep_includes: dict # {dep_key: "*" | [member, ...]} for non-autocall deps
+    setcode: str = ""  # SETCODE statement value, e.g. "AC(1)"
 
 
 @dataclass
@@ -208,6 +209,7 @@ class ProjectConfig:
                 options=list(mod.get("options", [])),
                 include=list(mod.get("include", ["@@CRT1", mod_name])),
                 dep_includes=dep_includes,
+                setcode=mod.get("setcode", ""),
             ))
 
         # Source directories — partial override is allowed

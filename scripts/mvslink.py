@@ -126,6 +126,9 @@ def _build_include_stmts(mod, package_cache: dict) -> str:
         for m in members:
             lines.append(f" INCLUDE NCALIB({m})")
 
+    if mod.setcode:
+        lines.append(f" SETCODE {mod.setcode}")
+
     return "\n".join(lines)
 
 
