@@ -261,7 +261,7 @@ def _build_batch_jcl(batch: list[str],
     source_dsn = build_ds["source"]
     punch_dsn = build_ds["punch"]
     ncalib_dsn = build_ds["ncalib"]
-    syslib_concat = render_syslib_concat(maclibs)
+    syslib_concat = render_syslib_concat(maclibs, blksize=27920)
 
     jc = jobcard(
         f"MBTASM{batch_num:02d}",
