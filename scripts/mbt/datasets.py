@@ -221,16 +221,20 @@ class DatasetResolver:
                        ) -> list[str]:
         """Build SYSLIB DD dataset list for IEWL.
 
-        Contains only autocall-compatible dependency NCaLIBs.
-        The project's own NCALIB is NOT included here — it goes
-        on the NCALIB DD (via ncalib_dd_dsns()) for explicit
-        INCLUDE NCALIB(member) statements only.
+        Contains the project's own NCALIB (first, for autocall
+        resolution of own modules) followed by autocall-compatible
+        dependency NCaLIBs in declaration order.
 
-        Non-autocall deps also go to ncalib_dd_dsns() instead.
+        Non-autocall deps go to ncalib_dd_dsns() instead.
         """
         result = []
 
-        # Autocall dependency NCaLIBs (declaration order)
+        # 1. Project's own NCALIB (first for autocall of own modules)
+        build_ds = self.build_datasets()
+        if "ncalib" in build_ds:
+            result.append(build_ds["ncalib"].dsn)
+
+        # 2. Autocall dependency NCaLIBs (declaration order)
         dep_datasets = self.dependency_datasets(lockfile_deps, package_cache)
         for dep_key in self.config.project.dependencies:
             if dep_key in dep_datasets:
@@ -249,20 +253,14 @@ class DatasetResolver:
                        ) -> list[str]:
         """Build NCALIB DD dataset list for IEWL.
 
-        Contains project NCALIB (for explicit own-module INCLUDEs)
-        and non-autocall dependency NCaLIBs (for dep_includes INCLUDEs).
+        Contains non-autocall dependency NCaLIBs only (for
+        dep_includes INCLUDE NCALIB(...) statements).
 
-        Order: project NCALIB first, then non-autocall deps in
-        declaration order.
+        The project's own NCALIB is in SYSLIB (via syslib_ncalibs()).
         """
         result = []
 
-        # 1. Project's NCALIB
-        build_ds = self.build_datasets()
-        if "ncalib" in build_ds:
-            result.append(build_ds["ncalib"].dsn)
-
-        # 2. Non-autocall dependency NCaLIBs (declaration order)
+        # Non-autocall dependency NCaLIBs (declaration order)
         dep_datasets = self.dependency_datasets(lockfile_deps, package_cache)
         for dep_key in self.config.project.dependencies:
             if dep_key in dep_datasets:

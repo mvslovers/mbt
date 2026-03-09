@@ -108,17 +108,13 @@ def _build_include_stmts(mod, package_cache: dict) -> str:
     """Build INCLUDE control statements for the link JCL.
 
     Rules:
-    - Members starting with '@@' (CRT startup from autocall dep) -> SYSLIB
-    - Other own members (project NCALIB) -> NCALIB
+    - Own members (project NCALIB, now in SYSLIB) -> SYSLIB
     - dep_includes members (non-autocall dep NCaLIBs) -> NCALIB
     """
     lines = []
 
     for member in mod.include:
-        if member.startswith("@@"):
-            lines.append(f" INCLUDE SYSLIB({member})")
-        else:
-            lines.append(f" INCLUDE NCALIB({member})")
+        lines.append(f" INCLUDE SYSLIB({member})")
 
     for dep_key, members in mod.dep_includes.items():
         if members == "*":
