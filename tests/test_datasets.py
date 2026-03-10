@@ -122,6 +122,22 @@ class TestBuildDatasets(TestDatasetResolverBase):
         for dsn in (d.dsn for d in ds.values()):
             self.assertIn("HELLO370", dsn)
 
+    def test_project_name_hyphen_stripped(self):
+        toml = HELLO_TOML.replace('name    = "hello370"', 'name    = "lua370-app"')
+        self._proj.write_text(toml, encoding="utf-8")
+        r = self._resolver()
+        ds = r.build_datasets()
+        # hyphen stripped, truncated to 8: LUA370AP
+        self.assertEqual(ds["ncalib"].dsn, "IBMUSER.LUA370AP.V1R0M0.NCALIB")
+
+    def test_project_name_truncated_to_8(self):
+        toml = HELLO_TOML.replace('name    = "hello370"', 'name    = "toolongprojectname"')
+        self._proj.write_text(toml, encoding="utf-8")
+        r = self._resolver()
+        ds = r.build_datasets()
+        # truncated to 8 chars: TOOLONGP
+        self.assertEqual(ds["ncalib"].dsn, "IBMUSER.TOOLONGP.V1R0M0.NCALIB")
+
     def test_ci_mode_uses_build_id(self):
         r = self._resolver({"MBT_MVS_HLQ": "IBMUSER", "MBT_BUILD_ID": "42"})
         ds = r.build_datasets()
