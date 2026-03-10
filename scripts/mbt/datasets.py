@@ -5,12 +5,22 @@ and dependency information. Handles build datasets, dependency
 datasets, install datasets, and CI build-ID overrides.
 """
 
+import re
 from dataclasses import dataclass
 from .config import MbtConfig
 from .version import to_vrm
 
 # Always present in every SYSLIB concatenation (MVS 3.8j / TK4- baseline)
 DEFAULT_SYSTEM_MACLIBS = ["SYS1.MACLIB", "SYS1.AMODGEN"]
+
+
+def _mvs_qualifier(name: str) -> str:
+    """Derive a valid MVS dataset name qualifier from a project name.
+
+    MVS qualifiers allow only A-Z, 0-9, @, #, $ and are limited to 8
+    characters. Strips all other characters (e.g. hyphens) and truncates.
+    """
+    return re.sub(r"[^A-Z0-9@#$]", "", name.upper())[:8]
 
 
 @dataclass
@@ -58,7 +68,7 @@ class DatasetResolver:
         config = self.config
         project = config.project
         hlq = config.hlq
-        proj_name = project.name.upper()
+        proj_name = _mvs_qualifier(project.name)
 
         if config.is_ci:
             qualifier = f"B{config.build_id}"
@@ -149,7 +159,7 @@ class DatasetResolver:
         config = self.config
         project = config.project
         hlq = config.hlq
-        proj_name = project.name.upper()
+        proj_name = _mvs_qualifier(project.name)
 
         if not project.install_naming:
             return {}
