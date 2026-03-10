@@ -122,11 +122,13 @@ def _generate_package_toml(config: MbtConfig,
     ]
 
     # Resolved dependency versions
-    lines.append("[package.dependencies]")
-    if lockfile and lockfile.dependencies:
-        for dep, ver in sorted(lockfile.dependencies.items()):
-            lines.append(f'"{dep}" = "{ver}"')
-    lines.append("")
+    # application: omit — consumers get headers only, not transitive deps
+    if project.type != "application":
+        lines.append("[package.dependencies]")
+        if lockfile and lockfile.dependencies:
+            for dep, ver in sorted(lockfile.dependencies.items()):
+                lines.append(f'"{dep}" = "{ver}"')
+        lines.append("")
 
     # Artifact filenames
     lines.append("[artifacts]")
