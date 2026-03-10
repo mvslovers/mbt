@@ -101,6 +101,7 @@ class ProjectConfig:
 
     # [artifacts]
     artifact_headers: bool = False
+    artifact_header_files: list[str] = field(default_factory=list)  # filter
     artifact_mvs: bool = False
     artifact_bundle: bool = False
     artifact_mvs_datasets: list[str] = field(default_factory=list)
@@ -236,6 +237,7 @@ class ProjectConfig:
             link_autocall=link_autocall,
             link_modules=link_modules,
             artifact_headers=bool(artifacts.get("headers", False)),
+            artifact_header_files=list(artifacts.get("header_files", [])),
             artifact_mvs=bool(artifacts.get("mvs", False)),
             artifact_bundle=bool(artifacts.get("package_bundle", False)),
             artifact_mvs_datasets=list(artifacts.get("mvs_datasets", [])),

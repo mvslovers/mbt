@@ -181,6 +181,9 @@ def _create_headers_tarball(config: MbtConfig,
     """Create {name}-{version}-headers.tar.gz from include/ directory.
 
     The tarball structure is: {name}-{version}/include/...
+
+    If [artifacts] header_files is set, only those files are included.
+    Otherwise all files under include/ are included.
     """
     project = config.project
     if not project.artifact_headers:
@@ -197,11 +200,17 @@ def _create_headers_tarball(config: MbtConfig,
     tarball_path = dist_dir / tarball_name
     prefix = f"{name}-{version}"
 
+    # Determine which files to include
+    header_filter = set(project.artifact_header_files)
+
     with tarfile.open(tarball_path, "w:gz") as tf:
         for f in sorted(include_dir.rglob("*")):
-            if f.is_file():
-                arcname = f"{prefix}/{f}"
-                tf.add(str(f), arcname=arcname)
+            if not f.is_file():
+                continue
+            if header_filter and f.name not in header_filter:
+                continue
+            arcname = f"{prefix}/{f}"
+            tf.add(str(f), arcname=arcname)
 
     _log(f"Created {tarball_path}")
     return tarball_path
