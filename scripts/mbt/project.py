@@ -17,7 +17,7 @@ class ProjectError(Exception):
     pass
 
 
-VALID_TYPES = {"runtime", "library", "module", "application"}
+VALID_TYPES = {"library", "module", "application"}
 LINK_TYPES = {"module", "application"}
 
 
@@ -74,7 +74,7 @@ class ProjectConfig:
     # [project]
     name: str
     version: str
-    type: str          # "runtime", "library", "module", "application"
+    type: str          # "library", "module", "application"
 
     # [build]
     cflags: list[str] = field(default_factory=list)
@@ -265,6 +265,12 @@ class ProjectConfig:
             raise ProjectError("Missing required field: [project] version")
         if not self.type:
             raise ProjectError("Missing required field: [project] type")
+
+        if self.type == "runtime":
+            raise ProjectError(
+                "Project type 'runtime' has been removed. "
+                "Use 'library' instead."
+            )
 
         if self.type not in VALID_TYPES:
             raise ProjectError(

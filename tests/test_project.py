@@ -172,14 +172,14 @@ class TestProjectValidation(unittest.TestCase):
             ProjectConfig.load(self._write(toml))
         self.assertIn("library", str(cm.exception))
 
-    def test_link_disallowed_for_runtime(self):
+    def test_runtime_type_rejected(self):
         toml = (
             "[project]\nname=\"rt\"\nversion=\"1.0.0\"\ntype=\"runtime\"\n"
-            "[[link.module]]\n"
-            "name=\"RT\"\nentry=\"RT\"\noptions=[]\ninclude=[]\n"
         )
-        with self.assertRaises(ProjectError):
+        with self.assertRaises(ProjectError) as cm:
             ProjectConfig.load(self._write(toml))
+        self.assertIn("removed", str(cm.exception))
+        self.assertIn("library", str(cm.exception))
 
     def test_install_references_nonexistent_build_ds(self):
         toml = (
@@ -265,9 +265,10 @@ class TestProjectValidTypes(unittest.TestCase):
             f.flush()
             return ProjectConfig.load(f.name)
 
-    def test_runtime(self):
-        c = self._make("runtime")
-        self.assertEqual(c.type, "runtime")
+    def test_runtime_rejected(self):
+        with self.assertRaises(ProjectError) as cm:
+            self._make("runtime")
+        self.assertIn("removed", str(cm.exception))
 
     def test_library(self):
         c = self._make("library")

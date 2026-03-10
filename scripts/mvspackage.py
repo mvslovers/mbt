@@ -84,7 +84,6 @@ _DEFAULT_MVS_DATASETS = {
     "application": ["syslmod"],
     "module":      ["syslmod"],
     "library":     ["ncalib", "maclib"],
-    "runtime":     ["ncalib", "maclib"],
 }
 
 
@@ -133,29 +132,34 @@ def _generate_package_toml(config: MbtConfig,
     lines.append("[artifacts]")
     if project.artifact_headers:
         lines.append(f'headers = "{name}-{version}-headers.tar.gz"')
-    if project.artifact_mvs:
-        lines.append(f'mvs     = "{name}-{version}-mvs.tar.gz"')
-    if project.artifact_bundle:
-        lines.append(f'bundle  = "{name}-{version}-bundle.tar.gz"')
+    # application type: package.toml lists headers only, never MVS artifacts
+    # (the loadlib is an end-user install artifact, not a build dependency)
+    if project.type != "application":
+        if project.artifact_mvs:
+            lines.append(f'mvs     = "{name}-{version}-mvs.tar.gz"')
+        if project.artifact_bundle:
+            lines.append(f'bundle  = "{name}-{version}-bundle.tar.gz"')
     lines.append("")
 
-    # Provided datasets (only artifact datasets, not build intermediates)
-    ds_keys = _artifact_dataset_keys(project)
-    for key, ds in project.build_datasets.items():
-        if key not in ds_keys:
-            continue
-        lines.append(f"[mvs.provides.datasets.{key}]")
-        lines.append(f'suffix    = "{ds.suffix}"')
-        lines.append(f'dsorg     = "{ds.dsorg}"')
-        lines.append(f'recfm     = "{ds.recfm}"')
-        lines.append(f"lrecl     = {ds.lrecl}")
-        lines.append(f"blksize   = {ds.blksize}")
-        space_str = ", ".join(
-            f'"{s}"' if isinstance(s, str) else str(s)
-            for s in ds.space
-        )
-        lines.append(f"space     = [{space_str}]")
-        lines.append("")
+    # Provided datasets (only for library type — application never
+    # provides build datasets to downstream consumers)
+    if project.type != "application":
+        ds_keys = _artifact_dataset_keys(project)
+        for key, ds in project.build_datasets.items():
+            if key not in ds_keys:
+                continue
+            lines.append(f"[mvs.provides.datasets.{key}]")
+            lines.append(f'suffix    = "{ds.suffix}"')
+            lines.append(f'dsorg     = "{ds.dsorg}"')
+            lines.append(f'recfm     = "{ds.recfm}"')
+            lines.append(f"lrecl     = {ds.lrecl}")
+            lines.append(f"blksize   = {ds.blksize}")
+            space_str = ", ".join(
+                f'"{s}"' if isinstance(s, str) else str(s)
+                for s in ds.space
+            )
+            lines.append(f"space     = [{space_str}]")
+            lines.append("")
 
     # Link section: autocall flag + exports list for non-autocall libs
     if not project.link_autocall:
@@ -523,9 +527,15 @@ def main() -> int:
             )
             return EXIT_MAINFRAME
 
-    # 1. Generate package.toml (client needed for autocall=false exports)
-    pkg_path = _generate_package_toml(config, lockfile, dist_dir, client)
-    _log(f"Generated {pkg_path}")
+    # 1. Generate package.toml
+    #    - module: never (standalone program, never a build dep)
+    #    - application: only when artifact_headers is set (headers-only)
+    #    - library: always
+    if project.type == "module":
+        _log("Skipping package.toml (module type is never a build dependency)")
+    else:
+        pkg_path = _generate_package_toml(config, lockfile, dist_dir, client)
+        _log(f"Generated {pkg_path}")
 
     # 2. Headers tarball (no MVS needed)
     _create_headers_tarball(config, dist_dir)
