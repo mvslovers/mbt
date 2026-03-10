@@ -232,8 +232,7 @@ def main() -> int:
             _log_error(f"Failed to submit link job for {mod.name}: {e}")
             return EXIT_BUILD
 
-        # Full link: RC=4 (informational warning) may be acceptable with LET
-        if result.rc > 4:
+        if result.rc > mod.max_rc:
             log_file = _save_job_log(result, mod.name)
             _log_error(f"{mod.name} link failed (RC={result.rc})")
             _log(f"Job: {result.jobname} / {result.jobid}")
