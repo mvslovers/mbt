@@ -71,6 +71,7 @@ class TestProjectLoadHello370(unittest.TestCase):
         self.assertEqual(mod.options, ["RENT", "REUS"])
         self.assertEqual(mod.include, ["@@CRT1", "HELLO"])
         self.assertEqual(mod.setcode, "")
+        self.assertEqual(mod.max_rc, 0)
 
     def test_artifacts(self):
         self.assertFalse(self.config.artifact_headers)
@@ -330,6 +331,53 @@ class TestLinkModuleSetcode(unittest.TestCase):
         c = ProjectConfig.load(self._write(toml))
         mod = c.link_modules[0]
         self.assertEqual(mod.setcode, "")
+
+
+class TestLinkModuleMaxRc(unittest.TestCase):
+
+    def _write(self, content: str) -> Path:
+        self._tmp = tempfile.mkdtemp()
+        p = Path(self._tmp) / "project.toml"
+        p.write_text(content, encoding="utf-8")
+        return p
+
+    def tearDown(self):
+        import shutil
+        if hasattr(self, "_tmp"):
+            shutil.rmtree(self._tmp, ignore_errors=True)
+
+    def test_max_rc_default_zero(self):
+        toml = (
+            "[project]\nname=\"myapp\"\nversion=\"1.0.0\"\ntype=\"application\"\n"
+            "[mvs.build.datasets.ncalib]\n"
+            "suffix=\"NCALIB\"\ndsorg=\"PO\"\nrecfm=\"U\"\n"
+            "lrecl=0\nblksize=32760\nspace=[\"TRK\",5,2,5]\n"
+            "[mvs.build.datasets.syslmod]\n"
+            "suffix=\"LOAD\"\ndsorg=\"PO\"\nrecfm=\"U\"\n"
+            "lrecl=0\nblksize=32760\nspace=[\"TRK\",5,2,5]\n"
+            "[dependencies]\n\"mvslovers/crent370\" = \">=1.0.0\"\n"
+            "[link.module]\n"
+            "name=\"MYAPP\"\noptions=[\"RENT\"]\n"
+        )
+        c = ProjectConfig.load(self._write(toml))
+        self.assertEqual(c.link_modules[0].max_rc, 0)
+
+    def test_max_rc_parsed(self):
+        toml = (
+            "[project]\nname=\"myapp\"\nversion=\"1.0.0\"\ntype=\"application\"\n"
+            "[mvs.build.datasets.ncalib]\n"
+            "suffix=\"NCALIB\"\ndsorg=\"PO\"\nrecfm=\"U\"\n"
+            "lrecl=0\nblksize=32760\nspace=[\"TRK\",5,2,5]\n"
+            "[mvs.build.datasets.syslmod]\n"
+            "suffix=\"LOAD\"\ndsorg=\"PO\"\nrecfm=\"U\"\n"
+            "lrecl=0\nblksize=32760\nspace=[\"TRK\",5,2,5]\n"
+            "[dependencies]\n\"mvslovers/crent370\" = \">=1.0.0\"\n"
+            "[link.module]\n"
+            "name=\"MYAPP\"\noptions=[\"RENT\"]\n"
+            "max_rc=4\n"
+        )
+        c = ProjectConfig.load(self._write(toml))
+        self.assertEqual(c.link_modules[0].max_rc, 4)
 
 
 if __name__ == "__main__":

@@ -58,6 +58,7 @@ class LinkModule:
     include: list[str] # own members to include explicitly
     dep_includes: dict # {dep_key: "*" | [member, ...]} for non-autocall deps
     setcode: str = ""  # SETCODE statement value, e.g. "AC(1)"
+    max_rc: int = 0    # max acceptable RC for final link (0 = strict)
 
 
 @dataclass
@@ -210,6 +211,7 @@ class ProjectConfig:
                 include=list(mod.get("include", ["@@CRT1", mod_name])),
                 dep_includes=dep_includes,
                 setcode=mod.get("setcode", ""),
+                max_rc=int(mod.get("max_rc", 0)),
             ))
 
         # Source directories — partial override is allowed
