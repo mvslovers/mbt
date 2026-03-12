@@ -288,7 +288,7 @@ def extract_headers(cache_dir: Path,
     Raises:
         DependencyError: If tarball not found
     """
-    tarball_name = f"{dep_name}-{dep_version}-headers.tar.gz"
+    tarball_name = f"{dep_name}-{dep_version}-lib-headers.tar.gz"
     tarball = cache_dir / tarball_name
     if not tarball.exists():
         raise DependencyError(

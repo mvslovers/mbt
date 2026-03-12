@@ -35,7 +35,7 @@ name    = "HELLO"
 options = ["RENT", "REUS"]
 
 [artifacts]
-mvs = true
+loads = true
 
 [release]
 github = "mvslovers/hello370"
