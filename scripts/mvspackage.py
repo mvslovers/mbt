@@ -126,18 +126,21 @@ def _generate_package_toml(config: MbtConfig,
     lines.append("")
 
     # Provided datasets — only when modules artifact is present
+    # Libraries provide ncalib and optionally maclib
     if project.artifact_modules:
-        ncalib_ds = project.build_datasets.get("ncalib")
-        if ncalib_ds:
-            lines.append("[mvs.provides.datasets.ncalib]")
-            lines.append(f'suffix    = "{ncalib_ds.suffix}"')
-            lines.append(f'dsorg     = "{ncalib_ds.dsorg}"')
-            lines.append(f'recfm     = "{ncalib_ds.recfm}"')
-            lines.append(f"lrecl     = {ncalib_ds.lrecl}")
-            lines.append(f"blksize   = {ncalib_ds.blksize}")
+        for ds_key in ("ncalib", "maclib"):
+            ds = project.build_datasets.get(ds_key)
+            if not ds:
+                continue
+            lines.append(f"[mvs.provides.datasets.{ds_key}]")
+            lines.append(f'suffix    = "{ds.suffix}"')
+            lines.append(f'dsorg     = "{ds.dsorg}"')
+            lines.append(f'recfm     = "{ds.recfm}"')
+            lines.append(f"lrecl     = {ds.lrecl}")
+            lines.append(f"blksize   = {ds.blksize}")
             space_str = ", ".join(
                 f'"{s}"' if isinstance(s, str) else str(s)
-                for s in ncalib_ds.space
+                for s in ds.space
             )
             lines.append(f"space     = [{space_str}]")
             lines.append("")
@@ -393,11 +396,12 @@ def _iebcopy_select_members(client: MvsMFClient, config: MbtConfig,
 def _create_modules_tarball(config: MbtConfig, client: MvsMFClient,
                             resolver: DatasetResolver,
                             dist_dir: Path) -> Path | None:
-    """Create {name}-{version}-lib-modules.tar.gz with NCALIB XMIT.
+    """Create {name}-{version}-lib-modules.tar.gz with NCALIB (and MACLIB) XMIT.
 
-    For libraries (module_members == ["*"]): transmit whole NCALIB.
-    For applications (explicit module_members): IEBCOPY SELECT + TRANSMIT.
-    Tarball structure: {name}-{version}/mvs/{name}-{version}-ncalib.xmit
+    For libraries (module_members == ["*"]): transmit whole NCALIB and MACLIB.
+    For applications (explicit module_members): IEBCOPY SELECT + TRANSMIT
+    on NCALIB only.
+    Tarball structure: {name}-{version}/mvs/{name}-{version}-{ds_key}.xmit
     """
     project = config.project
     if not project.artifact_modules:
@@ -413,6 +417,11 @@ def _create_modules_tarball(config: MbtConfig, client: MvsMFClient,
     version = project.version
 
     members = project.artifact_module_members
+
+    # Collect (ds_key, xmit_data) pairs for the tarball
+    xmit_entries = []
+
+    # NCALIB — always included
     if members == ["*"]:
         _log(f"Transmitting {ncalib_ds.dsn} -> XMIT (whole NCALIB)...")
         data = _transmit_dataset(client, config, ncalib_ds.dsn)
@@ -422,19 +431,32 @@ def _create_modules_tarball(config: MbtConfig, client: MvsMFClient,
         data = _iebcopy_select_members(client, config, ncalib_ds.dsn, members)
 
     if not data:
-        _log("Skipping modules tarball (TRANSMIT failed or empty).")
+        _log("Skipping modules tarball (NCALIB TRANSMIT failed or empty).")
         return None
+    xmit_entries.append(("ncalib", data))
+
+    # MACLIB — only for libraries (whole-PDS export)
+    if members == ["*"]:
+        maclib_ds = build_ds.get("maclib")
+        if maclib_ds:
+            _log(f"Transmitting {maclib_ds.dsn} -> XMIT (MACLIB)...")
+            maclib_data = _transmit_dataset(client, config, maclib_ds.dsn)
+            if maclib_data:
+                xmit_entries.append(("maclib", maclib_data))
+            else:
+                _log("WARNING: MACLIB TRANSMIT failed, continuing without it.")
 
     tarball_name = f"{name}-{version}-lib-modules.tar.gz"
     tarball_path = dist_dir / tarball_name
     prefix       = f"{name}-{version}"
-    xmit_name    = f"{name}-{version}-ncalib.xmit"
 
     with tarfile.open(tarball_path, "w:gz") as tf:
-        arcname = f"{prefix}/mvs/{xmit_name}"
-        info = tarfile.TarInfo(name=arcname)
-        info.size = len(data)
-        tf.addfile(info, io.BytesIO(data))
+        for ds_key, xmit_data in xmit_entries:
+            xmit_name = f"{name}-{version}-{ds_key}.xmit"
+            arcname = f"{prefix}/mvs/{xmit_name}"
+            info = tarfile.TarInfo(name=arcname)
+            info.size = len(xmit_data)
+            tf.addfile(info, io.BytesIO(xmit_data))
 
     _log(f"Created {tarball_path}")
     return tarball_path
