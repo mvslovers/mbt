@@ -100,11 +100,12 @@ class ProjectConfig:
     link_modules: list[LinkModule] = field(default_factory=list)
 
     # [artifacts]
-    artifact_headers: bool = False
-    artifact_header_files: list[str] = field(default_factory=list)  # filter
-    artifact_mvs: bool = False
+    artifact_headers: bool = False           # headers = true
+    artifact_header_files: list[str] = field(default_factory=list)   # filter
+    artifact_modules: bool = False           # modules = true (NCALIB export)
+    artifact_module_members: list[str] = field(default_factory=lambda: ["*"])
+    artifact_loads: bool = False             # loads = true (SYSLMOD, not a dep)
     artifact_bundle: bool = False
-    artifact_mvs_datasets: list[str] = field(default_factory=list)
 
     # [system]
     system_maclibs: list[str] = field(default_factory=list)  # appended after defaults
@@ -236,11 +237,15 @@ class ProjectConfig:
             install_datasets=install_datasets,
             link_autocall=link_autocall,
             link_modules=link_modules,
-            artifact_headers=bool(artifacts.get("headers", False)),
+            artifact_headers=bool(artifacts.get(
+                "headers", proj.get("type", "") == "library")),
             artifact_header_files=list(artifacts.get("header_files", [])),
-            artifact_mvs=bool(artifacts.get("mvs", False)),
+            artifact_modules=bool(artifacts.get(
+                "modules", proj.get("type", "") == "library")),
+            artifact_module_members=list(
+                artifacts.get("module_members", ["*"])),
+            artifact_loads=bool(artifacts.get("loads", False)),
             artifact_bundle=bool(artifacts.get("package_bundle", False)),
-            artifact_mvs_datasets=list(artifacts.get("mvs_datasets", [])),
             system_maclibs=list(system.get("maclibs", [])),
             release_github=release.get("github"),
             release_version_files=list(release.get("version_files", [])),
@@ -302,6 +307,17 @@ class ProjectConfig:
                         f"3 elements [unit, primary, secondary], "
                         f"got {len(ds.space)}"
                     )
+
+        # modules = true on application requires explicit module_members
+        if self.artifact_modules and self.type == "application":
+            if not self.artifact_module_members or \
+                    self.artifact_module_members == ["*"]:
+                raise ProjectError(
+                    "[artifacts] modules = true for type 'application' "
+                    "requires explicit module_members "
+                    "(e.g. module_members = [\"LIBUFS\"]). "
+                    "Wildcard '*' is not allowed for applications."
+                )
 
         # Link section only for application/module types
         if self.link_modules and self.type not in LINK_TYPES:

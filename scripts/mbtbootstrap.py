@@ -328,11 +328,16 @@ def main() -> int:
         pkg_name = pkg.get("package", {}).get("name") or repo
         dep_name = pkg_name.upper()[:8]
 
-        # Find MVS tarball in cache (named after project name, not repo name)
-        mvs_tarball_name = f"{pkg_name}-{dep_version}-mvs.tar.gz"
-        mvs_tarball = cache_dir / mvs_tarball_name
+        # Find modules tarball via [artifacts] modules in package.toml
+        pkg_artifacts = pkg.get("artifacts", {})
+        modules_tarball_name = pkg_artifacts.get("modules")
+        if not modules_tarball_name:
+            _log_warn(f"No modules artifact for {dep_key} in package.toml, "
+                      f"skipping upload.")
+            continue
+        mvs_tarball = cache_dir / modules_tarball_name
         if not mvs_tarball.exists():
-            _log_warn(f"No MVS tarball for {dep_key}, skipping upload.")
+            _log_warn(f"Modules tarball not found in cache: {mvs_tarball}")
             continue
 
         # Extract XMIT files from tarball and upload each.

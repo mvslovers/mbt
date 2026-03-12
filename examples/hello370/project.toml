@@ -44,7 +44,7 @@ naming = "fixed"
 name = "LOAD"
 
 [artifacts]
-mvs = true
+loads = true
 
 [release]
 github        = "mvslovers/hello370"

@@ -74,7 +74,8 @@ class TestProjectLoadHello370(unittest.TestCase):
 
     def test_artifacts(self):
         self.assertFalse(self.config.artifact_headers)
-        self.assertTrue(self.config.artifact_mvs)
+        self.assertTrue(self.config.artifact_loads)
+        self.assertFalse(self.config.artifact_modules)
         self.assertFalse(self.config.artifact_bundle)
 
     def test_release(self):
