@@ -314,6 +314,17 @@ def _iebcopy_select_members(client: MvsMFClient, config: MbtConfig,
             except MvsMFError:
                 pass
 
+    # Pre-allocate tmp_dsn via REST API so it is cataloged before IEBCOPY.
+    # Using DISP=(NEW,CATLG) in JCL is unreliable on some MVS/CE configurations
+    # (IEF648I INVALID DISP FIELD - KEEP SUBSTITUTED), so we allocate it here
+    # and reference it as DISP=OLD in the JCL instead.
+    try:
+        client.create_dataset(tmp_dsn, "PO", "U", 0, 19069,
+                              ["TRK", 5, 5, 10])
+    except MvsMFError as e:
+        _log_error(f"Cannot pre-allocate {tmp_dsn}: {e}")
+        return None
+
     # Build IEBCOPY SELECT statement — each member as (NAME,,R)
     select_items = ",".join(f"({m},,R)" for m in members)
     select_stmt  = f"    SELECT MEMBER=({select_items})"
@@ -330,9 +341,7 @@ def _iebcopy_select_members(client: MvsMFClient, config: MbtConfig,
         f"//SYSUT3   DD   UNIT=SYSDA,SPACE=(CYL,(1,1))\n"
         f"//SYSUT4   DD   UNIT=SYSDA,SPACE=(CYL,(1,1))\n"
         f"//IN       DD   DSN='{src_dsn}',DISP=SHR\n"
-        f"//OUT      DD   DSN='{tmp_dsn}',DISP=(NEW,CATLG,DELETE),\n"
-        f"//             UNIT=SYSDA,SPACE=(TRK,(5,5,10)),\n"
-        f"//             DCB=(DSORG=PO,RECFM=U,BLKSIZE=19069)\n"
+        f"//OUT      DD   DSN='{tmp_dsn}',DISP=OLD\n"
         f"//SYSIN    DD   *\n"
         f"    COPY OUTDD=OUT,INDD=IN\n"
         f"{select_stmt}\n"
