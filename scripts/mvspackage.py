@@ -263,11 +263,24 @@ def _transmit_dataset(client: MvsMFClient, config: MbtConfig,
 
 def _enumerate_ncalib_members(config: MbtConfig,
                               client: "MvsMFClient | None") -> list[str] | None:
-    """List members of the project NCALIB on MVS.
+    """List members of the project NCALIB on MVS for the exports list.
+
+    If [artifacts] module_members is an explicit list (not ["*"]), use it
+    directly — no MVS round-trip needed.  This keeps package.toml in sync
+    with what actually ends up in the modules tarball.
+
+    If module_members == ["*"] (whole NCALIB), enumerate from MVS.
 
     Returns sorted list of member names, or None if unavailable.
     """
     from mbt.datasets import DatasetResolver
+
+    # Explicit member list — use directly, no MVS needed
+    module_members = config.project.artifact_module_members
+    if module_members and module_members != ["*"]:
+        return sorted(module_members)
+
+    # Whole NCALIB — must enumerate from MVS
     if client is None:
         _log_error(
             "autocall = false requires MVS connection to enumerate NCALIB members. "
