@@ -172,6 +172,16 @@ class TestInstallDatasets(TestDatasetResolverBase):
         ds = r.install_datasets()
         self.assertEqual(ds["ncalib"].dsn, "IBMUSER.HELLO370.V1R0M0.NCALIB")
 
+    def test_fixed_naming_absolute_dsn(self):
+        toml = HELLO_TOML.replace(
+            'name = "HELLO370.NCALIB"',
+            "name = \"'FOO.BAR'\"",
+        )
+        self._proj.write_text(toml, encoding="utf-8")
+        r = self._resolver()
+        ds = r.install_datasets()
+        self.assertEqual(ds["ncalib"].dsn, "FOO.BAR")
+
     def test_dcb_inherited_from_build(self):
         r = self._resolver()
         inst = r.install_datasets()

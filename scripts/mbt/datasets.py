@@ -171,7 +171,11 @@ class DatasetResolver:
                 continue
 
             if project.install_naming == "fixed":
-                dsn = f"{hlq}.{inst_ds.name}"
+                name = inst_ds.name
+                if name.startswith("'") and name.endswith("'"):
+                    dsn = name[1:-1]
+                else:
+                    dsn = f"{hlq}.{name}"
             else:  # vrm
                 dsn = f"{hlq}.{proj_name}.{project.vrm}.{build_ds.suffix}"
 
