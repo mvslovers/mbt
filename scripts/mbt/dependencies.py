@@ -252,7 +252,7 @@ def download_dependency(owner: str, repo: str,
     assets = release.get("assets", [])
     for asset in assets:
         name = asset.get("name", "")
-        download_url = asset.get("browser_download_url", "")
+        download_url = asset.get("url", "") or asset.get("browser_download_url", "")
         if not name or not download_url:
             continue
         _download_file(download_url, cache_dir / name)
