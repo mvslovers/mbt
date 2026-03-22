@@ -6,6 +6,7 @@ release assets and manages the local cache.
 """
 
 import json
+import os
 import tarfile
 import tomllib
 import urllib.request
@@ -19,6 +20,23 @@ CACHE_DIR = Path.home() / ".mbt" / "cache"
 
 # GitHub API base URL
 _GH_API = "https://api.github.com"
+
+
+def _gh_token() -> str | None:
+    """Return GitHub token from environment, or None."""
+    return os.environ.get("GITHUB_TOKEN") or os.environ.get("MBT_GITHUB_TOKEN")
+
+
+def _gh_request(url: str,
+                accept: str = "application/vnd.github+json") -> urllib.request.Request:
+    """Build a GitHub API request with optional auth."""
+    req = urllib.request.Request(url)
+    req.add_header("Accept", accept)
+    req.add_header("User-Agent", "mbt/1.0.0")
+    token = _gh_token()
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    return req
 
 
 class DependencyError(Exception):
@@ -138,9 +156,7 @@ def _resolve_one(owner: str, repo: str,
         return cached
 
     url = f"{_GH_API}/repos/{owner}/{repo}/releases"
-    req = urllib.request.Request(url)
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("User-Agent", "mbt/1.0.0")
+    req = _gh_request(url)
 
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -215,9 +231,7 @@ def download_dependency(owner: str, repo: str,
     # (e.g. local-only prerelease), fall back to existing cache.
     tag = f"v{version}"
     url = f"{_GH_API}/repos/{owner}/{repo}/releases/tags/{tag}"
-    req = urllib.request.Request(url)
-    req.add_header("Accept", "application/vnd.github+json")
-    req.add_header("User-Agent", "mbt/1.0.0")
+    req = _gh_request(url)
 
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
@@ -252,9 +266,7 @@ def _download_file(url: str, dest: Path) -> None:
     Raises:
         DependencyError: If download fails
     """
-    req = urllib.request.Request(url)
-    req.add_header("User-Agent", "mbt/1.0.0")
-    req.add_header("Accept", "application/octet-stream")
+    req = _gh_request(url, accept="application/octet-stream")
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = resp.read()
