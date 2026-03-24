@@ -20,14 +20,14 @@ on:
   workflow_call:
 
 env:
-  MBT_MVS_HOST:       localhost
-  MBT_MVS_PORT:       1080
-  MBT_MVS_USER:       IBMUSER
-  MBT_MVS_PASS:       sys1
-  MBT_MVS_DEPS_HLQ:   MBTDEPS
+  MBT_MVS_HOST: localhost
+  MBT_MVS_PORT: 8080
+  MBT_MVS_USER: IBMUSER
+  MBT_MVS_PASS: sys1
+  MBT_MVS_DEPS_HLQ: MBTDEPS
   MBT_MVS_DEPS_VOLUME: PUB000
-  MBT_BUILD_ID:       ${{ github.run_number }}
-  GITHUB_TOKEN:       ${{ secrets.GITHUB_TOKEN }}
+  MBT_BUILD_ID: ${{ github.run_number }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   release:
@@ -38,7 +38,7 @@ jobs:
         image: ghcr.io/mvslovers/mvsce-builder:latest
         ports:
           - 3270:3270
-          - 1080:1080
+          - 8080:8080
 
     steps:
       - name: Checkout
@@ -63,7 +63,7 @@ jobs:
         run: |
           echo "Waiting for mvsMF API..."
           for i in $(seq 1 120); do
-            if curl -sf -u IBMUSER:sys1 http://localhost:1080/zosmf/info >/dev/null 2>&1; then
+            if curl -sf -u IBMUSER:sys1 http://localhost:8080/zosmf/info >/dev/null 2>&1; then
               echo "mvsMF ready after ~${i}s"
               exit 0
             fi
