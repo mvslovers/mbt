@@ -7,7 +7,27 @@ mbt is a reusable Git submodule that centralizes the full build pipeline for
 
 ---
 
-## Overview
+> ## ⚡ mbt v2 — cc370 host build (default)
+>
+> As of v2.0.0 the **default** build compiles, assembles, links and packages
+> entirely on the host with the **cc370** toolchain (`cc370`/`as370`/`ld370`/`ar370`);
+> MVS is only touched by `make deploy`. A project's Makefile is two lines:
+>
+> ```make
+> MBT_ROOT := mbt
+> include $(MBT_ROOT)/mk/mbt.mk
+> ```
+>
+> See **[docs/MIGRATION.md](docs/MIGRATION.md)** for the new `project.toml`
+> reference, the v1→v2 mapping, and migration steps.
+>
+> The legacy v1 (remote mvsMF/JCL) build documented below still works via
+> `include $(MBT_ROOT)/mk/legacy/core.mk` and lives under `mk/legacy/` +
+> `scripts/legacy/`. It is in maintenance mode.
+
+---
+
+## Overview (v1, legacy)
 
 ```
 C source (.c)

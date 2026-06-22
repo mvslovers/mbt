@@ -28,10 +28,10 @@ package:
 	@python3 $(MBT_SCRIPTS)/mvspackage.py --project project.toml $(ARGS)
 
 prerelease:
-	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml --prerelease
+	@python3 $(MBT_ROOT)/scripts/mvsrelease.py --project project.toml --prerelease
 
 release:
-	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml \
+	@python3 $(MBT_ROOT)/scripts/mvsrelease.py --project project.toml \
 	    --version $(VERSION) \
 	    $(if $(NEXT_VERSION),--next-version $(NEXT_VERSION),)
 

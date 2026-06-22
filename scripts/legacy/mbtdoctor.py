@@ -1,47 +1,40 @@
-"""mbt v2 doctor — environment verification for the cc370 toolchain.
+"""mbt doctor — environment verification.
 
 Checks (in order):
 1. Python version >= 3.12
-2. cc370 / as370 / ld370 / ar370 on PATH
-3. Sysroot complete (crt0.o, crt1.o, crtm.o, libc.a)
-4. make on PATH
-5. MVS host reachable (HTTP GET)          -- needed for `make deploy`
-6. MVS credentials valid                  -- needed for `make deploy`
-7. project.toml valid + config source report
+2. c2asm370 on PATH
+3. make on PATH
+4. MVS host reachable (HTTP GET)
+5. MVS credentials valid
+6. project.toml valid
+7. Config source report
 
 Exit codes:
   0 = all checks passed
   2 = one or more checks failed
-
-Unlike the host build (compile/link/package), `make deploy` talks to MVS,
-so the MVS checks are reported but a host-only workflow can ignore them.
 """
 
-import os
 import sys
-import shutil
-import base64
+import os
 import http.client
+import shutil
 import urllib.request
 import urllib.error
+import base64
 from pathlib import Path
 
 # Force HTTP/1.0 — mvsMF's HTTPD speaks HTTP/1.0 only
 http.client.HTTPConnection._http_vsn = 10
 http.client.HTTPConnection._http_vsn_str = "HTTP/1.0"
 
-# Add scripts/ dir to path so the 'mbt' package is importable
-sys.path.insert(0, str(Path(__file__).parent))
+# Add scripts/ dir to path so 'mbt' package is importable
+sys.path.insert(0, str(Path(__file__).parent.parent))  # scripts/ for the mbt package
+sys.path.insert(0, str(Path(__file__).parent))         # scripts/legacy/ for sibling scripts
 
 from mbt import EXIT_SUCCESS, EXIT_CONFIG
 from mbt.config import MbtConfig, _ENV_MAP
+from mbt.project import ProjectError
 from mbt.output import format_doctor
-
-# Toolchain programs the v2 build invokes (see mk/v2.mk).
-TOOLCHAIN = ["cc370", "as370", "ld370", "ar370"]
-
-# Runtime objects/libraries the linker needs from the sysroot.
-SYSROOT_FILES = ["lib/crt0.o", "lib/crt1.o", "lib/crtm.o", "lib/libc.a"]
 
 
 def check_python_version() -> bool:
@@ -67,53 +60,12 @@ def check_tool(name: str) -> bool:
     if path:
         print(f"[mbt] {name}: {path}")
         return True
-    print(f"[mbt] ERROR: {name} not found on PATH", file=sys.stderr)
+    print(f"[mbt] WARNING: {name} not found on PATH", file=sys.stderr)
     return False
 
 
-def _derive_sysroot() -> Path | None:
-    """Locate the cc370 sysroot the same way mk/v2.mk does.
-
-    cc370 resolves its own headers/libs relative to its binary
-    (<bindir>/../cc370); 'cc370 -print-search-dirs' reports the
-    configure-time prefix and is wrong for a relocated toolchain.
-    Falls back to ~/.local/cc370.
-    """
-    cc = shutil.which("cc370")
-    if cc:
-        candidate = (Path(cc).resolve().parent.parent / "cc370")
-        if (candidate / "lib" / "crt0.o").exists():
-            return candidate
-    fallback = Path.home() / ".local" / "cc370"
-    if (fallback / "lib" / "crt0.o").exists():
-        return fallback
-    return None
-
-
-def check_sysroot() -> bool:
-    """Check the cc370 sysroot provides crt objects and libc."""
-    sysroot = _derive_sysroot()
-    if sysroot is None:
-        print(
-            "[mbt] ERROR: cc370 sysroot not found "
-            "(no lib/crt0.o under <cc370>/../cc370 or ~/.local/cc370)",
-            file=sys.stderr,
-        )
-        return False
-    missing = [f for f in SYSROOT_FILES if not (sysroot / f).exists()]
-    if missing:
-        print(
-            f"[mbt] ERROR: sysroot {sysroot} incomplete, missing: "
-            f"{', '.join(missing)}",
-            file=sys.stderr,
-        )
-        return False
-    print(f"[mbt] sysroot: {sysroot} (crt0/crt1/crtm + libc.a OK)")
-    return True
-
-
 def check_mvs_host(config: MbtConfig) -> bool:
-    """Check if MVS host is reachable via HTTP (needed for deploy)."""
+    """Check if MVS host is reachable via HTTP."""
     host = config.mvs_host
     port = config.mvs_port
     url = f"http://{host}:{port}/zosmf/info"
@@ -128,15 +80,14 @@ def check_mvs_host(config: MbtConfig) -> bool:
         return True
     except Exception as e:
         print(
-            f"[mbt] WARNING: MVS host not reachable: {host}:{port} — {e} "
-            f"(only needed for 'make deploy')",
+            f"[mbt] WARNING: MVS host not reachable: {host}:{port} — {e}",
             file=sys.stderr,
         )
         return False
 
 
 def check_mvs_credentials(config: MbtConfig) -> bool:
-    """Check MVS credentials against the jobs endpoint (needed for deploy)."""
+    """Check MVS credentials against the jobs endpoint."""
     host = config.mvs_host
     port = config.mvs_port
     user = config.mvs_user
@@ -158,44 +109,54 @@ def check_mvs_credentials(config: MbtConfig) -> bool:
                 file=sys.stderr,
             )
             return False
-        # Other HTTP errors may still indicate the server is up
+        # Other HTTP errors may still indicate server is up
         print(f"[mbt] MVS credentials check: HTTP {e.code} for {user}")
         return True
     except Exception as e:
         print(
-            f"[mbt] WARNING: Cannot verify MVS credentials: {e} "
-            f"(only needed for 'make deploy')",
+            f"[mbt] WARNING: Cannot verify MVS credentials: {e}",
             file=sys.stderr,
         )
         return False
 
 
-def main() -> int:
-    import argparse
-    parser = argparse.ArgumentParser(description="mbt v2 doctor")
-    parser.add_argument("--project", default="project.toml")
-    args = parser.parse_args()
+def check_project_toml(project_path: str = "project.toml") -> bool:
+    """Validate project.toml."""
+    try:
+        config = MbtConfig(project_path=project_path)
+        print(
+            f"[mbt] project.toml valid: "
+            f"{config.project.name} v{config.project.version}"
+        )
+        return True
+    except FileNotFoundError:
+        print(f"[mbt] WARNING: {project_path} not found", file=sys.stderr)
+        return False
+    except ProjectError as e:
+        print(f"[mbt] ERROR: {e}", file=sys.stderr)
+        return False
 
-    print("[mbt] Running environment checks (v2 / cc370)...")
+
+def main() -> int:
+    print("[mbt] Running environment checks...")
     results = []
 
-    # Host toolchain checks — these gate the build itself
+    # Checks that don't need project.toml
     results.append(check_python_version())
-    for tool in TOOLCHAIN:
-        results.append(check_tool(tool))
-    results.append(check_sysroot())
+    results.append(check_tool("c2asm370"))
     results.append(check_tool("make"))
 
-    # Load config for MVS connectivity checks (needed for `make deploy`)
+    # Load config for MVS connectivity checks
     config = None
     try:
-        config = MbtConfig(project_path=args.project)
-    except Exception as e:
-        print(f"[mbt] WARNING: cannot load {args.project}: {e}", file=sys.stderr)
+        config = MbtConfig(project_path="project.toml")
+    except Exception:
+        pass
 
     if config is not None:
         results.append(check_mvs_host(config))
         results.append(check_mvs_credentials(config))
+        results.append(True)  # project.toml already validated by MbtConfig above
         print(
             f"[mbt] project.toml valid: "
             f"{config.project.name} v{config.project.version}"
@@ -207,11 +168,8 @@ def main() -> int:
         }
         print(format_doctor(sourced))
     else:
-        print(
-            "[mbt] WARNING: project.toml not loaded, skipping MVS checks",
-            file=sys.stderr,
-        )
-        results.append(False)
+        print("[mbt] WARNING: project.toml not found, skipping MVS checks")
+        results.append(check_project_toml())
 
     failed = sum(1 for r in results if not r)
     if failed:

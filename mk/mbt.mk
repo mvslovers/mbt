@@ -1,9 +1,9 @@
-# mk/v2.mk -- cc370 toolchain build system for mbt v2
+# mk/mbt.mk -- cc370 toolchain build system for mbt v2
 #
 # All mvslovers projects use the same 2-line Makefile:
 #
 #   MBT_ROOT := mbt
-#   include $(MBT_ROOT)/mk/v2.mk
+#   include $(MBT_ROOT)/mk/mbt.mk
 #
 # Project configuration lives in project.toml.
 # Build runs entirely on the host via cc370/as370/ld370.
@@ -79,7 +79,7 @@ LDLIBDIR := -L$(SYSROOT)/lib
 
 # -- Read project.toml -> .mbt/config.mk --------------------------
 $(shell mkdir -p .mbt $(BUILDDIR))
-$(shell python3 $(MBT_SCRIPTS)/mbtconfig_v2.py \
+$(shell python3 $(MBT_SCRIPTS)/mbtconfig.py \
     --project project.toml --builddir $(BUILDDIR) \
     --output file 2>&1 | grep -v '^\[mbt\]' >&2)
 
@@ -278,7 +278,7 @@ deploy:
 
 # -- Doctor (check toolchain) -------------------------------------
 doctor:
-	@python3 $(MBT_SCRIPTS)/mbtdoctor_v2.py --project project.toml
+	@python3 $(MBT_SCRIPTS)/mbtdoctor.py --project project.toml
 
 # -- Release management --------------------------------------------
 prerelease: package

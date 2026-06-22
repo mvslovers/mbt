@@ -123,7 +123,7 @@ jobs:
           done | sort -u)
           echo "[mbt] Changed members: $MEMBERS"
           for MEMBER in $MEMBERS; do
-            python3 mbt/scripts/mvsasm.py --project project.toml --member "$MEMBER"
+            python3 mbt/scripts/legacy/mvsasm.py --project project.toml --member "$MEMBER"
           done
 
       - name: Build (full)

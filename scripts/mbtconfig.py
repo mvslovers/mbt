@@ -1,180 +1,255 @@
-"""mbt config CLI.
+"""mbt v2 config generator -- read project.toml, emit make variables.
+
+Reads the v2 project.toml format and writes .mbt/config.mk with make
+variables for the cc370 toolchain build.  Called once by mk/mbt.mk at
+make startup (via $(shell)).
 
 Usage:
-    mbtconfig.py --output shell    # for Make $(eval ...)
-    mbtconfig.py --output json     # for debugging
-    mbtconfig.py --get <key>       # single value
-    mbtconfig.py --validate        # check project.toml
-    mbtconfig.py --doctor          # show sources
+    python3 mbtconfig.py [--project project.toml]
+
+Output (stdout in --output=shell mode, or .mbt/config.mk):
+    PROJECT_NAME, PROJECT_VERSION, CFLAGS, SRC_DIRS,
+    per-module OBJS/ENTRY/LINK_CMD, LIB_*, HEADER_FILES, etc.
 """
 
-import sys
+import glob
 import os
+import sys
 import argparse
 from pathlib import Path
 
-# Add scripts/ dir to path so 'mbt' package is importable
-sys.path.insert(0, str(Path(__file__).parent))
-
-from mbt import EXIT_SUCCESS, EXIT_CONFIG
-from mbt.config import MbtConfig, _ENV_MAP
-from mbt.datasets import DatasetResolver
-from mbt.lockfile import Lockfile
-from mbt.output import format_shell, format_json, format_doctor
-from mbt.version import to_vrm
-
-
-def _mbt_version() -> str:
-    """Read mbt VERSION file relative to MBT_ROOT."""
-    mbt_root = Path(os.environ.get("MBT_ROOT", Path(__file__).parent.parent))
-    version_file = mbt_root / "VERSION"
-    if version_file.exists():
-        return version_file.read_text(encoding="utf-8").strip()
-    return "unknown"
+# Python 3.11+ has tomllib in stdlib
+try:
+    import tomllib
+except ModuleNotFoundError:
+    try:
+        import tomli as tomllib
+    except ModuleNotFoundError:
+        tomllib = None
 
 
-def build_variables(config: MbtConfig) -> dict[str, str]:
-    """Build the complete variable dict for shell/json output.
+def _parse_toml(path: str) -> dict:
+    """Parse a TOML file, preferring tomllib if available."""
+    if tomllib is not None:
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+    import subprocess, json
+    code = (
+        "import tomllib, json, sys; "
+        "print(json.dumps(tomllib.load(open(sys.argv[1],'rb'))))"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", code, path],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        print(f"[mbt] ERROR: Cannot parse {path}: {r.stderr}", file=sys.stderr)
+        sys.exit(1)
+    return json.loads(r.stdout)
 
-    Computes ALL values that Make and executor scripts need:
 
-    PROJECT_NAME, PROJECT_VERSION, PROJECT_TYPE, PROJECT_VRM,
-    MBT_VERSION (read from mbt/VERSION file),
-    CC, CFLAGS,
-    MVS_HOST, MVS_PORT, MVS_USER, MVS_HLQ, DEPS_HLQ,
-    JES_JOBCLASS, JES_MSGCLASS,
-    BUILD_DS_<KEY>=<DSN> for each build dataset,
-    DEP_<NAME>_VERSION, DEP_<NAME>_VRM,
-    DEP_<NAME>_<SUFFIX>=<DSN> for each dependency dataset,
-    DEP_<NAME>_HEADERS=contrib/<name>-<ver>/include,
-    SYSLIB_MACLIBS (space-separated list),
-    SYSLIB_NCALIBS (space-separated list),
-    INCLUDES (compiler -I flags, space-separated),
-    C_DIRS (space-separated list),
-    ASM_DIRS (space-separated list)
+def _make_escape(s: str) -> str:
+    """Escape characters that are special in GNU Make (# and $)."""
+    return s.replace("$", "$$").replace("#", "\\#")
+
+
+def _resolve_sources(patterns: list, exclude: list = None) -> list:
+    """Expand glob patterns to actual source files, sorted."""
+    files = []
+    for pat in patterns:
+        matches = sorted(glob.glob(pat))
+        if not matches:
+            print(f"[mbt] WARNING: pattern '{pat}' matched no files",
+                  file=sys.stderr)
+        files.extend(matches)
+    if exclude:
+        exc_files = set()
+        for pat in exclude:
+            exc_files.update(glob.glob(pat))
+        files = [f for f in files if f not in exc_files]
+    # Deduplicate while preserving order
+    seen = set()
+    result = []
+    for f in files:
+        if f not in seen:
+            seen.add(f)
+            result.append(f)
+    return result
+
+
+def _src_to_obj(src: str, builddir: str) -> str:
+    """Map a source file path to a build object path.
+
+    src/ufsd#cmd.c  -> build/ufsd#cmd.o
+    client/libufs.c -> build/libufs.o
+    asm/foo.asm     -> build/foo.o
     """
-    project = config.project
-    resolver = DatasetResolver(config)
-    lockfile = Lockfile.load()
-    lockfile_deps = lockfile.dependencies if lockfile else {}
-    package_cache: dict = {}  # populated by mbtbootstrap (Milestone 2)
-
-    variables: dict[str, str] = {}
-
-    # Project metadata
-    variables["PROJECT_NAME"] = project.name
-    variables["PROJECT_VERSION"] = project.version
-    variables["PROJECT_TYPE"] = project.type
-    variables["PROJECT_VRM"] = project.vrm
-    variables["MBT_VERSION"] = _mbt_version()
-
-    # Compiler
-    variables["CC"] = "c2asm370"
-    cflags_parts = ["-S", "-O1", f'-DVERSION="{project.version}"'] + project.cflags
-    variables["CFLAGS"] = " ".join(cflags_parts)
-
-    # MVS connection
-    variables["MVS_HOST"] = config.mvs_host
-    variables["MVS_PORT"] = str(config.mvs_port)
-    variables["MVS_USER"] = config.mvs_user
-    variables["MVS_HLQ"] = config.hlq
-    variables["DEPS_HLQ"] = config.deps_hlq
-
-    # JES
-    variables["JES_JOBCLASS"] = config.jes_jobclass
-    variables["JES_MSGCLASS"] = config.jes_msgclass
-
-    # Build datasets: BUILD_DS_<KEY>=<DSN>
-    build_ds = resolver.build_datasets()
-    for key, ds in build_ds.items():
-        variables[f"BUILD_DS_{key.upper()}"] = ds.dsn
-
-    # Dependency info from lockfile
-    for dep_key, dep_version in lockfile_deps.items():
-        dep_name = dep_key.split("/")[-1].upper()
-        variables[f"DEP_{dep_name}_VERSION"] = dep_version
-        variables[f"DEP_{dep_name}_VRM"] = to_vrm(dep_version)
-        variables[f"DEP_{dep_name}_HEADERS"] = (
-            f"contrib/{dep_key.split('/')[-1]}-{dep_version}/include"
-        )
-
-    # Dependency dataset DSNs from package_cache
-    dep_datasets = resolver.dependency_datasets(lockfile_deps, package_cache)
-    for dep_key, ds_list in dep_datasets.items():
-        dep_name = dep_key.split("/")[-1].upper()
-        for ds in ds_list:
-            variables[f"DEP_{dep_name}_{ds.suffix}"] = ds.dsn
-
-    # SYSLIB lists (space-separated)
-    maclibs = resolver.syslib_maclibs(lockfile_deps, package_cache)
-    ncalibs = resolver.syslib_ncalibs(lockfile_deps, package_cache)
-    variables["SYSLIB_MACLIBS"] = " ".join(maclibs)
-    variables["SYSLIB_NCALIBS"] = " ".join(ncalibs)
-
-    # Compiler include flags (-I per dep headers dir)
-    includes = ["-Iinclude"]
-    for dep_key, dep_version in lockfile_deps.items():
-        dep_short = dep_key.split("/")[-1]
-        includes.append(f"-Icontrib/{dep_short}-{dep_version}/include")
-    variables["INCLUDES"] = " ".join(includes)
-
-    # Source directories
-    variables["C_DIRS"] = " ".join(project.c_dirs)
-    variables["ASM_DIRS"] = " ".join(project.asm_dirs)
-
-    return variables
+    base = Path(src).stem + ".o"
+    return os.path.join(builddir, base)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description="mbt configuration")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--output", choices=["shell", "json"])
-    group.add_argument("--get", metavar="KEY")
-    group.add_argument("--validate", action="store_true")
-    group.add_argument("--doctor", action="store_true")
+def _startup_to_link_cmd(startup) -> str:
+    """Map startup config value to a LINK_* macro name."""
+    if startup is False or startup is None:
+        return "LINK_NOCRT"
+    mapping = {
+        "crt0": "LINK_CRT0",
+        "crt1": "LINK_CRT1",
+        "crtm": "LINK_CRTM",
+    }
+    return mapping.get(str(startup), "LINK_CRT0")
 
+
+def _collect_src_dirs(sources: list) -> set:
+    """Extract unique parent directories from a list of source files."""
+    dirs = set()
+    for s in sources:
+        d = os.path.dirname(s)
+        if d:
+            dirs.add(d)
+    return dirs
+
+
+# Defaults
+DEFAULT_ENTRY   = "@@CRT0"    # standard C entry point
+DEFAULT_STARTUP = "crt0"      # simple CRT, no threading
+
+
+def _emit_module(lines, mod, builddir, all_src_dirs, all_objs, var_prefix):
+    """Emit make variables for a single module or test."""
+    mod_name = mod["name"]
+    entry = mod.get("entry", DEFAULT_ENTRY)
+    startup = mod.get("startup", DEFAULT_STARTUP)
+    sources = _resolve_sources(
+        mod.get("sources", []),
+        mod.get("exclude", []),
+    )
+    objs = [_src_to_obj(s, builddir) for s in sources]
+    all_src_dirs.update(_collect_src_dirs(sources))
+    all_objs.update(objs)
+
+    link_cmd = _startup_to_link_cmd(startup)
+    objs_escaped = " ".join(_make_escape(o) for o in objs)
+
+    lines.append(f"{var_prefix} += {mod_name}")
+    lines.append(f"MODULE_{mod_name}_ENTRY := {entry}")
+    lines.append(f"MODULE_{mod_name}_LINK_CMD := {link_cmd}")
+    lines.append(f"MODULE_{mod_name}_OBJS := {objs_escaped}")
+    lines.append(f"MODULE_{mod_name}_ALIAS := {mod_name.lower()}")
+    lines.append("")
+
+
+def generate(project_file: str = "project.toml", builddir: str = "build") -> str:
+    """Generate make variable assignments from project.toml."""
+    cfg = _parse_toml(project_file)
+    lines = [
+        "# Auto-generated by mbtconfig.py -- do not edit",
+        f"# Source: {project_file}",
+        "",
+    ]
+
+    # -- Project metadata --
+    project = cfg.get("project", {})
+    name = project.get("name", "unknown")
+    version = project.get("version", "0.0.0")
+    ptype = project.get("type", "application")
+
+    lines.append(f"PROJECT_NAME := {name}")
+    lines.append(f"PROJECT_VERSION := {version}")
+    lines.append(f"PROJECT_TYPE := {ptype}")
+    lines.append("")
+
+    # -- Build flags --
+    build = cfg.get("build", {})
+    cflags = build.get("cflags", [])
+    asflags = build.get("asflags", [])
+
+    if cflags:
+        lines.append(f"CFLAGS += {' '.join(cflags)}")
+    if asflags:
+        lines.append(f"ASFLAGS += {' '.join(asflags)}")
+    lines.append("")
+
+    # -- Collect all source dirs for VPATH --
+    all_src_dirs = set()
+    all_objs = set()
+
+    # -- Modules --
+    modules = cfg.get("module", [])
+    if modules:
+        lines.append("# -- Modules --")
+    for mod in modules:
+        _emit_module(lines, mod, builddir, all_src_dirs, all_objs, "MODULES")
+
+    # -- Tests --
+    tests = cfg.get("test", [])
+    if tests:
+        lines.append("# -- Tests --")
+    for test in tests:
+        _emit_module(lines, test, builddir, all_src_dirs, all_objs, "TESTS")
+
+    # -- Library --
+    lib = cfg.get("lib", {})
+    if lib:
+        lines.append("# -- Library --")
+        lib_name = lib.get("name", name)
+        sources = _resolve_sources(lib.get("sources", []))
+        objs = [_src_to_obj(s, builddir) for s in sources]
+        headers = lib.get("headers", [])
+        all_src_dirs.update(_collect_src_dirs(sources))
+        all_objs.update(objs)
+
+        objs_escaped = " ".join(_make_escape(o) for o in objs)
+        lines.append(f"LIB_NAME := {lib_name}")
+        lines.append(f"LIB_OBJS := {objs_escaped}")
+        lines.append(f"LIB_HEADERS := {' '.join(headers)}")
+        lines.append("")
+
+    # -- Source directories for vpath --
+    if all_src_dirs:
+        lines.append("# -- Source paths --")
+        lines.append(f"SRC_DIRS := {' '.join(sorted(all_src_dirs))}")
+        lines.append("")
+
+    # -- All objects (for clean target) --
+    lines.append("# -- All objects --")
+    lines.append(
+        f"ALL_OBJS := "
+        f"{' '.join(_make_escape(o) for o in sorted(all_objs))}"
+    )
+    lines.append("")
+
+    # -- Release config --
+    release = cfg.get("release", {})
+    if release:
+        lines.append("# -- Release --")
+        vfiles = release.get("version_files", [])
+        lines.append(f"RELEASE_VERSION_FILES := {' '.join(vfiles)}")
+        lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description="mbt v2 config generator")
     parser.add_argument("--project", default="project.toml")
+    parser.add_argument("--builddir", default="build")
+    parser.add_argument("--output", choices=["shell", "file"], default="shell",
+                        help="shell: print to stdout; file: write .mbt/config.mk")
     args = parser.parse_args()
 
-    try:
-        config = MbtConfig(project_path=args.project)
-    except Exception as e:
-        print(f"[mbt] ERROR: {e}", file=sys.stderr)
-        return EXIT_CONFIG
+    if not os.path.exists(args.project):
+        print(f"[mbt] ERROR: {args.project} not found", file=sys.stderr)
+        sys.exit(1)
 
-    if args.validate:
-        print("[mbt] project.toml is valid")
-        return EXIT_SUCCESS
+    content = generate(args.project, args.builddir)
 
-    if args.doctor:
-        sourced = {
-            env_name.replace("MBT_", ""): config.get_sourced(config_key)
-            for config_key, env_name in _ENV_MAP.items()
-        }
-        print(format_doctor(sourced))
-        return EXIT_SUCCESS
-
-    if args.get:
-        try:
-            print(config.get(args.get))
-            return EXIT_SUCCESS
-        except KeyError as e:
-            print(f"[mbt] ERROR: {e}", file=sys.stderr)
-            return EXIT_CONFIG
-
-    variables = build_variables(config)
-    if args.output == "shell":
-        print(format_shell(variables))
-    elif args.output == "json":
-        print(format_json(variables))
-    return EXIT_SUCCESS
+    if args.output == "file":
+        os.makedirs(".mbt", exist_ok=True)
+        Path(".mbt/config.mk").write_text(content)
+    else:
+        print(content, end="")
 
 
 if __name__ == "__main__":
-    try:
-        sys.exit(main())
-    except Exception as e:
-        print(f"[mbt] ERROR: Internal error: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc()
-        sys.exit(99)
+    main()

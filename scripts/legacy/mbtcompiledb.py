@@ -10,7 +10,8 @@ import json
 import argparse
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))  # scripts/ for the mbt package
+sys.path.insert(0, str(Path(__file__).parent))         # scripts/legacy/ for sibling scripts
 
 from mbt import EXIT_SUCCESS, EXIT_CONFIG
 from mbt.config import MbtConfig
