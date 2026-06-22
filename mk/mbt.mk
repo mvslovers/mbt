@@ -180,8 +180,8 @@ endif
 # goal.  Force 'all' to be the default for a bare 'make'.
 .DEFAULT_GOAL := all
 
-.PHONY: all modules test lib package deps deploy doctor release prerelease \
-        clean distclean help
+.PHONY: all modules test lib package deps deploy doctor compiledb release \
+        prerelease clean distclean help
 
 # Help
 help:
@@ -208,6 +208,7 @@ help:
 	@echo "Other:"
 	@echo "  deps         Download declared dependencies (like old bootstrap)"
 	@echo "  doctor       Check toolchain and connectivity"
+	@echo "  compiledb    Write compile_commands.json for clangd"
 	@echo "  clean        Remove build/ dist/ .mbt/"
 	@echo "  distclean    clean + remove deps/"
 	@echo "  help         Show this message"
@@ -279,6 +280,10 @@ deploy:
 # -- Doctor (check toolchain) -------------------------------------
 doctor:
 	@python3 $(MBT_SCRIPTS)/mbtdoctor.py --project project.toml
+
+# -- compile_commands.json for clangd ------------------------------
+compiledb:
+	@python3 $(MBT_SCRIPTS)/mbtcompiledb.py --project project.toml
 
 # -- Release management --------------------------------------------
 prerelease: package
