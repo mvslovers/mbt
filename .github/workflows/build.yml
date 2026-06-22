@@ -42,25 +42,31 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Clone cc370
+      - name: Clone toolchain (cc370 + libc370)
         run: |
           git clone --depth 1 --branch "${{ inputs.cc370_ref }}" \
             https://github.com/mvslovers/cc370.git /tmp/cc370
-          echo "CC370_SHA=$(git -C /tmp/cc370 rev-parse HEAD)" >> "$GITHUB_ENV"
+          git clone --depth 1 \
+            https://github.com/mvslovers/libc370.git /tmp/libc370
+          echo "TC_KEY=$(git -C /tmp/cc370 rev-parse HEAD)-$(git -C /tmp/libc370 rev-parse HEAD)" >> "$GITHUB_ENV"
 
-      - name: Cache cc370 toolchain
-        id: cc370-cache
+      - name: Cache toolchain (cc370 compiler + libc370 sysroot)
+        id: tc-cache
         uses: actions/cache@v5
         with:
           path: ~/.local
-          key: cc370-${{ runner.os }}-${{ env.CC370_SHA }}
+          key: cc370-${{ runner.os }}-${{ env.TC_KEY }}
 
-      - name: Build + install cc370 toolchain
-        if: steps.cc370-cache.outputs.cache-hit != 'true'
+      - name: Build + install toolchain
+        if: steps.tc-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential bison flex
+          # 1. compiler + tools (cc370/as370/ld370/ar370)
           make -C /tmp/cc370 install PREFIX="$HOME/.local"
+          export PATH="$HOME/.local/bin:$PATH"
+          # 2. libc370 sysroot (headers, crt*.o, libc.a, macros); built with cc370
+          make -C /tmp/libc370 install
 
       - name: Add cc370 to PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
