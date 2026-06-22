@@ -200,7 +200,6 @@ def _do_release(project, version_files: list[str],
 
     # Step 3: print message
     _log(f"Released {release_ver}. Now on {next_ver}.")
-    _log("Run 'make bootstrap' to allocate build datasets.")
     return EXIT_SUCCESS
 
 
