@@ -37,6 +37,20 @@ CFLAGS  ?= -O1
 ASFLAGS ?=
 LDFLAGS ?=
 
+# -- Verbosity -----------------------------------------------------
+# 'make V=1' (or VERBOSE=1) echoes every cc370/as370/ld370/ar370
+# invocation with its full arguments instead of the short [tool] labels,
+# and passes --verbose down to the deploy script.
+ifeq ($(filter 1,$(V) $(VERBOSE)),1)
+  Q :=
+  E := @:
+  VFLAG := --verbose
+else
+  Q := @
+  E := @echo
+  VFLAG :=
+endif
+
 # -- Sysroot (libc370 headers/libs/macros) -------------------------
 # cc370 locates its own headers/libs relative to its binary
 # (<bindir>/../cc370), so derive the sysroot the same way.  Note:
@@ -83,40 +97,40 @@ DEPFLAGS := -MMD -MP
 
 # -- Pattern rules -------------------------------------------------
 $(BUILDDIR)/%.o: %.c
-	@echo "[cc370] $<"
-	@$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
-	@d="$@"; d="$${d%.o}.d"; sed 's/#/\\#/g' "$$d" > "$$d.e" && mv "$$d.e" "$$d"
+	$(E) "[cc370] $<"
+	$(Q)$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
+	$(Q)d="$@"; d="$${d%.o}.d"; sed 's/#/\\#/g' "$$d" > "$$d.e" && mv "$$d.e" "$$d"
 
 $(BUILDDIR)/%.o: %.asm
-	@echo "[as370] $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
+	$(E) "[as370] $<"
+	$(Q)$(AS) $(ASFLAGS) -o $@ $<
 
 $(BUILDDIR)/%.o: %.s
-	@echo "[as370] $<"
-	@$(AS) $(ASFLAGS) -o $@ $<
+	$(E) "[as370] $<"
+	$(Q)$(AS) $(ASFLAGS) -o $@ $<
 
 # -- Link helpers --------------------------------------------------
 # Called by the generated module rules below.
 # $(1) = entry point, $(2) = module name, $(3) = object files
 
 define LINK_CRT0
-	@echo "[ld370] $(2) (entry=$(1), crt0)"
-	@$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
+	$(E) "[ld370] $(2) (entry=$(1), crt0)"
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRT1
-	@echo "[ld370] $(2) (entry=$(1), crt1)"
-	@$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
+	$(E) "[ld370] $(2) (entry=$(1), crt1)"
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
-	@echo "[ld370] $(2) (entry=$(1), crtm)"
-	@$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
+	$(E) "[ld370] $(2) (entry=$(1), crtm)"
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
-	@echo "[ld370] $(2) (entry=$(1), no crt)"
-	@$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
+	$(E) "[ld370] $(2) (entry=$(1), no crt)"
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
@@ -150,8 +164,8 @@ ifdef LIB_NAME
 LIB_FILE := $(BUILDDIR)/$(LIB_NAME).a
 
 $(LIB_FILE): $(LIB_OBJS)
-	@echo "[ar370] $(LIB_NAME).a ($(words $^) objects)"
-	@$(AR) rc $@ $^
+	$(E) "[ar370] $(LIB_NAME).a ($(words $^) objects)"
+	$(Q)$(AR) rc $@ $^
 endif
 
 # -- Standard targets ----------------------------------------------
@@ -191,6 +205,9 @@ help:
 	@echo "  clean        Remove build/ dist/ .mbt/"
 	@echo "  distclean    clean + remove deps/"
 	@echo "  help         Show this message"
+	@echo ""
+	@echo "Options:"
+	@echo "  V=1          Verbose: show full cc370/as370/ld370/ar370 commands"
 
 # Default: build all modules
 all: modules
@@ -250,7 +267,7 @@ print('[mbt] Dependencies:', ', '.join(d) if d else 'none declared')"
 # 'make && make deploy' deploys all).
 deploy:
 	@python3 $(MBT_SCRIPTS)/mbtdeploy.py --project project.toml \
-	    --builddir $(BUILDDIR) --ld $(LD) $(ARGS)
+	    --builddir $(BUILDDIR) --ld $(LD) $(VFLAG) $(ARGS)
 
 # -- Doctor (check toolchain) -------------------------------------
 doctor:

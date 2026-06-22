@@ -112,9 +112,17 @@ def _staging_space(nbytes: int) -> list:
     return ["TRK", tracks, max(20, tracks // 4)]
 
 
-def _pack(ld: str, load_modules: list, out: str, dsn: str) -> str:
+def _vlog(verbose: bool, msg: str) -> None:
+    """Print an executed command line when --verbose is set."""
+    if verbose:
+        print(f"[mbt] + {msg}")
+
+
+def _pack(ld: str, load_modules: list, out: str, dsn: str,
+          verbose: bool = False) -> str:
     """Pack load modules into one XMIT via ld370 --pack. Return the .xmit."""
     cmd = [ld, "--pack", *load_modules, "-o", out, "-xmit", "--dsn", dsn]
+    _vlog(verbose, " ".join(cmd))
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(
@@ -125,7 +133,8 @@ def _pack(ld: str, load_modules: list, out: str, dsn: str) -> str:
 
 
 def _receive_xmit(client: MvsMFClient, config: MbtConfig,
-                  xmit_dsn: str, target_dsn: str) -> int:
+                  xmit_dsn: str, target_dsn: str,
+                  verbose: bool = False) -> int:
     """Submit a TSO RECEIVE job to unpack an XMIT into the target dataset.
 
     The target must NOT exist (RECEIVE refuses to merge); deploy deletes
@@ -146,6 +155,9 @@ def _receive_xmit(client: MvsMFClient, config: MbtConfig,
             f" RECEIVE INDSN('{xmit_dsn}') -\n"
             f"  DATASET('{target_dsn}')"
         )
+    _vlog(verbose,
+          f"RECEIVE INDSN('{xmit_dsn}') DATASET('{target_dsn}')"
+          + (f" VOLUME('{volume}')" if volume else ""))
     jcl = render_template("receive.jcl.tpl", {
         "JOBCARD": jc,
         "XMIT_DSN": xmit_dsn,
@@ -170,6 +182,8 @@ def main() -> int:
                         help="deploy only this module (repeatable)")
     parser.add_argument("--dry-run", action="store_true",
                         help="pack locally and report, but touch no MVS")
+    parser.add_argument("-v", "--verbose", action="store_true",
+                        help="echo the ld370/RECEIVE commands that are run")
     args = parser.parse_args()
 
     # -- Load config + project --
@@ -226,7 +240,7 @@ def main() -> int:
         load_modules = [str(builddir / n) for n in built]
         out = str(builddir / f"{config.project.name}.deploy")
         try:
-            xmit = _pack(args.ld, load_modules, out, target)
+            xmit = _pack(args.ld, load_modules, out, target, args.verbose)
         except RuntimeError as e:
             _log_error(str(e))
             return EXIT_BUILD
@@ -256,7 +270,7 @@ def main() -> int:
             client.delete_dataset(target)
 
         _log(f"RECEIVE {staging} -> {target}...")
-        _receive_xmit(client, config, staging, target)
+        _receive_xmit(client, config, staging, target, args.verbose)
         _log(f"Deploy complete: {len(built)} module(s) -> {target}")
     except MvsMFError as e:
         _log_error(f"deploy failed: {e}")
