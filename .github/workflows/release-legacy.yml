@@ -1,0 +1,149 @@
+# LEGACY (mbt v1, mvsMF/JCL build). New projects use the v2 workflow
+# of the same base name (build.yml / release.yml). See docs/MIGRATION.md.
+#
+# Reusable release workflow for mbt-based projects.
+#
+# Triggered on version tags (v*). Starts MVS/CE in Docker,
+# runs the full build pipeline, and creates a GitHub Release
+# with dist/* as assets.
+#
+# Usage in consumer project:
+#
+#   on:
+#     push:
+#       tags: ["v*"]
+#
+#   jobs:
+#     release:
+#       uses: mvslovers/mbt/.github/workflows/release-legacy.yml@main
+
+name: Release
+
+on:
+  workflow_call:
+
+env:
+  MBT_MVS_HOST: localhost
+  MBT_MVS_PORT: 8080
+  MBT_MVS_USER: IBMUSER
+  MBT_MVS_PASS: sys1
+  MBT_MVS_DEPS_HLQ: MBTDEPS
+  MBT_MVS_DEPS_VOLUME: PUB000
+  MBT_BUILD_ID: ${{ github.run_number }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    services:
+      mvs:
+        image: ghcr.io/mvslovers/mvsce-builder:latest
+        ports:
+          - 3270:3270
+          - 8080:8080
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install c2asm370
+        run: |
+          curl -fsSL -o /tmp/c2asm370.tar.gz \
+            https://github.com/mvslovers/c2asm370/releases/download/v1.2/c2asm370-linux-x86.tar.gz
+          sudo tar xzf /tmp/c2asm370.tar.gz -C /usr/local/bin
+          sudo chmod +x /usr/local/bin/c2asm370
+          sudo apt-get update && sudo apt-get install -y libc6-i386
+
+      - name: Wait for MVS IPL
+        run: |
+          echo "Waiting for mvsMF API..."
+          for i in $(seq 1 120); do
+            if curl -sf -u IBMUSER:sys1 http://localhost:8080/zosmf/info >/dev/null 2>&1; then
+              echo "mvsMF ready after ~${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "mvsMF not ready after 120s"
+          exit 1
+
+      - name: Validate tag matches project version
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PROJECT_VERSION=$(python3 -c "
+          import tomllib
+          with open('project.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['version'])
+          ")
+          if [ "$TAG" != "$PROJECT_VERSION" ]; then
+            echo "[mbt] ERROR: Tag v$TAG does not match project.toml version $PROJECT_VERSION"
+            exit 1
+          fi
+          echo "VERSION=$TAG" >> "$GITHUB_ENV"
+
+      - name: Cache mbt dependencies
+        uses: actions/cache@v5
+        with:
+          path: ~/.mbt/cache
+          key: mbt-deps-${{ hashFiles('.mbt/mvs.lock') }}
+          restore-keys: mbt-deps-
+
+      - name: Bootstrap
+        run: make bootstrap
+
+      - name: Build
+        run: make build
+
+      - name: Link
+        run: |
+          TYPE=$(python3 -c "
+          import tomllib
+          with open('project.toml', 'rb') as f:
+              print(tomllib.load(f)['project']['type'])
+          ")
+          if [ "$TYPE" = "application" ] || [ "$TYPE" = "module" ]; then
+            make link
+          else
+            echo "[mbt] Project type '$TYPE' — skipping final link."
+          fi
+
+      - name: Package
+        run: make package
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: dist/*
+          generate_release_notes: true
+
+      - name: Dump MVS container logs
+        if: failure()
+        run: |
+          docker logs $(docker ps -aq --filter "ancestor=ghcr.io/mvslovers/mvsce-builder:latest") \
+            > /tmp/mvs-docker.log 2>&1 || true
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: mbt-logs
+          path: |
+            .mbt/logs/
+            /tmp/mvs-docker.log
+          if-no-files-found: ignore
+
+      - name: Clean CI datasets
+        if: always()
+        run: make datasets ARGS="--delete-build --quiet" || true

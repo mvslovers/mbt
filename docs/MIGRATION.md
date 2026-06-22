@@ -215,18 +215,60 @@ will not merge into an existing dataset), and RECEIVEs the new one.
 
 ---
 
-## 5. Migrating an existing project
+## 5. CI (GitHub Actions)
+
+mbt ships reusable workflows. A v2 project's CI is **host-only** (no MVS).
+
+`.github/workflows/build.yml`:
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  build:
+    uses: mvslovers/mbt/.github/workflows/build.yml@main
+```
+
+`.github/workflows/release.yml`:
+
+```yaml
+on:
+  push:
+    tags: ["v*"]
+jobs:
+  release:
+    uses: mvslovers/mbt/.github/workflows/release.yml@main
+```
+
+The v2 workflows clone + `make install` the cc370 toolchain (cached per
+cc370 commit), then run the host build:
+
+- `build.yml` — `make` + `make test` + `make lib`.
+- `release.yml` — validates the tag against `project.toml` version, runs
+  `make package`, and publishes a GitHub Release with `dist/*`
+  (prerelease when the tag contains `-`).
+
+Pin a tag (`@vX.Y.Z`) instead of `@main` for reproducibility. Legacy (v1)
+projects keep using `build-legacy.yml` / `release-legacy.yml` (MVS/CE in
+Docker).
+
+---
+
+## 6. Migrating an existing project
 
 1. Update `mbt` (the submodule) to a v2 commit.
 2. Replace `Makefile` with the two-line v2 include (`mk/mbt.mk`).
 3. Rewrite `project.toml` per section 2 (use the mapping in section 3).
-4. `make doctor` — verify the cc370 toolchain and MVS connectivity.
-5. `make` then `make deploy ARGS="--dry-run"` — verify modules and target.
-6. `make deploy` — first live deploy (writes to MVS).
+4. Point `.github/workflows/*.yml` at the v2 reusable workflows (section 5).
+5. `make doctor` — verify the cc370 toolchain (and MVS, for deploy).
+6. `make` then `make deploy ARGS="--dry-run"` — verify modules and target.
+7. `make deploy` — first live deploy (writes to MVS).
 
 ---
 
-## 6. Legacy (v1)
+## 7. Legacy (v1)
 
 The v1 remote build is preserved under `mk/legacy/` and
 `scripts/legacy/`. Projects not yet migrated keep their old `Makefile`:
