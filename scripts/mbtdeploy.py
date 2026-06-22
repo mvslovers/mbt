@@ -1,20 +1,19 @@
-"""mbt v2 deploy — pack built load modules into one XMIT and RECEIVE it.
+"""mbt v2 deploy — pack built modules into one LINKLIB XMIT and RECEIVE it.
 
-The build leaves a bare load module build/{NAME} for every module it
-links.  Deploy packs the load modules that are present in the build dir
-into a single multi-member XMIT (ld370 --pack), uploads it, and RECEIVEs
-it into the target LINKLIB.  The module set therefore follows the build:
+The build leaves a per-module IEBCOPY unload build/{NAME}.iebcopy for every
+module it links.  Unlike a bare load module, the unload carries the PDS2
+directory (entry point + module length), so ld370 --pack can combine the
+unloads into one multi-member LINKLIB XMIT with every member intact.
+The module set follows the build:
 
     make clean && make ufsd && make deploy   -> LINKLIB with just UFSD
     make            && make deploy            -> LINKLIB with all modules
 
 Steps:
-  1. Obtain the XMIT:
-       - one module  -> use the build's own build/{NAME}.xmit (it already
-         carries the correct modlen/entry; ld370 --pack does not yet).
-       - many modules -> ld370 --pack <load modules> -o build/{PROJECT}.deploy
-         -xmit --dsn {TARGET}
-  2. upload the XMIT to a staging dataset ({HLQ}.MBT.XMIT.IN)
+  1. ld370 --pack <build/NAME.iebcopy ...> -o build/{PROJECT}.deploy -xmit
+     --dsn {TARGET}    (one or many modules; entry/modlen come from the
+     .iebcopy directories)
+  2. upload build/{PROJECT}.deploy.xmit to staging ({HLQ}.MBT.XMIT.IN)
   3. DELETE the target LINKLIB if it exists  (NJE RECEIVE refuses to
      merge into an existing dataset -> "replace" semantics)
   4. TSO RECEIVE staging -> target  (allocates the target from the XMIT's
@@ -90,8 +89,9 @@ def _module_names(project: dict) -> list:
 
 
 def _built_modules(project: dict, builddir: Path) -> list:
-    """Production modules whose bare load module is present in builddir."""
-    return [n for n in _module_names(project) if (builddir / n).is_file()]
+    """Production modules whose IEBCOPY unload is present in builddir."""
+    return [n for n in _module_names(project)
+            if (builddir / f"{n}.iebcopy").is_file()]
 
 
 def _resolve_target(args, config: MbtConfig, project: dict) -> str:
@@ -211,7 +211,7 @@ def main() -> int:
         built = [m for m in built if m.upper() in wanted]
     if not built:
         _log_error(
-            f"no built load modules in {builddir}/ "
+            f"no built modules in {builddir}/ "
             f"(run 'make' or 'make <module>' first)"
         )
         return EXIT_CONFIG
@@ -221,30 +221,19 @@ def main() -> int:
     _log(f"Deploy target: {target}")
     _log(f"Modules ({len(built)}): {', '.join(built)}")
 
-    # -- 1. Obtain the XMIT to RECEIVE (local, no MVS) --
-    if len(built) == 1:
-        # Single module: the build already produced a correct single-member
-        # XMIT (right modlen/entry).  ld370 --pack would lose those, so use
-        # the plain build XMIT directly.  RECEIVE uses DATASET(target)
-        # explicitly, so the XMIT's embedded DSN does not matter.
-        xmit = str(builddir / f"{built[0]}.xmit")
-        if not Path(xmit).is_file():
-            _log_error(f"missing artifact: {xmit} (run 'make {built[0].lower()}' first)")
-            return EXIT_CONFIG
-        _log(f"Single module: using build XMIT {Path(xmit).name}")
-    else:
-        # Multiple modules: pack them into one multi-member XMIT.
-        # ".deploy" avoids colliding with a module's own {NAME}.xmit on a
-        # case-insensitive filesystem (project "ufsd" vs module "UFSD");
-        # module names are MVS members and never contain a dot.
-        load_modules = [str(builddir / n) for n in built]
-        out = str(builddir / f"{config.project.name}.deploy")
-        try:
-            xmit = _pack(args.ld, load_modules, out, target, args.verbose)
-        except RuntimeError as e:
-            _log_error(str(e))
-            return EXIT_BUILD
-        _log(f"Packed {len(built)} module(s) -> {Path(xmit).name}")
+    # -- 1. Pack the per-module IEBCOPY unloads into one LINKLIB XMIT --
+    # Each build/NAME.iebcopy carries its PDS2 directory (entry + modlen),
+    # which --pack preserves; a bare load module would lose them.  ".deploy"
+    # avoids colliding with build/NAME.iebcopy on a case-insensitive
+    # filesystem (project "ufsd" vs module "UFSD").
+    images = [str(builddir / f"{n}.iebcopy") for n in built]
+    out = str(builddir / f"{config.project.name}.deploy")
+    try:
+        xmit = _pack(args.ld, images, out, target, args.verbose)
+    except RuntimeError as e:
+        _log_error(str(e))
+        return EXIT_BUILD
+    _log(f"Packed {len(built)} module(s) -> {Path(xmit).name}")
     xmit_bytes = Path(xmit).read_bytes()
 
     if args.dry_run:

@@ -33,15 +33,18 @@ AR := ar370
 endif
 FILE370 ?= file370
 
-CFLAGS  ?= -O1
-ASFLAGS ?=
-LDFLAGS ?=
+# ':=' (not '?=') so a host CFLAGS/ASFLAGS/LDFLAGS in the environment does
+# NOT leak into the cross-build (e.g. a Homebrew LDFLAGS=-L.../libiconv).
+# A 'make CFLAGS=...' on the command line still overrides these.
+CFLAGS  := -O1
+ASFLAGS :=
+LDFLAGS :=
 
 # -- Verbosity -----------------------------------------------------
-# 'make V=1' (or VERBOSE=1) echoes every cc370/as370/ld370/ar370
-# invocation with its full arguments instead of the short [tool] labels,
-# and passes --verbose down to the deploy script.
-ifeq ($(filter 1,$(V) $(VERBOSE)),1)
+# 'VERBOSE=1 make' echoes every cc370/as370/ld370/ar370 invocation with
+# its full arguments instead of the short [tool] labels, and passes
+# --verbose down to the deploy script.
+ifeq ($(VERBOSE),1)
   Q :=
   E := @:
   VFLAG := --verbose
@@ -115,44 +118,47 @@ $(BUILDDIR)/%.o: %.s
 
 define LINK_CRT0
 	$(E) "[ld370] $(2) (entry=$(1), crt0)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) -lc -iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRT1
 	$(E) "[ld370] $(2) (entry=$(1), crt1)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) -lc -iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
 	$(E) "[ld370] $(2) (entry=$(1), crtm)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) -lc -iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
 	$(E) "[ld370] $(2) (entry=$(1), no crt)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) -lc -xmit -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) -lc -iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
+# Each module links to a per-module IEBCOPY unload (build/NAME.iebcopy):
+# unlike a bare load module it carries the PDS2 directory (entry point +
+# module length), so 'deploy' can ld370 --pack them into one LINKLIB XMIT.
 # For each MODULE and TEST, create:
-#   build/NAME.xmit: build/obj1.o build/obj2.o ...
+#   build/NAME.iebcopy: build/obj1.o build/obj2.o ...
 #       $(call LINK_xxx, ENTRY, NAME, $^)
-#   name (lowercase): build/NAME.xmit       <- alias
+#   name (lowercase): build/NAME.iebcopy    <- alias
 
 define _MODULE_RULE
-$(BUILDDIR)/$(1).xmit: $$(MODULE_$(1)_OBJS)
+$(BUILDDIR)/$(1).iebcopy: $$(MODULE_$(1)_OBJS)
 	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$(1),$$^)
 
 .PHONY: $$(MODULE_$(1)_ALIAS)
-$$(MODULE_$(1)_ALIAS): $(BUILDDIR)/$(1).xmit
+$$(MODULE_$(1)_ALIAS): $(BUILDDIR)/$(1).iebcopy
 endef
 
 $(foreach m,$(MODULES),$(eval $(call _MODULE_RULE,$(m))))
 $(foreach t,$(TESTS),$(eval $(call _MODULE_RULE,$(t))))
 
-# -- Module and test XMIT file lists ------------------------------
-MODULE_XMITS := $(addprefix $(BUILDDIR)/,$(addsuffix .xmit,$(MODULES)))
-TEST_XMITS   := $(addprefix $(BUILDDIR)/,$(addsuffix .xmit,$(TESTS)))
+# -- Per-module IEBCOPY unload lists -------------------------------
+MODULE_IMGS := $(addprefix $(BUILDDIR)/,$(addsuffix .iebcopy,$(MODULES)))
+TEST_IMGS   := $(addprefix $(BUILDDIR)/,$(addsuffix .iebcopy,$(TESTS)))
 
 # -- Include generated header dependencies -------------------------
 # Missing on the first build (-include ignores them); present and
@@ -170,7 +176,7 @@ endif
 
 # -- Standard targets ----------------------------------------------
 # The per-module rules above are generated via $(eval) inside a foreach,
-# so the first one (build/UFSD.xmit) would otherwise become the default
+# so the first one (build/UFSD.iebcopy) would otherwise become the default
 # goal.  Force 'all' to be the default for a bare 'make'.
 .DEFAULT_GOAL := all
 
@@ -207,17 +213,18 @@ help:
 	@echo "  help         Show this message"
 	@echo ""
 	@echo "Options:"
-	@echo "  V=1          Verbose: show full cc370/as370/ld370/ar370 commands"
+	@echo "  VERBOSE=1    Show full cc370/as370/ld370/ar370 commands"
+	@echo "               (e.g. 'VERBOSE=1 make')"
 
 # Default: build all modules
 all: modules
 	@echo "[mbt] Build complete: $(words $(MODULES)) module(s)"
 
 # Build production modules only
-modules: $(MODULE_XMITS)
+modules: $(MODULE_IMGS)
 
 # Build test modules
-test: $(TEST_XMITS)
+test: $(TEST_IMGS)
 	@echo "[mbt] Tests built: $(words $(TESTS)) module(s)"
 
 # Build library archive
@@ -234,10 +241,10 @@ DIST_PREFIX := $(PROJECT_NAME)-$(PROJECT_VERSION)
 
 package: modules $(if $(LIB_NAME),lib)
 	@mkdir -p $(DISTDIR)
-	@# Load archive (module XMITs)
+	@# Load archive (per-module IEBCOPY unloads)
 	@echo "[mbt] Packaging $(DIST_PREFIX)-load.tar.gz"
 	@tar czf $(DISTDIR)/$(DIST_PREFIX)-load.tar.gz \
-	    -C $(BUILDDIR) $(foreach m,$(MODULES),$(m).xmit)
+	    -C $(BUILDDIR) $(foreach m,$(MODULES),$(m).iebcopy)
 ifdef LIB_NAME
 	@# Library archive (lib + headers)
 	@echo "[mbt] Packaging $(DIST_PREFIX)-lib.tar.gz"
