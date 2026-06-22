@@ -85,17 +85,20 @@ jobs:
       - name: Package
         run: make package
 
-      - name: Remove any existing release for this tag (idempotent re-tags)
-        run: gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false || true
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          files: dist/*
-          generate_release_notes: true
+        run: |
+          TAG="${{ github.ref_name }}"
+          # Delete every existing release for this tag (published or draft),
+          # by id, keeping the git tag. A prerelease re-pushes the same dev
+          # tag, so the release must be recreated cleanly; deleting by id
+          # also clears stale drafts that would cause 'already_exists'.
+          gh api "repos/${{ github.repository }}/releases" --paginate \
+            --jq ".[] | select(.tag_name==\"$TAG\") | .id" | while read -r id; do
+            [ -n "$id" ] && gh api -X DELETE "repos/${{ github.repository }}/releases/$id"
+          done
+          PRERELEASE=""
+          case "$TAG" in *-*) PRERELEASE="--prerelease" ;; esac
+          gh release create "$TAG" $PRERELEASE --title "$TAG" \
+            --generate-notes dist/*
