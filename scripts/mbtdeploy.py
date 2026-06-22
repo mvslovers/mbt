@@ -9,8 +9,12 @@ it into the target LINKLIB.  The module set therefore follows the build:
     make            && make deploy            -> LINKLIB with all modules
 
 Steps:
-  1. ld370 --pack <built load modules> -o build/{PROJECT} -xmit --dsn {TARGET}
-  2. upload build/{PROJECT}.xmit to a staging dataset ({HLQ}.MBT.XMIT.IN)
+  1. Obtain the XMIT:
+       - one module  -> use the build's own build/{NAME}.xmit (it already
+         carries the correct modlen/entry; ld370 --pack does not yet).
+       - many modules -> ld370 --pack <load modules> -o build/{PROJECT}.deploy
+         -xmit --dsn {TARGET}
+  2. upload the XMIT to a staging dataset ({HLQ}.MBT.XMIT.IN)
   3. DELETE the target LINKLIB if it exists  (NJE RECEIVE refuses to
      merge into an existing dataset -> "replace" semantics)
   4. TSO RECEIVE staging -> target  (allocates the target from the XMIT's
@@ -199,23 +203,35 @@ def main() -> int:
         return EXIT_CONFIG
 
     target = _resolve_target(args, config, project)
-    load_modules = [str(builddir / n) for n in built]
-    # ".deploy" suffix avoids colliding with a module's own {NAME}.xmit on
-    # a case-insensitive filesystem (project "ufsd" vs module "UFSD");
-    # module names are MVS members and never contain a dot.
-    out = str(builddir / f"{config.project.name}.deploy")
 
     _log(f"Deploy target: {target}")
     _log(f"Modules ({len(built)}): {', '.join(built)}")
 
-    # -- 1. Pack the load modules into one XMIT (local, no MVS) --
-    try:
-        xmit = _pack(args.ld, load_modules, out, target)
-    except RuntimeError as e:
-        _log_error(str(e))
-        return EXIT_BUILD
+    # -- 1. Obtain the XMIT to RECEIVE (local, no MVS) --
+    if len(built) == 1:
+        # Single module: the build already produced a correct single-member
+        # XMIT (right modlen/entry).  ld370 --pack would lose those, so use
+        # the plain build XMIT directly.  RECEIVE uses DATASET(target)
+        # explicitly, so the XMIT's embedded DSN does not matter.
+        xmit = str(builddir / f"{built[0]}.xmit")
+        if not Path(xmit).is_file():
+            _log_error(f"missing artifact: {xmit} (run 'make {built[0].lower()}' first)")
+            return EXIT_CONFIG
+        _log(f"Single module: using build XMIT {Path(xmit).name}")
+    else:
+        # Multiple modules: pack them into one multi-member XMIT.
+        # ".deploy" avoids colliding with a module's own {NAME}.xmit on a
+        # case-insensitive filesystem (project "ufsd" vs module "UFSD");
+        # module names are MVS members and never contain a dot.
+        load_modules = [str(builddir / n) for n in built]
+        out = str(builddir / f"{config.project.name}.deploy")
+        try:
+            xmit = _pack(args.ld, load_modules, out, target)
+        except RuntimeError as e:
+            _log_error(str(e))
+            return EXIT_BUILD
+        _log(f"Packed {len(built)} module(s) -> {Path(xmit).name}")
     xmit_bytes = Path(xmit).read_bytes()
-    _log(f"Packed {len(built)} module(s) -> {xmit} ({len(xmit_bytes)} bytes)")
 
     if args.dry_run:
         _log(f"[dry-run] would upload {Path(xmit).name} -> staging")
