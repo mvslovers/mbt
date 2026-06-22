@@ -244,10 +244,13 @@ d=tomllib.load(open('project.toml','rb')).get('dependencies',{}); \
 print('[mbt] Dependencies:', ', '.join(d) if d else 'none declared')"
 	@echo "[mbt] Note: dependency download not implemented yet (mbtdeps.py)."
 
-# -- Deploy (upload XMIT -> MVS -> RECV370) -----------------------
-deploy: modules
+# -- Deploy (pack built load modules -> XMIT -> MVS -> RECEIVE) ----
+# No 'modules' prerequisite on purpose: deploy packs whatever is already
+# built in $(BUILDDIR) (so 'make ufsd && make deploy' deploys only UFSD,
+# 'make && make deploy' deploys all).
+deploy:
 	@python3 $(MBT_SCRIPTS)/mbtdeploy.py --project project.toml \
-	    --builddir $(BUILDDIR) $(ARGS)
+	    --builddir $(BUILDDIR) --ld $(LD) $(ARGS)
 
 # -- Doctor (check toolchain) -------------------------------------
 doctor:

@@ -1,37 +1,39 @@
-"""mbt v2 deploy — upload built module XMITs to MVS and RECEIVE them.
+"""mbt v2 deploy — pack built load modules into one XMIT and RECEIVE it.
 
-For each production module the v2 build produces build/{NAME}.xmit
-(a TRANSMIT-format load library written by ld370 -xmit).  Deploy, per
-module:
-  1. stage the XMIT into a sequential dataset on MVS ({HLQ}.MBT.XMIT.IN)
-  2. submit a TSO RECEIVE job to unpack it into the target load library
-  3. delete the staging dataset
+The build leaves a bare load module build/{NAME} for every module it
+links.  Deploy packs the load modules that are present in the build dir
+into a single multi-member XMIT (ld370 --pack), uploads it, and RECEIVEs
+it into the target LINKLIB.  The module set therefore follows the build:
 
-All modules RECEIVE into the SAME target LINKLIB (RECEIVE merges members
-into an existing PDS).  When the build later emits a single combined XMIT
-holding every module, this becomes one upload + one RECEIVE -- the target
-is unchanged.
+    make clean && make ufsd && make deploy   -> LINKLIB with just UFSD
+    make            && make deploy            -> LINKLIB with all modules
 
-Target load library (first match wins):
+Steps:
+  1. ld370 --pack <built load modules> -o build/{PROJECT} -xmit --dsn {TARGET}
+  2. upload build/{PROJECT}.xmit to a staging dataset ({HLQ}.MBT.XMIT.IN)
+  3. DELETE the target LINKLIB if it exists  (NJE RECEIVE refuses to
+     merge into an existing dataset -> "replace" semantics)
+  4. TSO RECEIVE staging -> target  (allocates the target from the XMIT's
+     saved attributes, so no SPACE calculation is needed)
+  5. delete the staging dataset
+
+Target LINKLIB (first match wins):
   1. --target on the command line
   2. [deploy] target = "..." in project.toml
-  3. {HLQ}.{PROJECT_NAME}.{VRM}.LINKLIB   (default convention)
-     e.g. IBMUSER.UFSD.V1R0M0D.LINKLIB for ufsd 1.0.0-dev
-
-Only production modules ([[module]]) are deployed -- tests are not.
-
-Usage:
-    mbtdeploy.py [--project project.toml] [--builddir build]
-                 [--target DSN] [--module NAME ...] [--dry-run]
+  3. {HLQ}.{PROJECT_NAME}.{VRM}.LINKLIB   (default; e.g.
+     IBMUSER.UFSD.V1R0M0D.LINKLIB for ufsd 1.0.0-dev)
 
 Exit codes:
   0  success
+  1  pack (ld370) failure
   2  config/validation error
   4  mainframe / RECEIVE error
 """
 
+import os
 import sys
 import argparse
+import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -41,7 +43,7 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib
 
-from mbt import EXIT_SUCCESS, EXIT_CONFIG, EXIT_MAINFRAME
+from mbt import EXIT_SUCCESS, EXIT_BUILD, EXIT_CONFIG, EXIT_MAINFRAME
 from mbt.config import MbtConfig
 from mbt.mvsmf import MvsMFClient, MvsMFError
 from mbt.jcl import render_template, jobcard
@@ -83,8 +85,13 @@ def _module_names(project: dict) -> list:
     return [m["name"] for m in project.get("module", []) if m.get("name")]
 
 
+def _built_modules(project: dict, builddir: Path) -> list:
+    """Production modules whose bare load module is present in builddir."""
+    return [n for n in _module_names(project) if (builddir / n).is_file()]
+
+
 def _resolve_target(args, config: MbtConfig, project: dict) -> str:
-    """Resolve the target load library DSN (see module docstring)."""
+    """Resolve the target LINKLIB DSN (see module docstring)."""
     if args.target:
         return args.target
     deploy = project.get("deploy", {})
@@ -95,12 +102,31 @@ def _resolve_target(args, config: MbtConfig, project: dict) -> str:
     return f"{config.hlq}.{name}.{vrm}.LINKLIB"
 
 
+def _staging_space(nbytes: int) -> list:
+    """TRK space for the FB/80 staging dataset, sized to the XMIT."""
+    tracks = max(50, nbytes // 40000 + 30)   # ~40 KB/track + buffer
+    return ["TRK", tracks, max(20, tracks // 4)]
+
+
+def _pack(ld: str, load_modules: list, out: str, dsn: str) -> str:
+    """Pack load modules into one XMIT via ld370 --pack. Return the .xmit."""
+    cmd = [ld, "--pack", *load_modules, "-o", out, "-xmit", "--dsn", dsn]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(
+            f"{ld} --pack failed (rc={r.returncode}):\n"
+            f"{(r.stderr or r.stdout).strip()}"
+        )
+    return f"{out}.xmit"
+
+
 def _receive_xmit(client: MvsMFClient, config: MbtConfig,
                   xmit_dsn: str, target_dsn: str) -> int:
     """Submit a TSO RECEIVE job to unpack an XMIT into the target dataset.
 
-    When deps_volume is configured, RECEIVE places a newly allocated
-    target on that volume (ignored if the target already exists).
+    The target must NOT exist (RECEIVE refuses to merge); deploy deletes
+    it first.  When deps_volume is set, the freshly allocated target is
+    placed on that volume.
     """
     jc = jobcard("MBTDEPL", config.jes_jobclass, config.jes_msgclass,
                  "MBT DEPLOY")
@@ -132,12 +158,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="mbt v2 deploy")
     parser.add_argument("--project", default="project.toml")
     parser.add_argument("--builddir", default="build")
+    parser.add_argument("--ld", default=os.environ.get("LD", "ld370"),
+                        help="ld370 program (for --pack)")
     parser.add_argument("--target",
-                        help="override target load library DSN")
+                        help="override target LINKLIB DSN")
     parser.add_argument("--module", action="append", default=[],
                         help="deploy only this module (repeatable)")
     parser.add_argument("--dry-run", action="store_true",
-                        help="show what would be deployed, touch nothing")
+                        help="pack locally and report, but touch no MVS")
     args = parser.parse_args()
 
     # -- Load config + project --
@@ -152,73 +180,78 @@ def main() -> int:
         _log_error(f"cannot parse {args.project}: {e}")
         return EXIT_CONFIG
 
-    # -- Determine module set --
-    modules = _module_names(project)
+    # -- Determine the module set from what was built --
+    builddir = Path(args.builddir)
+    built = _built_modules(project, builddir)
     if args.module:
         wanted = {m.upper() for m in args.module}
-        have = {m.upper() for m in modules}
-        unknown = wanted - have
+        known = {m.upper() for m in _module_names(project)}
+        unknown = wanted - known
         if unknown:
             _log_error(f"unknown module(s): {', '.join(sorted(unknown))}")
             return EXIT_CONFIG
-        modules = [m for m in modules if m.upper() in wanted]
-    if not modules:
-        _log_error("no production modules to deploy")
+        built = [m for m in built if m.upper() in wanted]
+    if not built:
+        _log_error(
+            f"no built load modules in {builddir}/ "
+            f"(run 'make' or 'make <module>' first)"
+        )
         return EXIT_CONFIG
 
-    # -- Verify artifacts exist before touching MVS --
-    builddir = Path(args.builddir)
-    xmits = []
-    for name in modules:
-        xpath = builddir / f"{name}.xmit"
-        if not xpath.exists():
-            _log_error(f"missing artifact: {xpath} (run 'make' first)")
-            return EXIT_CONFIG
-        xmits.append((name, xpath))
-
     target = _resolve_target(args, config, project)
-    staging = f"{config.hlq}.{STAGING_SUFFIX}"
+    load_modules = [str(builddir / n) for n in built]
+    # ".deploy" suffix avoids colliding with a module's own {NAME}.xmit on
+    # a case-insensitive filesystem (project "ufsd" vs module "UFSD");
+    # module names are MVS members and never contain a dot.
+    out = str(builddir / f"{config.project.name}.deploy")
 
     _log(f"Deploy target: {target}")
-    _log(f"Modules: {', '.join(name for name, _ in xmits)}")
+    _log(f"Modules ({len(built)}): {', '.join(built)}")
+
+    # -- 1. Pack the load modules into one XMIT (local, no MVS) --
+    try:
+        xmit = _pack(args.ld, load_modules, out, target)
+    except RuntimeError as e:
+        _log_error(str(e))
+        return EXIT_BUILD
+    xmit_bytes = Path(xmit).read_bytes()
+    _log(f"Packed {len(built)} module(s) -> {xmit} ({len(xmit_bytes)} bytes)")
 
     if args.dry_run:
-        for name, xpath in xmits:
-            _log(f"[dry-run] would RECEIVE {xpath} → {target} (member {name})")
+        _log(f"[dry-run] would upload {Path(xmit).name} -> staging")
+        _log(f"[dry-run] would delete + RECEIVE -> {target}")
         return EXIT_SUCCESS
 
+    # -- 2..5. Upload, replace target, RECEIVE --
     client = _make_client(config)
+    staging = f"{config.hlq}.{STAGING_SUFFIX}"
+    try:
+        if client.dataset_exists(staging):
+            client.delete_dataset(staging)
+        client.create_dataset(
+            staging, "PS", "FB", 80, 3120,
+            _staging_space(len(xmit_bytes)), "SYSDA"
+        )
+        _log(f"Uploading {Path(xmit).name} -> {staging}...")
+        client.upload_binary(staging, xmit_bytes)
 
-    # A fresh staging dataset is allocated and deleted for EACH module
-    # (same defensive pattern as bootstrap): reusing one dataset across
-    # modules risks stale trailing records if a prior XMIT was larger.
-    failures = 0
-    for name, xpath in xmits:
+        if client.dataset_exists(target):
+            _log(f"Deleting existing {target} (replace)...")
+            client.delete_dataset(target)
+
+        _log(f"RECEIVE {staging} -> {target}...")
+        _receive_xmit(client, config, staging, target)
+        _log(f"Deploy complete: {len(built)} module(s) -> {target}")
+    except MvsMFError as e:
+        _log_error(f"deploy failed: {e}")
+        return EXIT_MAINFRAME
+    finally:
         try:
             if client.dataset_exists(staging):
                 client.delete_dataset(staging)
-            client.create_dataset(
-                staging, "PS", "FB", 80, 3120, ["TRK", 50, 20], "SYSDA"
-            )
-            _log(f"Uploading {name}.xmit → {staging}...")
-            client.upload_binary(staging, xpath.read_bytes())
-            _log(f"RECEIVE {staging} → {target} (member {name})...")
-            _receive_xmit(client, config, staging, target)
-            _log(f"Deployed {name}")
-        except MvsMFError as e:
-            _log_error(f"deploy failed for {name}: {e}")
-            failures += 1
-        finally:
-            try:
-                if client.dataset_exists(staging):
-                    client.delete_dataset(staging)
-            except MvsMFError:
-                _log_warn(f"could not delete staging dataset {staging}")
+        except MvsMFError:
+            _log_warn(f"could not delete staging dataset {staging}")
 
-    if failures:
-        _log_error(f"{failures} module(s) failed to deploy")
-        return EXIT_MAINFRAME
-    _log(f"Deploy complete: {len(xmits)} module(s) → {target}")
     return EXIT_SUCCESS
 
 
