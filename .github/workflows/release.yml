@@ -85,6 +85,11 @@ jobs:
       - name: Package
         run: make package
 
+      - name: Remove any existing release for this tag (idempotent re-tags)
+        run: gh release delete "${{ github.ref_name }}" --yes --cleanup-tag=false || true
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
