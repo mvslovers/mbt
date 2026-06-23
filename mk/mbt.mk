@@ -249,10 +249,14 @@ DIST_PREFIX := $(PROJECT_NAME)-$(PROJECT_VERSION)
 
 package: modules $(if $(LIB_NAME),lib)
 	@mkdir -p $(DISTDIR)
-	@# Load archive (per-module IEBCOPY unloads)
+# Load archive (per-module IEBCOPY unloads). Skipped for pure-library
+# projects (no [[module]] blocks): an empty file list would make tar fail
+# with "no files or directories specified" and abort the whole target.
+ifneq ($(strip $(MODULES)),)
 	@echo "[mbt] Packaging $(DIST_PREFIX)-load.tar.gz"
 	@tar czf $(DISTDIR)/$(DIST_PREFIX)-load.tar.gz \
 	    -C $(BUILDDIR) $(foreach m,$(MODULES),$(m).iebcopy)
+endif
 ifdef LIB_NAME
 	@# Library archive (lib + headers)
 	@echo "[mbt] Packaging $(DIST_PREFIX)-lib.tar.gz"
