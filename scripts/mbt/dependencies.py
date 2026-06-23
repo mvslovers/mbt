@@ -87,22 +87,23 @@ def resolve_dependencies(
     return resolved
 
 
-def _is_exact_prerelease(constraint: str) -> bool:
-    """Return True if constraint is an exact pin to a prerelease version.
+def _constraint_allows_prerelease(constraint: str) -> bool:
+    """Return True if the constraint itself names a prerelease bound.
 
-    Only a single '=X.Y.Z-pre' constraint qualifies — range operators
-    (>=, <) always resolve stable releases only.
+    Prereleases are eligible when any part of the constraint references a
+    prerelease version -- exact ('=1.0.0-dev') or a range bound
+    ('>=1.0.0-dev'). A purely stable constraint ('>=1.0.0') resolves
+    stable releases only (prereleases excluded), matching the usual
+    semver convention "you only get prereleases if you ask for them".
     """
-    parts = [p.strip() for p in constraint.split(",")]
-    if len(parts) != 1:
-        return False
-    part = parts[0]
-    if not part.startswith("=") or part.startswith(">="):
-        return False
-    try:
-        return Version.parse(part[1:]).pre is not None
-    except ValueError:
-        return False
+    for part in constraint.split(","):
+        ver = part.strip().lstrip("><=~^ ")
+        try:
+            if Version.parse(ver).pre is not None:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _resolve_from_cache(owner: str, repo: str,
@@ -116,7 +117,7 @@ def _resolve_from_cache(owner: str, repo: str,
     if not cache_base.is_dir():
         return None
 
-    allow_prerelease = _is_exact_prerelease(constraint)
+    allow_prerelease = _constraint_allows_prerelease(constraint)
     candidates = []
     for entry in cache_base.iterdir():
         if not entry.is_dir():
@@ -170,7 +171,7 @@ def _resolve_one(owner: str, repo: str,
             f"Cannot reach GitHub API for {owner}/{repo}: {e.reason}"
         )
 
-    allow_prerelease = _is_exact_prerelease(constraint)
+    allow_prerelease = _constraint_allows_prerelease(constraint)
 
     # Collect versions that satisfy the constraint
     candidates = []

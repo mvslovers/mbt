@@ -85,6 +85,13 @@ $(shell python3 $(MBT_SCRIPTS)/mbtconfig.py \
 
 -include .mbt/config.mk
 
+# -- Dependency artifacts (staged by 'make deps' into .mbt/deps) ----
+# Each dep is .mbt/deps/<repo>/{include,lib}: add its headers to the
+# compile include path and its archive(s) to the link.
+DEP_INCLUDES := $(addprefix -I ,$(wildcard .mbt/deps/*/include))
+DEP_LIBS     := $(wildcard .mbt/deps/*/lib/*.a)
+CFLAGS       += $(DEP_INCLUDES)
+
 # -- VPATH for source discovery ------------------------------------
 vpath %.c $(SRC_DIRS)
 vpath %.asm $(SRC_DIRS)
@@ -118,22 +125,22 @@ $(BUILDDIR)/%.o: %.s
 
 define LINK_CRT0
 	$(E) "[ld370] $(2) (entry=$(1), crt0)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(DEP_LIBS) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRT1
 	$(E) "[ld370] $(2) (entry=$(1), crt1)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(DEP_LIBS) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
 	$(E) "[ld370] $(2) (entry=$(1), crtm)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(DEP_LIBS) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
 	$(E) "[ld370] $(2) (entry=$(1), no crt)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(DEP_LIBS) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
@@ -209,8 +216,8 @@ help:
 	@echo "  deps         Download declared dependencies (like old bootstrap)"
 	@echo "  doctor       Check toolchain and connectivity"
 	@echo "  compiledb    Write compile_commands.json for clangd"
-	@echo "  clean        Remove build/ dist/ .mbt/"
-	@echo "  distclean    clean + remove deps/"
+	@echo "  clean        Remove build/ dist/ (keeps staged deps)"
+	@echo "  distclean    clean + remove all of .mbt/ (incl. deps)"
 	@echo "  help         Show this message"
 	@echo ""
 	@echo "Options:"
@@ -259,15 +266,12 @@ ifdef LIB_NAME
 endif
 	@echo "[mbt] Package complete -> $(DISTDIR)/"
 
-# -- Dependencies (download declared deps, like old 'make bootstrap') --
-# TODO: implement download/RECEIVE of declared dependencies in a
-# dedicated mbtdeps.py (deferred to the first v2 project that actually
-# has dependencies; ufsd v2 has none).
+# -- Dependencies (download + stage declared deps into .mbt/deps) ---
+# Resolve each [dependencies] entry, download its {repo}-{ver}-lib.tar.gz,
+# stage headers + .a into .mbt/deps/<repo>/, and lock the SHA. Run before
+# 'make' for projects with dependencies. ARGS=--update re-resolves ranges.
 deps:
-	@python3 -c "import tomllib; \
-d=tomllib.load(open('project.toml','rb')).get('dependencies',{}); \
-print('[mbt] Dependencies:', ', '.join(d) if d else 'none declared')"
-	@echo "[mbt] Note: dependency download not implemented yet (mbtdeps.py)."
+	@python3 $(MBT_SCRIPTS)/mbtdeps.py --project project.toml $(ARGS)
 
 # -- Deploy (pack built load modules -> XMIT -> MVS -> RECEIVE) ----
 # No 'modules' prerequisite on purpose: deploy packs whatever is already
@@ -295,9 +299,11 @@ release: package
 	    $(if $(NEXT_VERSION),--next-version $(NEXT_VERSION),)
 
 # -- Clean ---------------------------------------------------------
+# clean keeps staged deps (.mbt/deps + .mbt/deps.lock) so 'make clean &&
+# make' does not re-fetch; distclean wipes the whole .mbt/ (incl. deps).
 clean:
 	@echo "[mbt] Cleaning..."
-	@rm -rf $(BUILDDIR)/ $(DISTDIR)/ .mbt/
+	@rm -rf $(BUILDDIR)/ $(DISTDIR)/ .mbt/config.mk .mbt/logs/
 
 distclean: clean
-	@rm -rf deps/
+	@rm -rf .mbt/
