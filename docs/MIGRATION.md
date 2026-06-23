@@ -231,11 +231,15 @@ downloads its `{repo}-{version}-lib.tar.gz` asset, and stages it under
 automatically — `-I .mbt/deps/*/include` on compile, `.mbt/deps/*/lib/*.a`
 on link — so no path config is needed in `project.toml`.
 
-`make deps` also writes **`.mbt/deps.lock`** (version + SHA256 per dep).
-Commit it. On the next `make deps` the locked version is used as-is and
-its SHA is re-verified; the SHA — not the version string — is the real
-pin, so a re-pushed prerelease (a moving `-dev` tag) is detected as a
-mismatch and fails until you accept it:
+`make deps` also writes **`mbt.lock`** (version + SHA256 per dep) at the
+project root. **Commit it** — it is source-of-record, not a build
+artifact: `project.toml` holds the *range* (`>=…`), the lock holds the
+*resolved* version and the exact content hash. Keeping `.mbt/` ignored
+is correct; the lock sits at the root next to `project.toml`, so `make
+clean`/`distclean` never disturb it. On the next `make deps` the locked
+version is used as-is and its SHA is re-verified; the SHA — not the
+version string — is the real pin, so a re-pushed prerelease (a moving
+`-dev` tag) is detected as a mismatch and fails until you accept it:
 
 ```sh
 make deps                  # use the lock (verify SHA), or resolve if absent
@@ -259,7 +263,7 @@ create **`.mbt/deps.local.toml`** (gitignored, never committed):
 `make deps` then stages that dep from its own `build/<lib>.a` and the
 headers in its `[lib]` section — run `make lib` in the override path
 first. GitHub and the SHA lock are skipped for that dep; the committed
-`.mbt/deps.lock` keeps its release pin, so removing the override file
+`mbt.lock` keeps its release pin, so removing the override file
 restores the locked release with no further changes.
 
 ---
@@ -312,7 +316,7 @@ Docker).
 2. Replace `Makefile` with the two-line v2 include (`mk/mbt.mk`).
 3. Rewrite `project.toml` per section 2 (use the mapping in section 3).
 4. Declare any dependencies in `[dependencies]` (section 5); commit
-   `.mbt/deps.lock` after a first `make deps`.
+   `mbt.lock` after a first `make deps`.
 5. Point `.github/workflows/*.yml` at the v2 reusable workflows (section 6).
 6. `make doctor` — verify the cc370 toolchain (and MVS, for deploy).
 7. `make deps` then `make` then `make deploy ARGS="--dry-run"`.

@@ -299,8 +299,10 @@ release: package
 	    $(if $(NEXT_VERSION),--next-version $(NEXT_VERSION),)
 
 # -- Clean ---------------------------------------------------------
-# clean keeps staged deps (.mbt/deps + .mbt/deps.lock) so 'make clean &&
-# make' does not re-fetch; distclean wipes the whole .mbt/ (incl. deps).
+# clean keeps staged deps (.mbt/deps) so 'make clean && make' does not
+# re-fetch; distclean wipes the whole .mbt/ (incl. deps). Neither touches
+# mbt.lock -- it is committed source (project root), not a build artifact;
+# 'make deps' re-stages from it after distclean.
 clean:
 	@echo "[mbt] Cleaning..."
 	@rm -rf $(BUILDDIR)/ $(DISTDIR)/ .mbt/config.mk .mbt/logs/

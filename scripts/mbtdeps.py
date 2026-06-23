@@ -2,11 +2,11 @@
 
 For each [dependencies] entry, resolve the version, download the
 {repo}-{version}-lib.tar.gz release asset, record its SHA256 in
-.mbt/deps.lock, and extract it to .mbt/deps/{repo}/ (include/ + lib/).
+mbt.lock, and extract it to .mbt/deps/{repo}/ (include/ + lib/).
 The host build then compiles against .mbt/deps/*/include and links
 .mbt/deps/*/lib/*.a (wired in mk/mbt.mk).
 
-  make deps                  use .mbt/deps.lock if present (verify SHA),
+  make deps                  use mbt.lock if present (verify SHA),
                              otherwise resolve the ranges; download + stage
   make deps ARGS=--update    re-resolve the ranges and rewrite the lock
 
@@ -34,8 +34,8 @@ from mbt import EXIT_SUCCESS, EXIT_CONFIG, EXIT_DEPENDENCY
 from mbt.dependencies import _resolve_one, download_dependency, DependencyError
 from mbt.version import Version
 
-DEPS_DIR = Path(".mbt/deps")
-LOCK_PATH = Path(".mbt/deps.lock")
+DEPS_DIR = Path(".mbt/deps")                   # staged artifacts (gitignored)
+LOCK_PATH = Path("mbt.lock")                   # committed pin (project root)
 OVERRIDE_PATH = Path(".mbt/deps.local.toml")   # local dev overrides (gitignored)
 
 
