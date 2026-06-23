@@ -136,6 +136,11 @@ def _emit_module(lines, mod, builddir, all_src_dirs, all_objs, var_prefix):
     lines.append(f"MODULE_{mod_name}_LINK_CMD := {link_cmd}")
     lines.append(f"MODULE_{mod_name}_OBJS := {objs_escaped}")
     lines.append(f"MODULE_{mod_name}_ALIAS := {mod_name.lower()}")
+    # APF authorization code (SETCODE AC(n)); only emitted when non-zero so
+    # modules without it pass no --ac to ld370 (default AC(0)).
+    ac = mod.get("ac", 0)
+    if ac:
+        lines.append(f"MODULE_{mod_name}_AC := {ac}")
     lines.append("")
 
 

@@ -118,22 +118,22 @@ $(BUILDDIR)/%.o: %.s
 
 define LINK_CRT0
 	$(E) "[ld370] $(2) (entry=$(1), crt0)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) -lc -iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRT1
 	$(E) "[ld370] $(2) (entry=$(1), crt1)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) -lc -iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
 	$(E) "[ld370] $(2) (entry=$(1), crtm)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) -lc -iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
 	$(E) "[ld370] $(2) (entry=$(1), no crt)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) -lc -iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) -lc $(if $(MODULE_$(2)_AC),--ac $(MODULE_$(2)_AC) ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
