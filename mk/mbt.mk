@@ -182,10 +182,20 @@ $(LIB_FILE): $(LIB_OBJS)
 endif
 
 # -- Standard targets ----------------------------------------------
-# The per-module rules above are generated via $(eval) inside a foreach,
-# so the first one (build/UFSD.iebcopy) would otherwise become the default
-# goal.  Force 'all' to be the default for a bare 'make'.
-.DEFAULT_GOAL := all
+# Bare `make` builds the project's PRIMARY deliverable; `make all` builds
+# everything it declares.  Driven by [project] type:
+#   library             -> primary = the static archive (no load modules)
+#   application/runtime -> primary = the load modules; `all` adds [lib]
+# Set the default goal explicitly here -- the per-module rules above are
+# generated via $(eval) inside a foreach, so the first one (e.g.
+# build/UFSD.iebcopy) would otherwise become the default goal.
+ifeq ($(PROJECT_TYPE),library)
+.DEFAULT_GOAL := lib
+ALL_PREREQS   := lib
+else
+.DEFAULT_GOAL := modules
+ALL_PREREQS   := modules $(if $(LIB_NAME),lib)
+endif
 
 .PHONY: all modules test lib package deps deploy doctor compiledb release \
         prerelease clean distclean help
@@ -195,7 +205,9 @@ help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Build:"
-	@echo "  all          Build all modules (default)"
+	@echo "  (bare make)  Build the primary deliverable for this type"
+	@echo "               (library: the archive; else: load modules)"
+	@echo "  all          Build everything (modules + library archive)"
 	@echo "  modules      Build production modules only"
 	@echo "  test         Build test modules"
 	@echo "  lib          Build library archive"
@@ -224,12 +236,13 @@ help:
 	@echo "  VERBOSE=1    Show full cc370/as370/ld370/ar370 commands"
 	@echo "               (e.g. 'VERBOSE=1 make')"
 
-# Default: build all modules
-all: modules
-	@echo "[mbt] Build complete: $(words $(MODULES)) module(s)"
+# Build everything the project declares (see ALL_PREREQS above)
+all: $(ALL_PREREQS)
+	@echo "[mbt] Build complete"
 
 # Build production modules only
 modules: $(MODULE_IMGS)
+	@echo "[mbt] Modules built: $(words $(MODULES))"
 
 # Build test modules
 test: $(TEST_IMGS)
@@ -249,10 +262,14 @@ DIST_PREFIX := $(PROJECT_NAME)-$(PROJECT_VERSION)
 
 package: modules $(if $(LIB_NAME),lib)
 	@mkdir -p $(DISTDIR)
-	@# Load archive (per-module IEBCOPY unloads)
+# Load archive (per-module IEBCOPY unloads). Skipped for pure-library
+# projects (no [[module]] blocks): an empty file list would make tar fail
+# with "no files or directories specified" and abort the whole target.
+ifneq ($(strip $(MODULES)),)
 	@echo "[mbt] Packaging $(DIST_PREFIX)-load.tar.gz"
 	@tar czf $(DISTDIR)/$(DIST_PREFIX)-load.tar.gz \
 	    -C $(BUILDDIR) $(foreach m,$(MODULES),$(m).iebcopy)
+endif
 ifdef LIB_NAME
 	@# Library archive (lib + headers)
 	@echo "[mbt] Packaging $(DIST_PREFIX)-lib.tar.gz"
