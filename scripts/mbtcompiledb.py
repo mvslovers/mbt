@@ -21,9 +21,24 @@ from mbt import EXIT_SUCCESS, EXIT_CONFIG
 from mbtconfig import _parse_toml, _resolve_sources
 
 # clang-side flags so clangd parses the cc370 C dialect cleanly.
+#
+# clang/LLVM has no S/370 backend, so clangd falls back to the host target
+# (e.g. little-endian arm64, LP64) -- wrong for the i370/MVS build. We steer
+# it as close to the real target as clang allows:
+#   --target=s390x-ibm-linux  z/Architecture is the S/370 descendant and is
+#                             big-endian like i370, so byte-order-dependent
+#                             headers/structs parse correctly.
+#   -U__LP64__                s390x is 64-bit; undefining __LP64__ makes LP32
+#                             headers (e.g. time64.h) take their 32-bit branch,
+#                             matching the real ILP32 i370 build.
+#   -std=gnu99                the cc370 build dialect: C99 plus the GNU 'asm'
+#                             keyword the crent370 headers use (strict -std=c99
+#                             rejects 'asm' and yields hundreds of errors).
 CLANGD_FLAGS = [
     "-xc",
-    "-std=gnu89",
+    "--target=s390x-ibm-linux",
+    "-U__LP64__",
+    "-std=gnu99",
     "-nostdinc",
     "-D__MVS__",
     "-ferror-limit=0",
