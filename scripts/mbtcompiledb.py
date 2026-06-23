@@ -43,6 +43,20 @@ def _sysroot_include() -> Path | None:
     return fb if fb.is_dir() else None
 
 
+def _dep_includes(project_dir: Path) -> list:
+    """Staged dependency headers (.mbt/deps/<repo>/include).
+
+    Mirrors DEP_INCLUDES in mk/mbt.mk so clangd resolves dependency
+    headers (e.g. <libufs.h>) the same way the cc370 build does.
+    Empty when no dependencies are staged ('make deps' not run).
+    """
+    inc = []
+    for d in sorted((project_dir / ".mbt" / "deps").glob("*/include")):
+        if d.is_dir():
+            inc += ["-I", str(d)]
+    return inc
+
+
 def _all_sources(cfg: dict) -> list:
     """Every C source across [[module]], [[test]] and [lib] (deduped)."""
     srcs = []
@@ -75,7 +89,9 @@ def main() -> int:
     project_dir = project_path.resolve().parent
 
     cflags = cfg.get("build", {}).get("cflags", [])
-    inc = []
+    # Dependency headers first, then the cc370 sysroot (lowest priority) --
+    # the same precedence the cc370 build uses (project cflags > deps > sysroot).
+    inc = _dep_includes(project_dir)
     sysroot_inc = _sysroot_include()
     if sysroot_inc:
         inc += ["-I", str(sysroot_inc)]
