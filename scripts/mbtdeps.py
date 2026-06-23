@@ -36,6 +36,7 @@ from mbt.version import Version
 
 DEPS_DIR = Path(".mbt/deps")
 LOCK_PATH = Path(".mbt/deps.lock")
+OVERRIDE_PATH = Path(".mbt/deps.local.toml")   # local dev overrides (gitignored)
 
 
 def _log(msg: str) -> None:
@@ -71,6 +72,39 @@ def _stage_lib(tarball: Path, dest: Path) -> None:
             tar.extract(member, dest)
 
 
+def _stage_path_override(path: str, dest: Path) -> str:
+    """Stage a dependency from a local working copy (path override).
+
+    Uses the dep project's [lib] build output (build/<name>.a) and its
+    declared headers; skips GitHub and the SHA lock entirely. The dep
+    must be built ('make lib') in the override path first. Returns the
+    library name.
+    """
+    root = Path(path)
+    proj = root / "project.toml"
+    if not proj.is_file():
+        raise ValueError(f"no project.toml in override path {path}")
+    with open(proj, "rb") as f:
+        cfg = tomllib.load(f)
+    lib = cfg.get("lib")
+    if not lib:
+        raise ValueError(f"{path} has no [lib] section to consume")
+    libname = lib.get("name") or cfg.get("project", {}).get("name", "lib")
+    lib_a = root / "build" / f"{libname}.a"
+    if not lib_a.is_file():
+        raise ValueError(f"{lib_a} not built -- run 'make lib' in {path}")
+    if dest.exists():
+        shutil.rmtree(dest)
+    (dest / "include").mkdir(parents=True)
+    (dest / "lib").mkdir(parents=True)
+    shutil.copy2(lib_a, dest / "lib" / lib_a.name)
+    for h in lib.get("headers", []):
+        src = root / h
+        if src.is_file():
+            shutil.copy2(src, dest / "include" / Path(h).name)
+    return libname
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="mbt v2 deps")
     parser.add_argument("--project", default="project.toml")
@@ -97,6 +131,16 @@ def main() -> int:
         except (OSError, json.JSONDecodeError):
             lock = {}
 
+    overrides = {}
+    if OVERRIDE_PATH.exists():
+        try:
+            with open(OVERRIDE_PATH, "rb") as f:
+                overrides = tomllib.load(f).get("override", {})
+        except (OSError, tomllib.TOMLDecodeError):
+            overrides = {}
+    if overrides:
+        _log(f"Local overrides ({OVERRIDE_PATH}): {', '.join(overrides)}")
+
     DEPS_DIR.mkdir(parents=True, exist_ok=True)
     new_lock = {}
 
@@ -106,6 +150,20 @@ def main() -> int:
             return EXIT_CONFIG
         owner, repo = dep_key.split("/", 1)
         locked = lock.get(dep_key)
+
+        # local path override: build against a working copy, skip GitHub +
+        # the SHA lock (the committed lock keeps its GitHub pin).
+        ovr = overrides.get(dep_key)
+        if ovr and ovr.get("path"):
+            try:
+                libname = _stage_path_override(ovr["path"], DEPS_DIR / repo)
+            except (OSError, ValueError, tomllib.TOMLDecodeError) as e:
+                _log_error(f"{dep_key}: path override failed: {e}")
+                return EXIT_DEPENDENCY
+            _log(f"{dep_key} -> LOCAL {ovr['path']} ({libname}.a, override)")
+            if locked:
+                new_lock[dep_key] = locked          # keep the committed pin
+            continue
 
         # version: from lock (default) or freshly resolved (--update / no lock)
         if locked and not args.update:

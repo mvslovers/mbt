@@ -215,7 +215,56 @@ will not merge into an existing dataset), and RECEIVEs the new one.
 
 ---
 
-## 5. CI (GitHub Actions)
+## 5. Dependencies
+
+Declare dependencies on other mvslovers projects in `[dependencies]`,
+keyed `owner/repo` with a semver range:
+
+```toml
+[dependencies]
+"mvslovers/ufsd" = ">=1.0.0-dev"
+```
+
+`make deps` resolves each range against the dependency's GitHub Releases,
+downloads its `{repo}-{version}-lib.tar.gz` asset, and stages it under
+`.mbt/deps/{repo}/` (`include/` + `lib/`). The build wires these in
+automatically — `-I .mbt/deps/*/include` on compile, `.mbt/deps/*/lib/*.a`
+on link — so no path config is needed in `project.toml`.
+
+`make deps` also writes **`.mbt/deps.lock`** (version + SHA256 per dep).
+Commit it. On the next `make deps` the locked version is used as-is and
+its SHA is re-verified; the SHA — not the version string — is the real
+pin, so a re-pushed prerelease (a moving `-dev` tag) is detected as a
+mismatch and fails until you accept it:
+
+```sh
+make deps                  # use the lock (verify SHA), or resolve if absent
+make deps ARGS=--update    # re-resolve the ranges and rewrite the lock
+```
+
+A range that names a prerelease bound (`>=1.0.0-dev`) opts that
+dependency into prereleases; a plain range (`>=1.0.0`) ignores them.
+
+### Local override (working against an unreleased dependency)
+
+To build against a local working copy of a dependency instead of a
+GitHub release — e.g. while developing both projects in lockstep —
+create **`.mbt/deps.local.toml`** (gitignored, never committed):
+
+```toml
+[override]
+"mvslovers/ufsd" = { path = "../ufsd" }
+```
+
+`make deps` then stages that dep from its own `build/<lib>.a` and the
+headers in its `[lib]` section — run `make lib` in the override path
+first. GitHub and the SHA lock are skipped for that dep; the committed
+`.mbt/deps.lock` keeps its release pin, so removing the override file
+restores the locked release with no further changes.
+
+---
+
+## 6. CI (GitHub Actions)
 
 mbt ships reusable workflows. A v2 project's CI is **host-only** (no MVS).
 
@@ -243,12 +292,13 @@ jobs:
 ```
 
 The v2 workflows clone + `make install` the cc370 toolchain (cached per
-cc370 commit), then run the host build:
+cc370 commit), run `make deps` (so dependency libraries are staged before
+the build), then run the host build:
 
-- `build.yml` — `make` + `make test` + `make lib`.
+- `build.yml` — `make deps` + `make` + `make test` + `make lib`.
 - `release.yml` — validates the tag against `project.toml` version, runs
-  `make package`, and publishes a GitHub Release with `dist/*`
-  (prerelease when the tag contains `-`).
+  `make deps` + `make package`, and publishes a GitHub Release with
+  `dist/*` (prerelease when the tag contains `-`).
 
 Pin a tag (`@vX.Y.Z`) instead of `@main` for reproducibility. Legacy (v1)
 projects keep using `build-legacy.yml` / `release-legacy.yml` (MVS/CE in
@@ -256,19 +306,21 @@ Docker).
 
 ---
 
-## 6. Migrating an existing project
+## 7. Migrating an existing project
 
 1. Update `mbt` (the submodule) to a v2 commit.
 2. Replace `Makefile` with the two-line v2 include (`mk/mbt.mk`).
 3. Rewrite `project.toml` per section 2 (use the mapping in section 3).
-4. Point `.github/workflows/*.yml` at the v2 reusable workflows (section 5).
-5. `make doctor` — verify the cc370 toolchain (and MVS, for deploy).
-6. `make` then `make deploy ARGS="--dry-run"` — verify modules and target.
-7. `make deploy` — first live deploy (writes to MVS).
+4. Declare any dependencies in `[dependencies]` (section 5); commit
+   `.mbt/deps.lock` after a first `make deps`.
+5. Point `.github/workflows/*.yml` at the v2 reusable workflows (section 6).
+6. `make doctor` — verify the cc370 toolchain (and MVS, for deploy).
+7. `make deps` then `make` then `make deploy ARGS="--dry-run"`.
+8. `make deploy` — first live deploy (writes to MVS).
 
 ---
 
-## 7. Legacy (v1)
+## 8. Legacy (v1)
 
 The v1 remote build is preserved under `mk/legacy/` and
 `scripts/legacy/`. Projects not yet migrated keep their old `Makefile`:
