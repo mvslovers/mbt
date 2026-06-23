@@ -82,6 +82,11 @@ jobs:
       - name: Add cc370 to PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
+      - name: Dependencies
+        run: make deps
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
       - name: Package
         run: make package
 
