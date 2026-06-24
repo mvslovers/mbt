@@ -152,20 +152,23 @@ endef
 #       $(call LINK_xxx, ENTRY, NAME, $^)
 #   name (lowercase): build/NAME.iebcopy    <- alias
 
+# $(1) is the make-safe key; the real member name is MODULE_$(1)_NAME (may
+# contain national chars like '#').  The '#' only ever reaches a target/recipe
+# via variable expansion -- after comment stripping -- so it stays literal.
 define _MODULE_RULE
-$(BUILDDIR)/$(1).iebcopy: $$(MODULE_$(1)_OBJS)
-	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$(1),$$^)
+$(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy: $$(MODULE_$(1)_OBJS)
+	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$$(MODULE_$(1)_NAME),$$^)
 
 .PHONY: $$(MODULE_$(1)_ALIAS)
-$$(MODULE_$(1)_ALIAS): $(BUILDDIR)/$(1).iebcopy
+$$(MODULE_$(1)_ALIAS): $(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy
 endef
 
 $(foreach m,$(MODULES),$(eval $(call _MODULE_RULE,$(m))))
 $(foreach t,$(TESTS),$(eval $(call _MODULE_RULE,$(t))))
 
 # -- Per-module IEBCOPY unload lists -------------------------------
-MODULE_IMGS := $(addprefix $(BUILDDIR)/,$(addsuffix .iebcopy,$(MODULES)))
-TEST_IMGS   := $(addprefix $(BUILDDIR)/,$(addsuffix .iebcopy,$(TESTS)))
+MODULE_IMGS := $(foreach m,$(MODULES),$(BUILDDIR)/$(MODULE_$(m)_NAME).iebcopy)
+TEST_IMGS   := $(foreach t,$(TESTS),$(BUILDDIR)/$(MODULE_$(t)_NAME).iebcopy)
 
 # -- Include generated header dependencies -------------------------
 # Missing on the first build (-include ignores them); present and
@@ -268,7 +271,7 @@ package: modules $(if $(LIB_NAME),lib)
 ifneq ($(strip $(MODULES)),)
 	@echo "[mbt] Packaging $(DIST_PREFIX)-load.tar.gz"
 	@tar czf $(DISTDIR)/$(DIST_PREFIX)-load.tar.gz \
-	    -C $(BUILDDIR) $(foreach m,$(MODULES),$(m).iebcopy)
+	    -C $(BUILDDIR) $(foreach m,$(MODULES),$(MODULE_$(m)_NAME).iebcopy)
 endif
 ifdef LIB_NAME
 	@# Library archive (lib + headers)
