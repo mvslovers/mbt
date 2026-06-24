@@ -70,5 +70,27 @@ class MakeParsesGeneratedConfigTest(unittest.TestCase):
                              f"make failed to parse generated config.mk:\n{r.stderr}")
 
 
+class NorentNoreusTest(unittest.TestCase):
+    """norent / noreus module options -> MODULE_<key>_NORENT / _NOREUS flags."""
+
+    def _emit(self, **extra):
+        lines = []
+        mod = {"name": "IRXANCHR", "entry": "IRXANCHR", "startup": False,
+               "sources": [], **extra}
+        mbtconfig._emit_module(lines, mod, "build", set(), set(), "MODULES")
+        return "\n".join(lines)
+
+    def test_default_emits_neither(self):
+        out = self._emit()
+        self.assertNotIn("_NORENT", out)
+        self.assertNotIn("_NOREUS", out)
+
+    def test_norent(self):
+        self.assertIn("MODULE_IRXANCHR_NORENT := 1", self._emit(norent=True))
+
+    def test_noreus(self):
+        self.assertIn("MODULE_IRXANCHR_NOREUS := 1", self._emit(noreus=True))
+
+
 if __name__ == "__main__":
     unittest.main()

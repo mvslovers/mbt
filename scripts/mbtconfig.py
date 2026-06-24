@@ -159,6 +159,13 @@ def _emit_module(lines, mod, builddir, all_src_dirs, all_objs, var_prefix):
     ac = mod.get("ac", 0)
     if ac:
         lines.append(f"MODULE_{key}_AC := {ac}")
+    # norent / noreus: drop the load module's RENT / REUS attribute (the LINK
+    # rule passes --norent / --noreus to ld370). A self-modified data module
+    # like IRXANCHR must be reusable (REUS) but NOT reentrant -> norent = true.
+    if mod.get("norent", False):
+        lines.append(f"MODULE_{key}_NORENT := 1")
+    if mod.get("noreus", False):
+        lines.append(f"MODULE_{key}_NOREUS := 1")
     lines.append("")
 
 
