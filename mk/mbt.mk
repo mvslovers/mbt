@@ -202,7 +202,7 @@ else
 ALL_PREREQS   := modules $(if $(LIB_NAME),lib)
 endif
 
-.PHONY: all modules test lib package deps deploy doctor compiledb release \
+.PHONY: all modules test test-mvs lib package deps deploy doctor compiledb release \
         prerelease clean distclean help
 
 # Help
@@ -226,6 +226,7 @@ help:
 	@echo "Package & Release:"
 	@echo "  package      Create release artifacts in dist/"
 	@echo "  deploy       Upload XMITs to MVS and RECV370"
+	@echo "  test-mvs     Deploy test modules + run the suite on MVS"
 	@echo "  release      Version bump + git tag + GH release"
 	@echo "  prerelease   Prerelease (no version bump)"
 	@echo ""
@@ -301,6 +302,14 @@ deps:
 # 'make && make deploy' deploys all).
 deploy:
 	@python3 $(MBT_SCRIPTS)/mbtdeploy.py --project project.toml \
+	    --builddir $(BUILDDIR) --ld $(LD) $(VFLAG) $(ARGS)
+
+# -- test-mvs (deploy [[test]] modules to a TESTLIB and run them on MVS) --
+# Packs the built test modules into a separate TESTLIB, generates + submits a
+# runner job (batch + TSO per test), and reports a pass/fail matrix.  The
+# production LINKLIB must already be deployed (tests LOAD data modules from it).
+test-mvs:
+	@python3 $(MBT_SCRIPTS)/mbttest.py --project project.toml \
 	    --builddir $(BUILDDIR) --ld $(LD) $(VFLAG) $(ARGS)
 
 # -- Doctor (check toolchain) -------------------------------------
