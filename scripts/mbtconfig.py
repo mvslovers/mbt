@@ -53,6 +53,19 @@ def _make_escape(s: str) -> str:
     return s.replace("$", "$$").replace("#", "\\#")
 
 
+def _var_key(name: str) -> str:
+    """Make-safe identifier for a module/test name.
+
+    MVS member names may contain the national characters # $ @. In a Make
+    *variable name* '#' starts a comment and '$' a variable reference, so a
+    module name like IRX#HELO cannot be used verbatim as MODULE_<name>_*.
+    Map # and $ to '_', which is never a valid MVS member character, so the
+    key can never collide with a real member name. The real name is carried
+    separately in MODULE_<key>_NAME and used for the output member/file.
+    """
+    return name.replace("#", "_").replace("$", "_")
+
+
 def _resolve_sources(patterns: list, exclude: list = None) -> list:
     """Expand glob patterns to actual source files, sorted."""
     files = []
@@ -131,16 +144,21 @@ def _emit_module(lines, mod, builddir, all_src_dirs, all_objs, var_prefix):
     link_cmd = _startup_to_link_cmd(startup)
     objs_escaped = " ".join(_make_escape(o) for o in objs)
 
-    lines.append(f"{var_prefix} += {mod_name}")
-    lines.append(f"MODULE_{mod_name}_ENTRY := {entry}")
-    lines.append(f"MODULE_{mod_name}_LINK_CMD := {link_cmd}")
-    lines.append(f"MODULE_{mod_name}_OBJS := {objs_escaped}")
-    lines.append(f"MODULE_{mod_name}_ALIAS := {mod_name.lower()}")
+    # key = make-safe identifier (no # or $); name = the real MVS member name
+    # (carried in MODULE_<key>_NAME, used for the output member/file). This lets
+    # a module name carry national characters like '#' (e.g. IRX#HELO).
+    key = _var_key(mod_name)
+    lines.append(f"{var_prefix} += {key}")
+    lines.append(f"MODULE_{key}_NAME := {_make_escape(mod_name)}")
+    lines.append(f"MODULE_{key}_ENTRY := {_make_escape(entry)}")
+    lines.append(f"MODULE_{key}_LINK_CMD := {link_cmd}")
+    lines.append(f"MODULE_{key}_OBJS := {objs_escaped}")
+    lines.append(f"MODULE_{key}_ALIAS := {key.lower()}")
     # APF authorization code (SETCODE AC(n)); only emitted when non-zero so
     # modules without it pass no --ac to ld370 (default AC(0)).
     ac = mod.get("ac", 0)
     if ac:
-        lines.append(f"MODULE_{mod_name}_AC := {ac}")
+        lines.append(f"MODULE_{key}_AC := {ac}")
     lines.append("")
 
 
