@@ -10,6 +10,7 @@
 
 # -- Paths ---------------------------------------------------------
 MBT_SCRIPTS := $(MBT_ROOT)/scripts
+MBT_INCLUDE := $(MBT_ROOT)/include
 BUILDDIR    ?= build
 DISTDIR     ?= dist
 
@@ -91,6 +92,10 @@ $(shell python3 $(MBT_SCRIPTS)/mbtconfig.py \
 DEP_INCLUDES := $(addprefix -I ,$(wildcard .mbt/deps/*/include))
 DEP_LIBS     := $(wildcard .mbt/deps/*/lib/*.a)
 CFLAGS       += $(DEP_INCLUDES)
+
+# mbt's own headers (mbtcheck.h test convention) -- always on the include path
+# so tests can '#include <mbtcheck.h>'; harmless for sources that don't.
+CFLAGS       += -I $(MBT_INCLUDE)
 
 # -- VPATH for source discovery ------------------------------------
 vpath %.c $(SRC_DIRS)
@@ -202,7 +207,7 @@ else
 ALL_PREREQS   := modules $(if $(LIB_NAME),lib)
 endif
 
-.PHONY: all modules test test-mvs lib package deps deploy doctor compiledb release \
+.PHONY: all modules test test-mvs check lib package deps deploy doctor compiledb release \
         prerelease clean distclean help
 
 # Help
@@ -226,7 +231,8 @@ help:
 	@echo "Package & Release:"
 	@echo "  package      Create release artifacts in dist/"
 	@echo "  deploy       Upload XMITs to MVS and RECV370"
-	@echo "  test-mvs     Deploy test modules + run the suite on MVS"
+	@echo "  test-mvs     Build + deploy test modules + run the suite on MVS"
+	@echo "  check        Run every available test suite"
 	@echo "  release      Version bump + git tag + GH release"
 	@echo "  prerelease   Prerelease (no version bump)"
 	@echo ""
@@ -304,13 +310,19 @@ deploy:
 	@python3 $(MBT_SCRIPTS)/mbtdeploy.py --project project.toml \
 	    --builddir $(BUILDDIR) --ld $(LD) $(VFLAG) $(ARGS)
 
-# -- test-mvs (deploy [[test]] modules to a TESTLIB and run them on MVS) --
-# Packs the built test modules into a separate TESTLIB, generates + submits a
-# runner job (batch + TSO per test), and reports a pass/fail matrix.  The
-# production LINKLIB must already be deployed (tests LOAD data modules from it).
-test-mvs:
+# -- test-mvs (build test modules, deploy to a TESTLIB, run them on MVS) --
+# Depends on 'test' so the modules are current; packs them into a separate
+# TESTLIB, generates + submits a runner job (batch + TSO per test), and reports
+# a pass/fail matrix.  The production LINKLIB must already be deployed (tests
+# LOAD data modules from it) -- the runner fails fast if it is absent.
+test-mvs: test
 	@python3 $(MBT_SCRIPTS)/mbttest.py --project project.toml \
 	    --builddir $(BUILDDIR) --ld $(LD) $(VFLAG) $(ARGS)
+
+# -- check (run every available test suite) -----------------------
+# Currently the MVS suite; 'test-host' (host-native build+run) joins it here.
+check: test-mvs
+	@:
 
 # -- Doctor (check toolchain) -------------------------------------
 doctor:

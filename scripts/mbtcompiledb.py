@@ -107,6 +107,10 @@ def main() -> int:
     # Dependency headers first, then the cc370 sysroot (lowest priority) --
     # the same precedence the cc370 build uses (project cflags > deps > sysroot).
     inc = _dep_includes(project_dir)
+    # mbt's own headers (mbtcheck.h) -- mirror the -I mbt/include the build adds.
+    mbt_inc = Path(__file__).resolve().parent.parent / "include"
+    if mbt_inc.is_dir():
+        inc += ["-I", str(mbt_inc)]
     sysroot_inc = _sysroot_include()
     if sysroot_inc:
         inc += ["-I", str(sysroot_inc)]
