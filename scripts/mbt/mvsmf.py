@@ -70,7 +70,8 @@ class MvsMFClient:
                  body: bytes | None = None,
                  content_type: str = "application/json",
                  accept: str = "application/json",
-                 extra_headers: dict | None = None
+                 extra_headers: dict | None = None,
+                 timeout: int = 30
                  ) -> bytes:
         """Execute HTTP request against mvsMF.
 
@@ -81,6 +82,8 @@ class MvsMFClient:
             content_type: Content-Type header
             accept: Accept header
             extra_headers: Additional headers to include
+            timeout: socket timeout in seconds (large binary uploads need more
+                than the 30s default -- mvsMF rewrites the dataset on MVS)
 
         Returns:
             Response body as bytes
@@ -99,7 +102,7 @@ class MvsMFClient:
             for key, val in extra_headers.items():
                 req.add_header(key, val)
         try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return resp.read()
         except urllib.error.HTTPError as e:
             body_text = ""
@@ -457,12 +460,17 @@ class MvsMFClient:
         Content-Type: application/octet-stream
         X-IBM-Data-Type: binary
         """
+        # Large uploads (multi-MB XMITs) take well over the 30s default while
+        # mvsMF rewrites the dataset on MVS; scale the timeout with the payload
+        # (~1 MB/s floor) with a generous minimum.
+        upload_timeout = max(120, len(data) // (1024 * 1024) * 20 + 120)
         self._request(
             "PUT", f"/restfiles/ds/{dsn}",
             data,
             content_type="application/octet-stream",
             accept="*/*",
-            extra_headers={"X-IBM-Data-Type": "binary"}
+            extra_headers={"X-IBM-Data-Type": "binary"},
+            timeout=upload_timeout
         )
 
     # --- Connectivity ---
