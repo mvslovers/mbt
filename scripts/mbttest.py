@@ -113,6 +113,27 @@ def _resolve_fixtures(project: dict, tests: list, config: MbtConfig) -> dict:
     return out
 
 
+def _resolve_parms(project: dict, tests: list) -> dict:
+    """Per-leg program arguments for the selected tests.
+
+    A test may set `parm` (both legs), and/or `parm_batch` / `parm_tso`
+    (per-leg overrides). Returns { test: {"batch": str|None, "tso": str|None} }
+    only for tests that set at least one.
+    """
+    want = {t.upper() for t in tests}
+    out = {}
+    for t in project.get("test", []):
+        tn = t.get("name", "")
+        if tn.upper() not in want:
+            continue
+        common = t.get("parm")
+        batch = t.get("parm_batch", common)
+        tso = t.get("parm_tso", common)
+        if batch is not None or tso is not None:
+            out[tn] = {"batch": batch, "tso": tso}
+    return out
+
+
 # Instream delimiter for IEBGENER fixture data. The default '/*' terminator is
 # unusable because REXX execs begin with a '/* ... */' comment (cols 1-2 '/*'
 # would end the instream early); DLM= moves the terminator off '/*'.
@@ -133,7 +154,7 @@ def _fixture_dds(fixtures: dict, test: str) -> str:
 
 
 def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
-                fixtures: dict = None) -> tuple:
+                fixtures: dict = None, parms: dict = None) -> tuple:
     """Build the runner JCL. Return (jcl_text, step_map).
 
     step_map: { step_name: (test_name, leg) } for leg in {'batch','tso'}.
@@ -141,8 +162,13 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
     members are pre-loaded into the per-test PDS by generated IEBGENER steps
     (the PDS is allocated out-of-band before submit); each DD is added to that
     test's batch + TSO steps.
+    parms: { test: {"batch": str|None, "tso": str|None} } -- a per-leg program
+    argument (batch via PARM=, TSO via the CALL arg), for tests whose expected
+    result differs by environment (e.g. TISTSO asserts is_tso()==0 batch / ==1
+    TSO).
     """
     fixtures = fixtures or {}
+    parms = parms or {}
     steplib = (f"//STEPLIB  DD DSN={testlib},DISP=SHR\n"
                f"//         DD DSN={linklib},DISP=SHR\n")
     lines = [jobname_card]
@@ -168,7 +194,9 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
     # -- batch leg --
     for i, t in enumerate(tests, 1):
         b = f"B{i:02d}"
-        lines.append(f"//{b:<8}EXEC PGM={t},COND=EVEN,REGION={RUNNER_REGION}")
+        bp = parms.get(t, {}).get("batch")
+        parm = f",PARM='{bp}'" if bp is not None else ""
+        lines.append(f"//{b:<8}EXEC PGM={t},COND=EVEN,REGION={RUNNER_REGION}{parm}")
         lines.append(steplib.rstrip())
         fxdd = _fixture_dds(fixtures, t)
         if fxdd:
@@ -188,7 +216,9 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
         lines.append("//SYSTSPRT DD SYSOUT=*")
         lines.append("//SYSPRINT DD SYSOUT=*")
         lines.append("//SYSTSIN  DD *")
-        lines.append(f" CALL '{testlib}({t})'")
+        tp = parms.get(t, {}).get("tso")
+        arg = f" '{tp}'" if tp is not None else ""
+        lines.append(f" CALL '{testlib}({t})'{arg}")
         lines.append("/*")
         step_map[s] = (t, "tso")
 
@@ -313,7 +343,8 @@ def main() -> int:
 
     # -- generate + submit the runner --
     jc = jobcard("MBTTEST", config.jes_jobclass, config.jes_msgclass, "MBT TEST")
-    jcl, step_map = _gen_runner(jc, tests, testlib, linklib, fixtures)
+    parms = _resolve_parms(project, tests)
+    jcl, step_map = _gen_runner(jc, tests, testlib, linklib, fixtures, parms)
     runner_path = builddir / "test-runner.jcl"
     runner_path.write_text(jcl)
     _log(f"Runner JCL -> {runner_path} ({len(step_map)} step(s))")

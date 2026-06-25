@@ -81,6 +81,38 @@ class FixtureRunnerTest(unittest.TestCase):
         self.assertNotIn("FIX.TSTLOAD", toks)
 
 
+class PerLegParmTest(unittest.TestCase):
+    def setUp(self):
+        self.parms = {"TISTSO": {"batch": "0", "tso": "1"}}
+        self.jcl, _ = mbttest._gen_runner(
+            JC, ["TISTSO", "TSTTOKN"], TESTLIB, LINKLIB, None, self.parms)
+
+    def test_batch_parm_on_exec(self):
+        self.assertIn("//B01     EXEC PGM=TISTSO,COND=EVEN,REGION=", self.jcl)
+        self.assertIn(",PARM='0'", self.jcl)
+
+    def test_tso_arg_on_call(self):
+        self.assertIn(f" CALL '{TESTLIB}(TISTSO)' '1'", self.jcl)
+
+    def test_no_parm_test_unaffected(self):
+        # TSTTOKN has no parm -> plain EXEC and plain CALL
+        self.assertIn("//B02     EXEC PGM=TSTTOKN,COND=EVEN,REGION=", self.jcl)
+        self.assertIn(f" CALL '{TESTLIB}(TSTTOKN)'\n", self.jcl)
+
+
+class ResolveParmsTest(unittest.TestCase):
+    def test_per_leg_overrides_and_common(self):
+        proj = {"test": [
+            {"name": "TISTSO", "parm_batch": "0", "parm_tso": "1"},
+            {"name": "FOO", "parm": "X"},          # common -> both legs
+            {"name": "BAR"},                        # none
+        ]}
+        out = mbttest._resolve_parms(proj, ["TISTSO", "FOO", "BAR"])
+        self.assertEqual(out["TISTSO"], {"batch": "0", "tso": "1"})
+        self.assertEqual(out["FOO"], {"batch": "X", "tso": "X"})
+        self.assertNotIn("BAR", out)
+
+
 class ParseStepRcTest(unittest.TestCase):
     def test_cond_code(self):
         s = "IEF142I MBTTEST B01 - STEP WAS EXECUTED - COND CODE 0000"
