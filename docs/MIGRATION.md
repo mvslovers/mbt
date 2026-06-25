@@ -149,8 +149,86 @@ and never deployed.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `name` | project name | Archive name → `build/<name>.a`. |
-| `sources` | — | Glob(s) for the archive members. |
+| `sources` | — | Glob(s) for the archive members. Omit for a headers-only export. |
 | `headers` | `[]` | Public headers shipped in the `-lib` release tarball. |
+
+A `[lib]` with `headers` **but no `sources`** is a *headers-only* export: no
+`.a` is built or shipped — the `-lib` tarball carries `include/` alone.
+Use this when the public API is reached at **runtime** rather than linked —
+e.g. httpd, whose CGI programs call `http_*` through a callback table the
+server fills in, so consumers compile against the headers and link nothing.
+
+### `[internal]` — shared-code archive for multi-module projects
+
+Most projects give each `[[module]]` a `sources` glob and let the linker pull
+the C runtime from `-lc`. That breaks down when **several modules share a body
+of code that cannot be globbed into each** — the classic case is a project
+where every module root defines its own `main()`, so globbing all sources into
+every module is doubly-defined at link.
+
+`[internal]` solves this. Its `sources` are compiled and archived into
+`build/<project>int.a`, and **every module (and test) autocalls that archive**.
+Each `[[module]]` then lists only its own root source(s); the linker pulls the
+shared rest from the archive **by autocall** — referenced members only, so each
+load module stays minimal (important on MVS).
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `sources` | — | Glob(s) compiled into the internal archive. |
+| `exclude` | `[]` | Glob(s) removed from `sources`. |
+
+```toml
+[internal]
+sources = ["src/*.c", "credentials/src/*.c"]   # -> build/<project>int.a
+
+[[module]]
+name    = "HTTPJES2"
+startup = "crt1"
+sources = ["src/cgistart.c", "src/httpjes2.c"] # roots only; rest via autocall
+```
+
+This is the v2 re-expression of v1's NCALIB autocall (in v1, `c_dirs` fed the
+NCALIB, which *was* the autocall library). Unlike `[lib]` — a public
+deliverable shipped in the release tarball — the internal archive is never
+packaged or shipped; it exists only to compose this project's own modules.
+A project may have both: `[internal]` for module composition and a curated
+`[lib]` for external consumers.
+
+A module root listed in `sources` is also a member of the internal archive
+(its glob covers the whole tree). That is harmless: the explicit object
+satisfies the symbol, and autocall skips the archive copy — no doubly-defined.
+
+#### Why the roots must be explicit (and which root)
+
+It is tempting to drop the explicit root and let autocall pull *everything*
+from the archive. That does **not** work, and the failure is silent. cc370
+compiles each translation unit to an unnamed **Private Code** section that
+exports only a few `LD` labels; a TU with `main()` exports `@@START`, the C
+entry the CRT (`crt0`/`crt1`) references **strongly**. In a project where
+several TUs have `main()` (a server plus N CGI programs, say), the internal
+archive contains **multiple** `@@START` definitions. Autocall then satisfies
+the CRT's `@@START` reference from the *first* archive member that defines it
+— which may not be the root you intended. The link succeeds (RC=0, no
+unresolved references), but the load module carries the **wrong entry** and
+faults at run time.
+
+Listing the intended root as an explicit `sources` object pins *that* TU's
+`@@START` (and its other symbols) **before** autocall runs, so the module
+gets the entry you meant. This is exactly what v1's `[[link.module]] include`
+list did. It also means the seeded root must be the one that actually defines
+the entry: seed the wrong sibling and you get the silent wrong-entry module
+above. (See mvslovers/cc370#8 for a proposed linker diagnostic.)
+
+If a TU belongs in the shared archive but must never be autocalled as an
+entry — e.g. a CGI launcher that also defines `@@START` but is only ever a
+per-module root — `exclude` it from `[internal]` so its `@@START` can never
+shadow another module's:
+
+```toml
+[internal]
+sources = ["src/*.c"]
+exclude = ["src/cgistart.c"]   # a per-module root + shipped in [lib], not an autocall member
+```
 
 ### `[release]`
 
@@ -188,11 +266,17 @@ dependency fetcher; not yet implemented — see roadmap).
 | `[[link.module]] entry = "@@CRT0"` | `[[module]] entry = "@@CRT0"` (same; default) |
 | `[[link.module]] options = ["RENT", ...]` | **removed** — handled by the toolchain |
 | test as a `[[link.module]]` | `[[test]]` |
-| `[artifacts]` (headers/modules/loads) | `[lib] headers = [...]` + `make package` |
+| `[artifacts] headers = true, header_files = [...]` | `[lib] headers = [...]` (headers-only, no `sources`) + `make package` |
 
 The biggest change: you no longer list NCALIB members to `include`; you
 list **source globs** and let the host linker pull the C runtime from
 `-lc`. Dataset/space/RECFM blocks disappear entirely.
+
+**Multi-module projects that shared an NCALIB** (every `[[link.module]]`
+`include`-d a couple of roots and autocalled the rest from the project's own
+NCALIB) map the NCALIB to an `[internal]` archive: put the shared source globs
+in `[internal] sources`, and give each `[[module]]` only its root source(s).
+The autocall semantics carry over unchanged — see [`[internal]`](#internal--shared-code-archive-for-multi-module-projects).
 
 ---
 
