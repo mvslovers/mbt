@@ -1,8 +1,8 @@
 """mbt v2 test-host -- build and run the test suite natively on the host.
 
 The fast inner loop: every [[test]] whose sources are portable C (the dual
-test/mvs/*.c tests) is compiled with the host compiler and run natively, gating
-on the exit code (0 = all passed). No MVS round-trip.
+tests) is compiled with the host compiler and run natively, gating on the exit
+code (0 = all passed). No MVS round-trip.
 
 A test is host-runnable when all its sources are .c -- tests carrying hand-
 written .asm/.s (e.g. an asm entry wrapper, or asm/istso.asm) are MVS-only and
