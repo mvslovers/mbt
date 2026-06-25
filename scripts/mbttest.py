@@ -80,48 +80,118 @@ def _resolve_testlib(config: MbtConfig, project: dict) -> str:
     return f"{config.hlq}.{name}.{vrm}.TESTLIB"
 
 
+def _resolve_fixtures(project: dict, tests: list, config: MbtConfig) -> dict:
+    """Resolve each selected test's [[test.fixture]] blocks.
+
+    Returns { test: {"pds": dsn, "dds": [ddname], "members": [(name, text)]} }
+    for tests that declare fixtures. Each test gets its own per-test fixture PDS
+    (member names may collide across tests, e.g. TSTLOAD's HELLO vs TSTJCL's),
+    and all of a test's DDs point at it. Member name = file basename uppercased.
+    """
+    want = {t.upper() for t in tests}
+    name = config.project.name.upper()
+    out = {}
+    for t in project.get("test", []):
+        tn = t.get("name", "")
+        if tn.upper() not in want or not t.get("fixture"):
+            continue
+        dds, members, seen = [], [], set()
+        for fx in t["fixture"]:
+            dds.append(fx["dd"])
+            for mfile in fx.get("members", []):
+                member = Path(mfile).stem.upper()[:8]
+                if member in seen:
+                    continue
+                seen.add(member)
+                text = Path(mfile).read_text()
+                members.append((member, text))
+        out[tn] = {
+            "pds": f"{config.hlq}.{name}.FIX.{tn}",
+            "dds": dds,
+            "members": members,
+        }
+    return out
+
+
+# Instream delimiter for IEBGENER fixture data. The default '/*' terminator is
+# unusable because REXX execs begin with a '/* ... */' comment (cols 1-2 '/*'
+# would end the instream early); DLM= moves the terminator off '/*'.
+_FIX_DLM = "$A"
+
+
+def _fixture_dds(fixtures: dict, test: str) -> str:
+    """The DD cards (STEPLIB-style) a fixture test's steps need, or ''.
+
+    fixtures[test] = {"pds": dsn, "dds": [ddname, ...], "members": [...]}.
+    All of a test's DDs point at its single per-test fixture PDS.
+    """
+    fx = fixtures.get(test)
+    if not fx:
+        return ""
+    return "".join(f"//{dd:<8} DD DSN={fx['pds']},DISP=SHR\n"
+                   for dd in fx["dds"])
+
+
 def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
-                extra_fail: list = None) -> tuple:
+                fixtures: dict = None) -> tuple:
     """Build the runner JCL. Return (jcl_text, step_map).
 
     step_map: { step_name: (test_name, leg) } for leg in {'batch','tso'}.
-    extra_fail: synthetic step specs [(step, pgm_or_call, leg)] to prove a
-    failing test shows nonzero -- spike only.
+    fixtures: { test: {"pds": dsn, "dds": [...], "members": [(name, text)]} } --
+    members are pre-loaded into the per-test PDS by generated IEBGENER steps
+    (the PDS is allocated out-of-band before submit); each DD is added to that
+    test's batch + TSO steps.
     """
+    fixtures = fixtures or {}
     steplib = (f"//STEPLIB  DD DSN={testlib},DISP=SHR\n"
                f"//         DD DSN={linklib},DISP=SHR\n")
     lines = [jobname_card]
     step_map = {}
+
+    # -- fixture-load steps first (members into each test's PDS) --
+    fx_i = 0
+    for test in tests:
+        fx = fixtures.get(test)
+        if not fx:
+            continue
+        for member, text in fx["members"]:
+            fx_i += 1
+            lines.append(f"//FX{fx_i:03d}  EXEC PGM=IEBGENER")
+            lines.append("//SYSPRINT DD SYSOUT=*")
+            lines.append("//SYSIN    DD DUMMY")
+            lines.append(f"//SYSUT2   DD DSN={fx['pds']}({member}),DISP=SHR")
+            lines.append(f"//SYSUT1   DD *,DLM={_FIX_DLM}")
+            for ln in text.splitlines():
+                lines.append(ln)
+            lines.append(_FIX_DLM)
+
+    # -- batch leg --
     for i, t in enumerate(tests, 1):
         b = f"B{i:02d}"
         lines.append(f"//{b:<8}EXEC PGM={t},COND=EVEN,REGION={RUNNER_REGION}")
         lines.append(steplib.rstrip())
+        fxdd = _fixture_dds(fixtures, t)
+        if fxdd:
+            lines.append(fxdd.rstrip())
         lines.append("//SYSPRINT DD SYSOUT=*")
         lines.append("//SYSTSPRT DD SYSOUT=*")
         step_map[b] = (t, "batch")
+
+    # -- TSO leg --
     for i, t in enumerate(tests, 1):
         s = f"T{i:02d}"
         lines.append(f"//{s:<8}EXEC PGM=IKJEFT01,DYNAMNBR=50,REGION={RUNNER_REGION},COND=EVEN")
         lines.append(steplib.rstrip())
+        fxdd = _fixture_dds(fixtures, t)
+        if fxdd:
+            lines.append(fxdd.rstrip())
         lines.append("//SYSTSPRT DD SYSOUT=*")
         lines.append("//SYSPRINT DD SYSOUT=*")
         lines.append("//SYSTSIN  DD *")
         lines.append(f" CALL '{testlib}({t})'")
         lines.append("/*")
         step_map[s] = (t, "tso")
-    for step, spec, leg in (extra_fail or []):
-        if leg == "batch":
-            lines.append(f"//{step:<8}EXEC PGM={spec},COND=EVEN,REGION={RUNNER_REGION}")
-            lines.append(steplib.rstrip())
-            lines.append("//SYSPRINT DD SYSOUT=*")
-        else:
-            lines.append(f"//{step:<8}EXEC PGM=IKJEFT01,DYNAMNBR=50,REGION={RUNNER_REGION},COND=EVEN")
-            lines.append(steplib.rstrip())
-            lines.append("//SYSTSPRT DD SYSOUT=*")
-            lines.append("//SYSTSIN  DD *")
-            lines.append(f" CALL '{testlib}({spec})'")
-            lines.append("/*")
-        step_map[step] = (f"<{spec}>", leg)
+
     return "\n".join(lines) + "\n", step_map
 
 
@@ -152,10 +222,9 @@ def main() -> int:
     ap.add_argument("--ld", default=os.environ.get("LD", "ld370"))
     ap.add_argument("--target", default=None,
                     help="override the runtime production LINKLIB DSN")
-    ap.add_argument("--only", action="append", default=[],
-                    help="run only these tests (repeatable) -- spike")
-    ap.add_argument("--spike-fail", action="store_true",
-                    help="add synthetic force-fail steps to verify RC reporting")
+    ap.add_argument("--only", action="append", default=[], metavar="TEST",
+                    help="run only these tests (repeatable); e.g. rerun the "
+                         "failures: --only TSTLOAD --only TSTJCL")
     ap.add_argument("--no-deploy", action="store_true",
                     help="skip the TESTLIB deploy (reuse what is already there)")
     ap.add_argument("-v", "--verbose", action="store_true")
@@ -226,12 +295,25 @@ def main() -> int:
             except MvsMFError:
                 pass
 
+    # -- prepare per-test fixture PDSes (allocate empty; the runner's IEBGENER
+    #    steps load the members). Each test gets its own PDS so member names may
+    #    collide across tests. --
+    fixtures = _resolve_fixtures(project, tests, config)
+    for tn, fx in fixtures.items():
+        pds = fx["pds"]
+        try:
+            if client.dataset_exists(pds):
+                client.delete_dataset(pds)
+            client.create_dataset(pds, "PO", "FB", 80, 3120,
+                                  ["TRK", 2, 1, 5], "SYSDA")
+            _log(f"Fixture {pds} ({len(fx['members'])} member(s) for {tn})")
+        except MvsMFError as e:
+            _log_error(f"fixture alloc failed for {tn}: {e}")
+            return EXIT_MAINFRAME
+
     # -- generate + submit the runner --
     jc = jobcard("MBTTEST", config.jes_jobclass, config.jes_msgclass, "MBT TEST")
-    extra = []
-    if args.spike_fail:
-        extra = [("BX", "NOSUCH", "batch"), ("TX", "NOSUCH", "tso")]
-    jcl, step_map = _gen_runner(jc, tests, testlib, linklib, extra)
+    jcl, step_map = _gen_runner(jc, tests, testlib, linklib, fixtures)
     runner_path = builddir / "test-runner.jcl"
     runner_path.write_text(jcl)
     _log(f"Runner JCL -> {runner_path} ({len(step_map)} step(s))")

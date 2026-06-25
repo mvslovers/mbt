@@ -93,6 +93,39 @@ environment/anchor path). A test passes only when its step RC is 0.
 > Note: MVS 3.8j does not treat `REGION=0M` on a step as unlimited (it falls
 > back to ~512K → S878); the runner uses a concrete region.
 
+### Running a subset
+
+Pass `--only` (repeatable) to build, deploy and run just the named tests --
+e.g. to rerun the failures from a previous run:
+
+```sh
+make test-mvs ARGS="--only TSTLOAD --only TSTJCL"
+```
+
+### Fixtures (input DDs + pre-loaded members)
+
+Some tests need a DD with pre-loaded PDS members at runtime -- e.g. a LOAD test
+that reads REXX execs from `SYSEXEC` (the host build self-provisions these under
+`#ifndef __MVS__`; on MVS they must be real datasets). Declare them per test:
+
+```toml
+[[test]]
+name = "TSTLOAD"
+sources = [...]
+[[test.fixture]]
+dd = "SYSEXEC"
+members = ["test/fixtures/tstload/HELLO", "test/fixtures/tstload/EMPTY"]
+[[test.fixture]]
+dd = "ALTDD"
+members = ["test/fixtures/tstload/ALTM"]
+```
+
+For each fixture test the runner allocates a **per-test** fixture PDS
+(`{HLQ}.{PROJECT}.FIX.{TEST}` -- per-test so member names may collide across
+tests), loads each member via an `IEBGENER` step (`DLM=` so a `/* ... */` REXX
+comment in the data does not end the instream early; member name = file basename
+uppercased), and adds each declared `dd` to that test's batch + TSO steps.
+
 ## How evaluation works
 
 - **Gate:** each test is one job step; the runner parses the step's RC from the

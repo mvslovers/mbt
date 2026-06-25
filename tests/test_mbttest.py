@@ -49,6 +49,38 @@ class GenRunnerTest(unittest.TestCase):
         self.assertIn(f"REGION={mbttest.RUNNER_REGION}", self.jcl)
 
 
+class FixtureRunnerTest(unittest.TestCase):
+    def setUp(self):
+        self.fix = {
+            "TSTLOAD": {
+                "pds": "IBMUSER.REXX370.FIX.TSTLOAD",
+                "dds": ["SYSEXEC", "ALTDD"],
+                "members": [("HELLO", "/* c */\nsay 'hi'\n"), ("EMPTY", "")],
+            }
+        }
+        self.jcl, self.smap = mbttest._gen_runner(
+            JC, ["TSTLOAD", "TSTTOKN"], TESTLIB, LINKLIB, self.fix)
+
+    def test_iebgener_load_step_per_member(self):
+        self.assertIn("EXEC PGM=IEBGENER", self.jcl)
+        self.assertIn("//SYSUT2   DD DSN=IBMUSER.REXX370.FIX.TSTLOAD(HELLO),DISP=SHR", self.jcl)
+        self.assertIn("//SYSUT2   DD DSN=IBMUSER.REXX370.FIX.TSTLOAD(EMPTY),DISP=SHR", self.jcl)
+
+    def test_dlm_lets_rexx_comment_pass(self):
+        # the '/* c */' content must survive (DLM moves the terminator off '/*')
+        self.assertIn(f"//SYSUT1   DD *,DLM={mbttest._FIX_DLM}", self.jcl)
+        self.assertIn("/* c */", self.jcl)
+
+    def test_both_dds_added_to_fixture_test_steps(self):
+        self.assertIn("//SYSEXEC  DD DSN=IBMUSER.REXX370.FIX.TSTLOAD,DISP=SHR", self.jcl)
+        self.assertIn("//ALTDD    DD DSN=IBMUSER.REXX370.FIX.TSTLOAD,DISP=SHR", self.jcl)
+
+    def test_non_fixture_test_gets_no_fixture_dd(self):
+        # TSTTOKN has no fixture -> no FIX.TSTLOAD DD leaks into its step
+        toks = self.jcl.split("//B02")[1].split("//T01")[0]  # TSTTOKN batch step
+        self.assertNotIn("FIX.TSTLOAD", toks)
+
+
 class ParseStepRcTest(unittest.TestCase):
     def test_cond_code(self):
         s = "IEF142I MBTTEST B01 - STEP WAS EXECUTED - COND CODE 0000"
