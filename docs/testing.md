@@ -70,11 +70,35 @@ the per-assertion count work and keeps test output uniform across the ecosystem.
 ## Running on MVS
 
 ```sh
+make test-host     # build + run the portable tests natively (fast inner loop)
 make test          # build the test load modules (no MVS)
 make deploy        # production LINKLIB must exist: tests LOAD data modules from it
 make test-mvs      # build (if needed) + deploy tests to a TESTLIB + run + report
-make check         # every available suite (currently test-mvs)
+make check         # every available suite (host + MVS)
 ```
+
+## Running on the host (`test-host`)
+
+Tests written as portable C (`int main`, `mbtcheck.h`) are **dual-target**: the
+same source compiles for MVS *and* runs natively. `make test-host` compiles each
+`[[test]]` with the host compiler and runs it, gating on the exit code -- a
+fast inner loop with no MVS round-trip. A test carrying hand-written `.asm`/`.s`
+is MVS-only and skipped.
+
+When a symbol resolves differently per environment (e.g. `is_tso()` -> an asm
+CSECT on MVS, a `#ifndef __MVS__` stub on the host), and when a dependency must
+be linked from source on the host (the staged `.mbt/deps` `.a` is the cross
+build), declare it under `[host]`:
+
+```toml
+[host]
+cflags  = ["-Wall", "-Wextra"]
+sources = ["../lstring370/src/lstr#*.c"]          # extra host link sources
+replace = { "asm/istso.asm" = "src/irx#env.c" }   # per-env source swap
+```
+
+The host build reuses the project's `build.cflags` + the dependency include dirs
++ `mbt/include`, with the native compiler (`[host].cc`, default `cc`).
 
 `make test-mvs`:
 
