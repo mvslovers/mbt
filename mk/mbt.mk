@@ -207,7 +207,7 @@ else
 ALL_PREREQS   := modules $(if $(LIB_NAME),lib)
 endif
 
-.PHONY: all modules test test-mvs check lib package deps deploy doctor compiledb release \
+.PHONY: all modules test test-mvs test-host check lib package deps deploy doctor compiledb release \
         prerelease clean distclean help
 
 # Help
@@ -231,8 +231,9 @@ help:
 	@echo "Package & Release:"
 	@echo "  package      Create release artifacts in dist/"
 	@echo "  deploy       Upload XMITs to MVS and RECV370"
+	@echo "  test-host    Build + run the dual tests natively (fast inner loop)"
 	@echo "  test-mvs     Build + deploy test modules + run the suite on MVS"
-	@echo "  check        Run every available test suite"
+	@echo "  check        Run every available test suite (host + MVS)"
 	@echo "  release      Version bump + git tag + GH release"
 	@echo "  prerelease   Prerelease (no version bump)"
 	@echo ""
@@ -319,9 +320,15 @@ test-mvs: test
 	@python3 $(MBT_SCRIPTS)/mbttest.py --project project.toml \
 	    --builddir $(BUILDDIR) --ld $(LD) $(VFLAG) $(ARGS)
 
-# -- check (run every available test suite) -----------------------
-# Currently the MVS suite; 'test-host' (host-native build+run) joins it here.
-check: test-mvs
+# -- test-host (build + run the dual tests natively -- fast inner loop) --
+# Compiles every [[test]] whose sources are portable C with the host compiler
+# and runs it, gating on the exit code.  No MVS; tests carrying .asm are skipped.
+test-host:
+	@python3 $(MBT_SCRIPTS)/mbttesthost.py --project project.toml \
+	    --builddir $(BUILDDIR) $(VFLAG) $(ARGS)
+
+# -- check (run every available test suite: host first, then MVS) --
+check: test-host test-mvs
 	@:
 
 # -- Doctor (check toolchain) -------------------------------------
