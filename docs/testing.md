@@ -126,6 +126,26 @@ tests), loads each member via an `IEBGENER` step (`DLM=` so a `/* ... */` REXX
 comment in the data does not end the instream early; member name = file basename
 uppercased), and adds each declared `dd` to that test's batch + TSO steps.
 
+### Per-leg arguments (environment-dependent tests)
+
+A test whose correct result depends on the run environment can't know it a
+priori -- so the runner passes the **expected** value as the program argument,
+differently per leg, and the test asserts against it. Declare:
+
+```toml
+[[test]]
+name = "TISTSO"
+sources = ["test/mvs/tistso.c", "asm/istso.asm"]
+parm_batch = "0"     # batch leg -> PARM='0'  (expect is_tso()==0)
+parm_tso   = "1"     # TSO leg   -> CALL '...' '1'  (expect is_tso()==1)
+```
+
+`parm` sets the same argument for both legs; `parm_batch` / `parm_tso` override
+per leg. The argument reaches `main(argc, argv)` via the batch `PARM=` and the
+TSO `CALL 'ds(mem)' 'arg'` form (crent370 reconstructs argv for both). This
+turns an otherwise un-gateable diagnostic into a real pass/fail test on both
+legs.
+
 ## How evaluation works
 
 - **Gate:** each test is one job step; the runner parses the step's RC from the
