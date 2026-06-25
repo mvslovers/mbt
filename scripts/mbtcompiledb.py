@@ -73,13 +73,20 @@ def _dep_includes(project_dir: Path) -> list:
 
 
 def _all_sources(cfg: dict) -> list:
-    """Every C source across [[module]], [[test]] and [lib] (deduped)."""
+    """Every C source across [[module]], [[test]], [lib] and [internal] (deduped)."""
     srcs = []
     for m in cfg.get("module", []) + cfg.get("test", []):
         srcs += _resolve_sources(m.get("sources", []), m.get("exclude", []))
     lib = cfg.get("lib", {})
     if lib:
         srcs += _resolve_sources(lib.get("sources", []))
+    # [internal] holds the shared body a multi-module project autocalls; it is
+    # the bulk of the source tree, so clangd needs it covered too.
+    internal = cfg.get("internal", {})
+    if internal:
+        srcs += _resolve_sources(
+            internal.get("sources", []), internal.get("exclude", [])
+        )
     seen, out = set(), []
     for s in srcs:
         if s not in seen and s.endswith(".c"):

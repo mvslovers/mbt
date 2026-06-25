@@ -132,22 +132,22 @@ $(BUILDDIR)/%.o: %.s
 
 define LINK_CRT0
 	$(E) "[ld370] $(2) (entry=$(1), crt0)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(INTERNAL_ARCHIVE) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRT1
 	$(E) "[ld370] $(2) (entry=$(1), crt1)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(INTERNAL_ARCHIVE) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
 	$(E) "[ld370] $(2) (entry=$(1), crtm)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
 	$(E) "[ld370] $(2) (entry=$(1), no crt)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
@@ -163,8 +163,8 @@ endef
 # contain national chars like '#').  The '#' only ever reaches a target/recipe
 # via variable expansion -- after comment stripping -- so it stays literal.
 define _MODULE_RULE
-$(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy: $$(MODULE_$(1)_OBJS)
-	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$$(MODULE_$(1)_NAME),$$^,$$(MODULE_$(1)_AC),$$(MODULE_$(1)_NORENT),$$(MODULE_$(1)_NOREUS))
+$(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy: $$(MODULE_$(1)_OBJS) $(INTERNAL_ARCHIVE)
+	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$$(MODULE_$(1)_NAME),$$(MODULE_$(1)_OBJS),$$(MODULE_$(1)_AC),$$(MODULE_$(1)_NORENT),$$(MODULE_$(1)_NOREUS))
 
 .PHONY: $$(MODULE_$(1)_ALIAS)
 $$(MODULE_$(1)_ALIAS): $(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy
@@ -183,11 +183,29 @@ TEST_IMGS   := $(foreach t,$(TESTS),$(BUILDDIR)/$(MODULE_$(t)_NAME).iebcopy)
 -include $(ALL_OBJS:.o=.d)
 
 # -- Library target ------------------------------------------------
+# A [lib] with compiled members produces a static archive (build/<name>.a).
+# A [lib] with only `headers` and no `sources` is a *headers-only* export --
+# the public API is reached at runtime (e.g. a callback table the host fills
+# in), so consumers compile against the headers but link nothing.  No archive
+# is built or shipped in that case; LIB_FILE stays empty.
 ifdef LIB_NAME
+ifneq ($(strip $(LIB_OBJS)),)
 LIB_FILE := $(BUILDDIR)/$(LIB_NAME).a
 
 $(LIB_FILE): $(LIB_OBJS)
 	$(E) "[ar370] $(LIB_NAME).a ($(words $^) objects)"
+	$(Q)$(AR) rc $@ $^
+endif
+endif
+
+# -- Internal autocall archive -------------------------------------
+# Project-private archive of all shared objects (from [internal] sources).
+# Every module/test autocalls it (added to the LINK_* command line), so a
+# module need only list its own root source(s) and the linker pulls the
+# shared rest by autocall.  Not a deliverable -- never packaged or shipped.
+ifdef INTERNAL_ARCHIVE
+$(INTERNAL_ARCHIVE): $(INTERNAL_OBJS)
+	$(E) "[ar370] $(notdir $(INTERNAL_ARCHIVE)) ($(words $^) objects)"
 	$(Q)$(AR) rc $@ $^
 endif
 
@@ -261,10 +279,10 @@ modules: $(MODULE_IMGS)
 test: $(TEST_IMGS)
 	@echo "[mbt] Tests built: $(words $(TESTS)) module(s)"
 
-# Build library archive
+# Build library archive (or just report headers for a headers-only [lib])
 ifdef LIB_NAME
 lib: $(LIB_FILE)
-	@echo "[mbt] Library: $(LIB_FILE)"
+	@echo "[mbt] Library: $(if $(LIB_FILE),$(LIB_FILE),$(LIB_NAME) (headers only, $(words $(LIB_HEADERS)) header(s)))"
 else
 lib:
 	@echo "[mbt] No [lib] section in project.toml"
@@ -284,11 +302,11 @@ ifneq ($(strip $(MODULES)),)
 	    -C $(BUILDDIR) $(foreach m,$(MODULES),$(MODULE_$(m)_NAME).iebcopy)
 endif
 ifdef LIB_NAME
-	@# Library archive (lib + headers)
+	@# Library export: headers always; the .a only if the [lib] has members
+	@# (a headers-only [lib] ships include/ alone -- see the lib target above).
 	@echo "[mbt] Packaging $(DIST_PREFIX)-lib.tar.gz"
-	@mkdir -p $(BUILDDIR)/pkg-lib/$(DIST_PREFIX)/lib \
-	          $(BUILDDIR)/pkg-lib/$(DIST_PREFIX)/include
-	@cp $(LIB_FILE) $(BUILDDIR)/pkg-lib/$(DIST_PREFIX)/lib/
+	@mkdir -p $(BUILDDIR)/pkg-lib/$(DIST_PREFIX)/include
+	$(if $(LIB_FILE),@mkdir -p $(BUILDDIR)/pkg-lib/$(DIST_PREFIX)/lib && cp $(LIB_FILE) $(BUILDDIR)/pkg-lib/$(DIST_PREFIX)/lib/)
 	@$(foreach h,$(LIB_HEADERS),cp $(h) $(BUILDDIR)/pkg-lib/$(DIST_PREFIX)/include/;)
 	@tar czf $(DISTDIR)/$(DIST_PREFIX)-lib.tar.gz \
 	    -C $(BUILDDIR)/pkg-lib $(DIST_PREFIX)

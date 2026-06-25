@@ -235,6 +235,32 @@ def generate(project_file: str = "project.toml", builddir: str = "build") -> str
         lines.append(f"LIB_HEADERS := {' '.join(headers)}")
         lines.append("")
 
+    # -- Internal autocall archive --
+    # A project-private archive of objects that every module (and test)
+    # autocalls.  For multi-module projects whose modules share a body of code
+    # but cannot glob it into each module -- e.g. each module root defines its
+    # own main(), so globbing all sources into every module is doubly-defined.
+    # Each module lists only its root source(s); the linker pulls the shared
+    # rest from this archive by autocall (referenced members only -> smaller
+    # load modules, important on MVS).  Unlike [lib] (a public deliverable,
+    # shipped in the release tarball), the internal archive is never shipped.
+    internal = cfg.get("internal", {})
+    if internal:
+        int_sources = _resolve_sources(
+            internal.get("sources", []),
+            internal.get("exclude", []),
+        )
+        int_objs = [_src_to_obj(s, builddir) for s in int_sources]
+        all_src_dirs.update(_collect_src_dirs(int_sources))
+        all_objs.update(int_objs)
+
+        int_archive = os.path.join(builddir, f"{name}int.a")
+        int_objs_escaped = " ".join(_make_escape(o) for o in int_objs)
+        lines.append("# -- Internal autocall archive --")
+        lines.append(f"INTERNAL_ARCHIVE := {int_archive}")
+        lines.append(f"INTERNAL_OBJS := {int_objs_escaped}")
+        lines.append("")
+
     # -- Source directories for vpath --
     if all_src_dirs:
         lines.append("# -- Source paths --")
