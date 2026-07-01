@@ -4,9 +4,11 @@ The fast inner loop: every [[test]] whose sources are portable C (the dual
 tests) is compiled with the host compiler and run natively, gating on the exit
 code (0 = all passed). No MVS round-trip.
 
-A test is host-runnable when all its sources are .c -- tests carrying hand-
-written .asm/.s (e.g. an asm entry wrapper, or asm/istso.asm) are MVS-only and
-skipped here.
+A test is host-runnable when all its sources are .c and it does not set
+`host = false`. Tests carrying hand-written .asm/.s (an asm entry wrapper,
+asm/istso.asm, ...) are MVS-only, and so are pure-C tests that opt out with
+`host = false` (they use MVS-only services like __linkds/LINK with no host
+equivalent). Both are skipped here; test-mvs still runs them.
 
 Host build = the project's build.cflags (portable: -std=gnu99 etc.) + the
 dependency include dirs + mbt/include (mbtcheck.h), plus any [host] extras:
@@ -100,6 +102,13 @@ def main() -> int:
         name = t.get("name")
         if not name or (want and name.upper() not in want):
             continue
+        # Explicit MVS-only opt-out. A test can be pure C yet un-host-able
+        # when it uses MVS-only runtime services (e.g. __linkds/LINK, wtof)
+        # that have no host equivalent, so the asm-source heuristic below
+        # won't catch it. `host = false` skips it here; test-mvs still runs it.
+        if t.get("host") is False:
+            skipped.append((name, "host = false"))
+            continue
         srcs = _resolve_sources(t.get("sources", []), t.get("exclude", []))
         # Swap env-dependent sources for their host equivalent (e.g. the MVS
         # asm/istso.asm -> the host is_tso() stub src/irx#env.c). After the swap,
@@ -143,8 +152,8 @@ def main() -> int:
         cells = ("ok  " if ok else "FAIL ") + status
         print(f"  {name:<10} {cells:<12} {np} pass / {nf} fail")
     if skipped:
-        print(f"\n  skipped (MVS-only, has asm): "
-              f"{', '.join(n for n, _ in skipped)}")
+        print(f"\n  skipped (MVS-only): "
+              f"{', '.join(f'{n} ({why})' for n, why in skipped)}")
     print(f"\n  {len(rows)} host test(s) | assertions: "
           f"{n_pass_tot} PASS, {n_fail_tot} FAIL")
 

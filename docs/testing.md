@@ -85,6 +85,19 @@ same source compiles for MVS *and* runs natively. `make test-host` compiles each
 fast inner loop with no MVS round-trip. A test carrying hand-written `.asm`/`.s`
 is MVS-only and skipped.
 
+A pure-C test can also be MVS-only when it uses runtime services that have no
+host equivalent (e.g. `__linkds`/LINK, `wtof`) — a LINK-based integration test
+that drives the deployed load modules can't build on the host. Mark it with
+`host = false` to skip it on `test-host` (it still runs under `test-mvs`):
+
+```toml
+[[test]]
+name = "TREXXVL"
+startup = "crt1"
+host = false          # MVS-only (uses __linkds/LINK); skipped by test-host
+sources = ["test/trexxvl.c"]
+```
+
 When a symbol resolves differently per environment (e.g. `is_tso()` -> an asm
 CSECT on MVS, a `#ifndef __MVS__` stub on the host), and when a dependency must
 be linked from source on the host (the staged `.mbt/deps` `.a` is the cross
