@@ -203,6 +203,7 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
             lines.append(fxdd.rstrip())
         lines.append("//SYSPRINT DD SYSOUT=*")
         lines.append("//SYSTSPRT DD SYSOUT=*")
+        lines.append("//SYSUDUMP DD SYSOUT=*")
         step_map[b] = (t, "batch")
 
     # -- TSO leg --
@@ -349,8 +350,15 @@ def main() -> int:
     runner_path.write_text(jcl)
     _log(f"Runner JCL -> {runner_path} ({len(step_map)} step(s))")
 
+    # The default 120 s poll is too short for large runners (a full-suite
+    # job has 110 steps and runs for several minutes; the poll then gives
+    # up and every step reports "NO RC" with an empty spool).  Scale the
+    # timeout with the step count; MBT_TEST_TIMEOUT (seconds) overrides.
+    timeout = int(os.environ.get("MBT_TEST_TIMEOUT", "0") or "0")
+    if timeout <= 0:
+        timeout = max(120, 10 * len(step_map))
     try:
-        result = client.submit_jcl(jcl)
+        result = client.submit_jcl(jcl, timeout=timeout)
     except MvsMFError as e:
         _log_error(f"runner submit failed: {e}")
         return EXIT_MAINFRAME
