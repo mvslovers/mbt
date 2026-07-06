@@ -169,8 +169,11 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
     """
     fixtures = fixtures or {}
     parms = parms or {}
-    steplib = (f"//STEPLIB  DD DSN={testlib},DISP=SHR\n"
-               f"//         DD DSN={linklib},DISP=SHR\n")
+    # TESTLIB is the STEPLIB; the production LINKLIB (if deployed) follows so a
+    # test can LOAD production modules. linklib may be None (nothing deployed).
+    steplib = f"//STEPLIB  DD DSN={testlib},DISP=SHR\n"
+    if linklib:
+        steplib += f"//         DD DSN={linklib},DISP=SHR\n"
     lines = [jobname_card]
     step_map = {}
 
@@ -280,16 +283,20 @@ def main() -> int:
     testlib = _resolve_testlib(config, project)
     linklib = _resolve_linklib(args, config, project)
     _log(f"Test library:  {testlib} ({len(tests)} test(s))")
-    _log(f"Runtime LINKLIB: {linklib}")
 
     client = _make_client(config)
 
-    # The data modules tests LOAD at runtime live in LINKLIB -> it must exist.
+    # Tests run from TESTLIB (the STEPLIB). The production LINKLIB is
+    # concatenated after it so a test can LOAD production modules, but it is
+    # optional: a milestone with no deployed modules (or a self-contained
+    # test) runs from TESTLIB alone. Require it only when it already exists.
     try:
         if not client.dataset_exists(linklib):
-            _log_error(f"{linklib} not found -- run 'make deploy' first "
-                       f"(tests LOAD IRXANCHR/IRXPARMS/... from it)")
-            return EXIT_CONFIG
+            _log(f"Runtime LINKLIB: {linklib} not deployed yet -- "
+                 f"running from TESTLIB only")
+            linklib = None
+        else:
+            _log(f"Runtime LINKLIB: {linklib}")
     except MvsMFError as e:
         _log_error(f"cannot reach MVS: {e}")
         return EXIT_MAINFRAME
