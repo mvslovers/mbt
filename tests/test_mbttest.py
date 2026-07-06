@@ -43,6 +43,13 @@ class GenRunnerTest(unittest.TestCase):
         self.assertIn(f"//STEPLIB  DD DSN={TESTLIB},DISP=SHR", self.jcl)
         self.assertIn(f"//         DD DSN={LINKLIB},DISP=SHR", self.jcl)
 
+    def test_steplib_testlib_only_when_no_linklib(self):
+        # linklib=None (nothing deployed yet) -> STEPLIB is TESTLIB alone,
+        # no dangling concatenation DD.
+        jcl, _ = mbttest._gen_runner(JC, ["TSTTOKN"], TESTLIB, None)
+        self.assertIn(f"//STEPLIB  DD DSN={TESTLIB},DISP=SHR", jcl)
+        self.assertNotIn(",DISP=SHR\n//         DD DSN=", jcl)
+
     def test_region_is_concrete_not_zero(self):
         # MVS 3.8j needs a concrete REGION (0M -> 512K default -> S878)
         self.assertNotIn("REGION=0M", self.jcl)
