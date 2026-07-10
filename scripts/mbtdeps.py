@@ -10,9 +10,14 @@ The host build then compiles against .mbt/deps/*/include and links
                              otherwise resolve the ranges; download + stage
   make deps ARGS=--update    re-resolve the ranges and rewrite the lock
 
-The SHA256 in the lock is the real pin: a re-pushed prerelease (moving
--dev tag) changes the asset, the SHA mismatches, and 'make deps' fails
-until you re-run with --update.
+The SHA256 in the lock is the real pin, but strictness depends on the
+resolved version:
+
+  * stable (X.Y.Z)      immutable -- a drifted SHA is a hard error; re-pin
+                        deliberately with 'make deps ARGS=--update'.
+  * prerelease (-dev /  rolling -- the tag legitimately moves, so a drifted
+    -rcN)               SHA is accepted with a WARNING and the lock is
+                        rewritten to the current SHA automatically (issue #52).
 """
 
 import sys
@@ -47,12 +52,35 @@ def _log_error(msg: str) -> None:
     print(f"[mbt] ERROR: {msg}", file=sys.stderr)
 
 
+def _log_warn(msg: str) -> None:
+    print(f"[mbt] WARNING: {msg}", file=sys.stderr)
+
+
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for block in iter(lambda: f.read(65536), b""):
             h.update(block)
     return h.hexdigest()
+
+
+def _sha_drift_action(locked, sha: str, is_pre: bool, update: bool) -> str:
+    """Decide how to handle a dependency lib whose SHA differs from the lock.
+
+    Returns:
+        "ok"    -- nothing to act on: no prior lock, --update mode, or the SHA
+                   still matches; proceed and (re)write the lock as usual.
+        "error" -- a stable pin drifted: the immutable asset changed under us,
+                   so fail to keep the build reproducible.
+        "warn"  -- a rolling prerelease (-dev / -rcN) drifted: expected, so
+                   accept it with a warning and let the lock re-pin the new
+                   SHA automatically (issue #52).
+    """
+    drift = bool(locked and not update
+                 and locked.get("sha256") and locked["sha256"] != sha)
+    if not drift:
+        return "ok"
+    return "warn" if is_pre else "error"
 
 
 def _stage_lib(tarball: Path, dest: Path) -> None:
@@ -193,14 +221,26 @@ def main() -> int:
             return EXIT_DEPENDENCY
 
         sha = _sha256(lib)
-        if (locked and not args.update
-                and locked.get("sha256") and locked["sha256"] != sha):
+        action = _sha_drift_action(locked, sha, is_pre, args.update)
+        if action == "error":
+            # Stable release: the immutable asset changed under us -> hard fail
+            # to keep the build reproducible; re-pin with 'make deps --update'.
             _log_error(
                 f"{dep_key} {version}: lib SHA changed "
-                f"({locked['sha256'][:12]} -> {sha[:12]}). A re-pushed "
-                f"prerelease? Run 'make deps ARGS=--update' to accept."
+                f"({locked['sha256'][:12]} -> {sha[:12]}) for a stable "
+                f"release. Run 'make deps ARGS=--update' to re-pin."
             )
             return EXIT_DEPENDENCY
+        if action == "warn":
+            # Rolling prerelease: the tag legitimately moved, so accept the new
+            # asset with a warning; the lock rewrite below re-pins the current
+            # SHA automatically (no --update needed).  See issue #52.
+            _log_warn(
+                f"{dep_key} {version}: prerelease asset changed "
+                f"({locked['sha256'][:12]} -> {sha[:12]}); accepting "
+                f"(rolling prerelease). Re-pin with a stable release for "
+                f"reproducibility."
+            )
 
         dest = DEPS_DIR / repo
         _stage_lib(lib, dest)

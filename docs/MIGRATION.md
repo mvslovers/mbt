@@ -321,14 +321,25 @@ artifact: `project.toml` holds the *range* (`>=…`), the lock holds the
 *resolved* version and the exact content hash. Keeping `.mbt/` ignored
 is correct; the lock sits at the root next to `project.toml`, so `make
 clean`/`distclean` never disturb it. On the next `make deps` the locked
-version is used as-is and its SHA is re-verified; the SHA — not the
-version string — is the real pin, so a re-pushed prerelease (a moving
-`-dev` tag) is detected as a mismatch and fails until you accept it:
+version is used as-is and its SHA is re-verified. How a drifted SHA is
+handled depends on the resolved version:
+
+- **stable** (`X.Y.Z`) — the asset is immutable, so a changed SHA is a
+  hard error (`make deps` fails); re-pin deliberately with `--update`.
+- **prerelease** (`-dev` / `-rcN`) — the tag legitimately moves, so a
+  changed SHA is expected: `make deps` accepts it with a **WARNING** and
+  rewrites the lock to the current SHA automatically (no `--update`
+  needed). Re-pin with a stable release when you need reproducibility.
 
 ```sh
 make deps                  # use the lock (verify SHA), or resolve if absent
 make deps ARGS=--update    # re-resolve the ranges and rewrite the lock
 ```
+
+This encodes the resolver's intent: **`-dev` is rolling, stable is
+pinned.** It also keeps a whole ecosystem of rolling `-dev` prereleases
+building green without a lock-churn commit every time an upstream
+re-pushes (see issue #52).
 
 A range that names a prerelease bound (`>=1.0.0-dev`) opts that
 dependency into prereleases; a plain range (`>=1.0.0`) ignores them.
