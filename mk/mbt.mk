@@ -291,15 +291,20 @@ endif
 # -- Packaging -----------------------------------------------------
 DIST_PREFIX := $(PROJECT_NAME)-$(PROJECT_VERSION)
 
+# Default LINKLIB DSN embedded in the release XMIT as its RECEIVE restore
+# name.  HLQ-free (the downloader supplies their own prefix) and derived
+# only from project.toml, so 'make package' works in CI with no MVS config.
+LOAD_LINKLIB := $(shell echo $(PROJECT_NAME) | tr '[:lower:]' '[:upper:]').$(PROJECT_VRM).LINKLIB
+
 package: modules $(if $(LIB_NAME),lib)
 	@mkdir -p $(DISTDIR)
-# Load archive (per-module IEBCOPY unloads). Skipped for pure-library
-# projects (no [[module]] blocks): an empty file list would make tar fail
-# with "no files or directories specified" and abort the whole target.
+# Load library XMIT: all modules packed into one LINKLIB via ld370 --pack
+# (each build/NAME.iebcopy carries its PDS2 directory), ready to TSO RECEIVE
+# on the target.  Skipped for pure-library projects (no [[module]] blocks):
+# an empty input list would make ld370 --pack fail and abort the target.
 ifneq ($(strip $(MODULES)),)
-	@echo "[mbt] Packaging $(DIST_PREFIX)-load.tar.gz"
-	@tar czf $(DISTDIR)/$(DIST_PREFIX)-load.tar.gz \
-	    -C $(BUILDDIR) $(foreach m,$(MODULES),$(MODULE_$(m)_NAME).iebcopy)
+	@echo "[mbt] Packaging $(DIST_PREFIX)-load.xmit ($(words $(MODULES)) module(s) -> $(LOAD_LINKLIB))"
+	$(Q)$(LD) --pack $(MODULE_IMGS) -o $(DISTDIR)/$(DIST_PREFIX)-load -xmit --dsn $(LOAD_LINKLIB)
 endif
 ifdef LIB_NAME
 	@# Library export: headers always; the .a only if the [lib] has members

@@ -18,6 +18,9 @@ import sys
 import argparse
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from mbt.version import to_vrm
+
 # Python 3.11+ has tomllib in stdlib
 try:
     import tomllib
@@ -187,6 +190,13 @@ def generate(project_file: str = "project.toml", builddir: str = "build") -> str
     lines.append(f"PROJECT_NAME := {name}")
     lines.append(f"PROJECT_VERSION := {version}")
     lines.append(f"PROJECT_TYPE := {ptype}")
+    # VRM (e.g. V1R0M0D) for the LINKLIB DSN embedded in the release XMIT.
+    # Only 'package' needs it; a malformed version stays undefined rather
+    # than crashing every 'make'.
+    try:
+        lines.append(f"PROJECT_VRM := {to_vrm(version)}")
+    except ValueError:
+        pass
     lines.append("")
 
     # -- Build flags --

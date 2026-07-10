@@ -306,16 +306,17 @@ httpd v3.3.1
 
 | File | Contents |
 |------|----------|
-| `package.toml` | Auto-generated manifest with metadata, deps, dataset defs |
-| `{name}-{ver}-mvs.tar.gz` | XMIT files for MVS datasets |
-| `{name}-{ver}-headers.tar.gz` | Public headers (libraries only, if `artifacts.headers = true`) |
+| `{name}-{ver}-load.xmit` | All load modules packed into one LINKLIB XMIT (projects with modules) |
+| `{name}-{ver}-lib.tar.gz` | Static library archive + public headers (library projects only) |
 
-Which datasets are packaged depends on the project type:
+The load XMIT is a single TSO-RECEIVE-ready file: every module's per-member
+IEBCOPY unload (`build/NAME.iebcopy`, which carries the PDS2 directory) is
+combined via `ld370 --pack … -xmit` into one LINKLIB.  Its embedded restore
+name is `{NAME}.{VRM}.LINKLIB` (e.g. `FTPD.V1R0M0.LINKLIB`); override it at
+RECEIVE time with `DATASET('your.own.linklib')`.
 
-- **application / module**: `syslmod` (the load module)
-- **library / runtime**: `ncalib` + `maclib`
-
-Override with `[artifacts] mvs_datasets = ["syslmod", "ncalib"]`.
+The `-lib.tar.gz` is what `make deps` consumes for downstream projects
+(headers + `.a` under `{name}-{ver}/`).
 
 ---
 
