@@ -226,6 +226,16 @@ def generate(project_file: str = "project.toml", builddir: str = "build") -> str
     if tests:
         lines.append("# -- Tests --")
     for test in tests:
+        # Explicit host-only opt-out (the mirror of `host = false`): a test
+        # whose fixtures only resolve on the host (e.g. a corpus loaded from a
+        # host-relative path) has nothing to build for MVS. `mvs = false` drops
+        # it from TESTS here so it is never cross-compiled/linked and never
+        # appears in a `make test`/`test-mvs` run; test-host is unaffected (it
+        # reads project.toml directly, not this generated file).
+        if test.get("mvs") is False:
+            name = test.get("name", "?")
+            print(f"[mbt] SKIP {name} (mvs = false, host-only)", file=sys.stderr)
+            continue
         _emit_module(lines, test, builddir, all_src_dirs, all_objs, "TESTS")
 
     # -- Library --

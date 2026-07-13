@@ -11,6 +11,7 @@ in MODULE_<key>_NAME.
 import sys
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -90,6 +91,43 @@ class NorentNoreusTest(unittest.TestCase):
 
     def test_noreus(self):
         self.assertIn("MODULE_IRXANCHR_NOREUS := 1", self._emit(noreus=True))
+
+
+class MvsFalseTest(unittest.TestCase):
+    """`mvs = false` (the mirror of `host = false`): a test whose fixtures only
+    resolve on the host has nothing to build for MVS -- generate() must drop it
+    from TESTS entirely so `make test`/`test-mvs` never sees it, while a normal
+    test in the same project.toml is emitted as usual."""
+
+    def _generate(self, toml_text):
+        with tempfile.TemporaryDirectory() as d:
+            proj = Path(d, "project.toml")
+            proj.write_text(toml_text)
+            return mbtconfig.generate(str(proj), builddir=str(Path(d, "build")))
+
+    def test_mvs_false_test_is_skipped(self):
+        out = self._generate(
+            '[[test]]\nname = "TSTCFG"\nmvs = false\nsources = []\n'
+        )
+        self.assertNotIn("TESTS += TSTCFG", out)
+        self.assertNotIn("MODULE_TSTCFG_NAME", out)
+
+    def test_other_tests_unaffected(self):
+        out = self._generate(
+            '[[test]]\nname = "TSTCFG"\nmvs = false\nsources = []\n\n'
+            '[[test]]\nname = "TSTBUF"\nsources = []\n'
+        )
+        self.assertNotIn("TESTS += TSTCFG", out)
+        self.assertIn("TESTS += TSTBUF", out)
+        self.assertIn("MODULE_TSTBUF_NAME := TSTBUF", out)
+
+    def test_mvs_true_or_absent_still_emitted(self):
+        out = self._generate(
+            '[[test]]\nname = "TSTA"\nmvs = true\nsources = []\n\n'
+            '[[test]]\nname = "TSTB"\nsources = []\n'
+        )
+        self.assertIn("TESTS += TSTA", out)
+        self.assertIn("TESTS += TSTB", out)
 
 
 if __name__ == "__main__":
