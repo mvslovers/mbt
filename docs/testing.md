@@ -98,6 +98,20 @@ host = false          # MVS-only (uses __linkds/LINK); skipped by test-host
 sources = ["test/trexxvl.c"]
 ```
 
+The mirror image: a pure-C test can also be **host-only** when its fixtures
+only resolve on the host (e.g. a corpus loaded from a host-relative path like
+`test/cfg/`, never staged as MVS datasets). Mark it with `mvs = false` to drop
+it from the MVS build entirely -- it is never cross-compiled/linked, so it
+never appears in `make test`/`test-mvs` (it still runs under `test-host`):
+
+```toml
+[[test]]
+name = "TSTCFG"
+startup = "crt1"
+mvs = false            # host-only (test/cfg/ fixture path); skipped by test-mvs
+sources = ["test/tstcfg.c", "src/nsfcfg.c"]
+```
+
 When a symbol resolves differently per environment (e.g. `is_tso()` -> an asm
 CSECT on MVS, a `#ifndef __MVS__` stub on the host), and when a dependency must
 be linked from source on the host (the staged `.mbt/deps` `.a` is the cross
