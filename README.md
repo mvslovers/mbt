@@ -1,3 +1,4 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/mvslovers/mbt)
 # mbt — MVS Build Tool
 
 Cross-compile, assemble, link, and package [MVS 3.8j](https://en.wikipedia.org/wiki/MVS) projects from a modern host.
