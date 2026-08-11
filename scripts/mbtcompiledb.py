@@ -118,6 +118,9 @@ def main() -> int:
     mbt_inc = Path(__file__).resolve().parent.parent / "include"
     if mbt_inc.is_dir():
         inc += ["-I", str(mbt_inc)]
+    # Generated build provenance (.mbt/buildstamp.h) -- mirror the -I .mbt the
+    # build adds, so clangd resolves <buildstamp.h> in a banner source.
+    inc += ["-I", str(project_dir / ".mbt")]
     sysroot_inc = _sysroot_include()
     if sysroot_inc:
         inc += ["-I", str(sysroot_inc)]

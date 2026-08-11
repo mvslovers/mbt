@@ -21,6 +21,7 @@ class HostCflagsTest(unittest.TestCase):
         flags = mbttesthost._host_cflags(cfg, mbt_inc)
         self.assertEqual(flags[:3], ["-std=gnu99", "-I", "include"])
         self.assertIn("-Wall", flags)            # [host].cflags appended
+        self.assertIn(".mbt", flags)             # generated buildstamp.h
         if mbt_inc.is_dir():
             self.assertIn(str(mbt_inc), flags)   # mbt/include for mbtcheck.h
 
