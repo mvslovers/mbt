@@ -19,6 +19,7 @@ import argparse
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+from mbt import buildstamp
 from mbt.version import to_vrm
 
 # Python 3.11+ has tomllib in stdlib
@@ -319,6 +320,16 @@ def main():
         sys.exit(1)
 
     content = generate(args.project, args.builddir)
+
+    # Build provenance header (.mbt/buildstamp.h) -- see mbt/buildstamp.py.
+    # Written every run but only *rewritten* when the commit/version changed,
+    # so it never touches the mtime for nothing. Re-parsing project.toml here
+    # keeps generate() a pure string function (its tests call it directly).
+    meta = _parse_toml(args.project).get("project", {})
+    buildstamp.generate(
+        meta.get("name", "unknown"),
+        meta.get("version", "0.0.0"),
+    )
 
     if args.output == "file":
         os.makedirs(".mbt", exist_ok=True)

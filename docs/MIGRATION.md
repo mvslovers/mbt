@@ -120,6 +120,39 @@ Note: `CFLAGS`/`ASFLAGS`/`LDFLAGS` are set with `:=` in `mk/mbt.mk`, so a
 host `LDFLAGS`/`CFLAGS` in the environment does **not** leak into the
 cross-build. Override on the command line if needed (`make CFLAGS=-O0`).
 
+### Build provenance — `<buildstamp.h>`
+
+Every `make` regenerates `.mbt/buildstamp.h` and puts `.mbt` on the include
+path, so a banner can name the exact build it is:
+
+```c
+#include <buildstamp.h>
+
+wtof("%s %s (%s) STARTING", MBT_PROJECT, MBT_VERSION, MBT_COMMIT);
+if (MBT_COMMIT_DIRTY)
+    wtof("BUILT FROM A MODIFIED WORKING TREE");
+```
+
+| Macro | Value |
+|-------|-------|
+| `MBT_PROJECT` | `[project] name` |
+| `MBT_VERSION` | `[project] version` |
+| `MBT_COMMIT` | Short commit of the **project** checkout, with a `-dirty` suffix when the tree has uncommitted *tracked* changes; `unknown` outside a git checkout (a source tarball). |
+| `MBT_COMMIT_DIRTY` | The same signal as `0`/`1`, for code that reports it separately. |
+
+**Use this instead of injecting the commit as a cflag.** A
+`-DCOMMIT="$(shell git rev-parse --short HEAD)"` in `[build] cflags` bakes
+the hash into whichever object holds the banner, and make recompiles that
+object only when its source or a tracked header changes — so a build made
+after a commit still prints the *previous* hash. As a header it is a
+tracked prerequisite (via `-MMD`), so a new commit recompiles exactly the
+translation units that include it.
+
+The file is rewritten only when a value actually changes, so an unchanged
+commit recompiles nothing. It deliberately carries no build timestamp —
+that would differ on every run and recompile the including TU forever.
+`.mbt/` is generated; do not commit it.
+
 ### `[[module]]` (production load module, repeatable)
 
 | Key | Default | Meaning |
@@ -412,6 +445,10 @@ Docker).
 3. Rewrite `project.toml` per section 2 (use the mapping in section 3).
 4. Declare any dependencies in `[dependencies]` (section 5); commit
    `mbt.lock` after a first `make deps`.
+   If `[build] cflags` injects a version or commit stamp
+   (`-DVERSION=…`, `-DCOMMIT=…`), drop those flags and switch the banner to
+   `<buildstamp.h>` (section 2) — a stamp in a cflag goes stale on the next
+   commit.
 5. Point `.github/workflows/*.yml` at the v2 reusable workflows (section 6).
 6. `make doctor` — verify the cc370 toolchain (and MVS, for deploy).
 7. `make deps` then `make` then `make deploy ARGS="--dry-run"`.

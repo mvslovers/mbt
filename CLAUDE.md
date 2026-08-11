@@ -47,7 +47,8 @@ Read these before making any changes:
 
 `tomllib`, `urllib.request`, `urllib.error`, `string`, `json`, `pathlib`,
 `re`, `hashlib`, `base64`, `dataclasses`, `argparse`, `time`, `os`,
-`tarfile`, `shutil`, `subprocess` (only for git commands in mvsrelease.py)
+`tarfile`, `shutil`, `subprocess` (only for git commands — `mvsrelease.py`
+and `mbt/buildstamp.py`)
 
 **No pip install. No requirements.txt. No venv.** If you find yourself
 reaching for an external package, stop and find a stdlib solution.

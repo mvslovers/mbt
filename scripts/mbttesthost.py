@@ -57,12 +57,16 @@ def _err(m):
 
 def _host_cflags(cfg, mbt_include: Path) -> list:
     """Include/dialect flags for the host build: the project's portable
-    build.cflags + every staged dep include + mbt/include + [host].cflags."""
+    build.cflags + every staged dep include + mbt/include + .mbt (the
+    generated buildstamp.h) + [host].cflags."""
     flags = list(cfg.get("build", {}).get("cflags", []))
     for inc in sorted(glob.glob(".mbt/deps/*/include")):
         flags += ["-I", inc]
     if mbt_include.is_dir():
         flags += ["-I", str(mbt_include)]
+    # Generated build provenance (.mbt/buildstamp.h), same as the cross build:
+    # a dual test compiled here may pull in a source that stamps a banner.
+    flags += ["-I", ".mbt"]
     flags += list(cfg.get("host", {}).get("cflags", []))
     return flags
 
