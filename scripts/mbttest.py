@@ -205,6 +205,7 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
         if fxdd:
             lines.append(fxdd.rstrip())
         lines.append("//SYSPRINT DD SYSOUT=*")
+        lines.append("//SYSTERM  DD SYSOUT=*")
         lines.append("//SYSTSPRT DD SYSOUT=*")
         lines.append("//SYSUDUMP DD SYSOUT=*")
         step_map[b] = (t, "batch")
@@ -219,6 +220,7 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
             lines.append(fxdd.rstrip())
         lines.append("//SYSTSPRT DD SYSOUT=*")
         lines.append("//SYSPRINT DD SYSOUT=*")
+        lines.append("//SYSTERM  DD SYSOUT=*")
         lines.append("//SYSTSIN  DD *")
         tp = parms.get(t, {}).get("tso")
         arg = f" '{tp}'" if tp is not None else ""
