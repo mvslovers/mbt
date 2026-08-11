@@ -129,25 +129,35 @@ $(BUILDDIR)/%.o: %.s
 # $(1) = entry, $(2) = name, $(3) = objects, $(4) = AC, $(5) = norent, $(6) = noreus
 # AC/norent/noreus are passed by VALUE (looked up by the make-safe key in the
 # rule) so they resolve even for a module name carrying '#'.
+#
+# $(LIBC_FIRST) is empty for modules and '-lc' for tests (set as a
+# target-specific variable on TEST_IMGS below).  crt0/crt1/crtm all declare
+# @@START as an unresolved ER, so autocall takes it from whichever archive
+# comes first: a dependency that exports @@START (httpd's CGI launcher) wins
+# over libc370 and the module runs as a CGI, exiting CC 12 before main().
+# Modules keep that behaviour on purpose -- CGI modules need the dependency's
+# @@START -- but tests must always get libc370's batch startup.  libc is then
+# named twice (first for @@START, last so the dependencies' own libc
+# references still resolve); ld370 handles the repeat without complaint.
 
 define LINK_CRT0
 	$(E) "[ld370] $(2) (entry=$(1), crt0)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(INTERNAL_ARCHIVE) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRT1
 	$(E) "[ld370] $(2) (entry=$(1), crt1)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(INTERNAL_ARCHIVE) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
 	$(E) "[ld370] $(2) (entry=$(1), crtm)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
 	$(E) "[ld370] $(2) (entry=$(1), no crt)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
@@ -176,6 +186,10 @@ $(foreach t,$(TESTS),$(eval $(call _MODULE_RULE,$(t))))
 # -- Per-module IEBCOPY unload lists -------------------------------
 MODULE_IMGS := $(foreach m,$(MODULES),$(BUILDDIR)/$(MODULE_$(m)_NAME).iebcopy)
 TEST_IMGS   := $(foreach t,$(TESTS),$(BUILDDIR)/$(MODULE_$(t)_NAME).iebcopy)
+
+# Tests link libc370 first so they get its @@START, never a dependency's
+# (see the LINK_* helpers above).  Modules are left untouched.
+$(TEST_IMGS): LIBC_FIRST := -lc
 
 # -- Include generated header dependencies -------------------------
 # Missing on the first build (-include ignores them); present and
