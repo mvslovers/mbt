@@ -211,6 +211,26 @@ $(TEST_IMGS): LIBC_FIRST := -lc
 # escaped after each object compiles.
 -include $(ALL_OBJS:.o=.d)
 
+# -- libc370 in the sysroot vs. [toolchain] ------------------------
+# A project pinning '[toolchain] libc370 = "X.Y.Z"' states which runtime it
+# is built with: release.yml checks out that tag, and a working copy must
+# hold at least it.  Compiling against an older libc than the release will
+# link is how a "works here" build turns into a broken load module.
+#
+# An order-only prerequisite on every object, so it runs before any compile
+# (also under -j) but is not a reason to recompile.  The stamp depends on
+# libc.a and project.toml, so the check runs on a sysroot reinstall or a
+# changed declaration and is otherwise free -- and never on clean/help/doctor,
+# which build no objects.  A project with no [toolchain] gets no check at all.
+LIBC_STAMP := .mbt/libc370-checked
+
+$(LIBC_STAMP): $(SYSROOT)/lib/libc.a project.toml
+	$(Q)python3 $(MBT_SCRIPTS)/mbttoolchain.py --check \
+	    --project project.toml --sysroot $(SYSROOT)
+	$(Q)touch $@
+
+$(ALL_OBJS): | $(LIBC_STAMP)
+
 # -- Library target ------------------------------------------------
 # A [lib] with compiled members produces a static archive (build/<name>.a).
 # A [lib] with only `headers` and no `sources` is a *headers-only* export --
@@ -392,10 +412,19 @@ compiledb:
 	@python3 $(MBT_SCRIPTS)/mbtcompiledb.py --project project.toml
 
 # -- Release management --------------------------------------------
+# The build already gates on '>= the declared libc370'; a release additionally
+# requires the exact one, so what is tagged was tested against the runtime CI
+# will link.  Note this gates the *local* sysroot -- the published artifact is
+# built by release.yml against the [toolchain] pin, which is what makes the
+# release correct.
 prerelease: package
+	@python3 $(MBT_SCRIPTS)/mbttoolchain.py --check --exact \
+	    --project project.toml --sysroot $(SYSROOT)
 	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml --prerelease
 
 release: package
+	@python3 $(MBT_SCRIPTS)/mbttoolchain.py --check --exact \
+	    --project project.toml --sysroot $(SYSROOT)
 	@python3 $(MBT_SCRIPTS)/mvsrelease.py --project project.toml \
 	    --version $(VERSION) \
 	    $(if $(NEXT_VERSION),--next-version $(NEXT_VERSION),)
