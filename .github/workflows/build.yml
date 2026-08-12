@@ -15,6 +15,13 @@
 #     build:
 #       uses: mvslovers/mbt/.github/workflows/build.yml@main
 #
+# The toolchain floats on main here by design, and the [toolchain] section of
+# project.toml is deliberately NOT honoured: a PR built against the tip of
+# cc370/libc370 is the early warning that catches a toolchain regression before
+# it reaches a consumer. Pinning it here would hide the break until someone
+# bumped the version. release.yml is the one that pins, so a published artifact
+# stays reproducible (issue #67).
+#
 # Legacy (v1, mvsMF/JCL) projects use build-legacy.yml instead.
 
 name: Build
