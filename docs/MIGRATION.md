@@ -291,7 +291,7 @@ dependency fetcher; not yet implemented — see roadmap).
 
 ### `[toolchain]` (optional)
 
-Which cc370 / libc370 a **release** is built with.
+Which cc370 / libc370 the project is built with.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -310,20 +310,65 @@ into (`src/clib/@@ver.c`), so a release built against the tip of libc370
 which toolchain produced the published artifact, although `mbt.lock` pins
 every `[dependencies]` entry by version *and* SHA256.
 
-**Only `release.yml` honours this.** `build.yml` stays on `main` on purpose:
-a PR built against the tip of the toolchain is what catches a cc370/libc370
-regression before it reaches a consumer. The cost of the asymmetry is that a
-release exercises a toolchain combination no PR build did — keep the pin
-reasonably current.
+#### Where it applies
 
-`cc370` has no releases yet, so leave it at `main` (or omit it) until it does.
+The declaration states one thing — *this project is built with libc370
+X.Y.Z* — which CI reproduces exactly and a working copy need only satisfy:
 
-**Bump the `mbt` submodule before you declare the section.** The workflow is
-resolved from `mbt@main` but the submodule is pinned per project, so the
-resolver may be missing from an older checkout. Declaring `[toolchain]` with a
-submodule that predates it fails the release with a message saying so, rather
-than publishing an artifact that quietly ignored the pin. A project that
-declares nothing is unaffected either way.
+| Context | `libc370` is | On violation |
+|---------|--------------|--------------|
+| `release.yml` | the tag to check out | — |
+| `make`, `make lib`, `make test` | the **minimum** the sysroot must hold | build fails |
+| `make release`, `make prerelease` | the **exact** version the sysroot must hold | fails before tagging |
+| `make doctor` | reported and judged (`>=`) | check fails |
+| `build.yml` | **ignored** — always builds against `main` | — |
+
+`build.yml` stays on `main` on purpose: a PR built against the tip of the
+toolchain is what catches a cc370/libc370 regression before it reaches a
+consumer. The cost of the asymmetry is that a release exercises a toolchain
+combination no PR build did — keep the pin reasonably current.
+
+The exact check on `make release` / `prerelease` gates **your** sysroot, so
+what you tag was tested against the runtime CI will link. It is not what
+makes the release correct — the pin is; the published artifact is built by
+`release.yml`, not on your machine.
+
+Nothing is checked when no version is declared, or when the value is a branch
+or SHA rather than a version — there is then nothing to compare. So an
+existing project changes behaviour only once it pins deliberately.
+
+#### How the installed version is found
+
+libc370 installs no version marker: the sysroot is `include/`, `macros/`,
+`lib/{libc.a,crt*.o}` and nothing else, and the installed `clibver.h` only
+declares `libc370_version()`. mbt reads the build stamp out of `libc.a`
+instead, EBCDIC-encoded because it is a target string constant:
+
+```
+LIBC370 1.0.2-dev (5c0deeb)
+```
+
+An unreadable stamp is a **warning, never a build failure** — libc370's
+spelling of it has changed before, and a future change must not stop every
+project in the ecosystem from building.
+
+The check runs from a stamp file (`.mbt/libc370-checked`) keyed on `libc.a`
+and `project.toml`, so it costs nothing until the sysroot is reinstalled or
+the declaration changes, and never runs for `clean` / `help` / targets that
+build no objects.
+
+`cc370` has no releases yet, so leave it at `main` (or omit it) until it
+does. Only `libc370` is compared against the sysroot; there is no version to
+read out of the compiler.
+
+**Bump the `mbt` submodule before you declare the section.** Both readings
+live in the submodule — the local check in `mk/mbt.mk`, the resolver in
+`scripts/mbttoolchain.py` — while `release.yml` is resolved from `mbt@main`
+independently of it. An older checkout simply has neither, so nothing would
+be checked or pinned. Declaring `[toolchain]` with a submodule that predates
+the resolver fails the release with a message saying so, rather than
+publishing an artifact that quietly ignored the pin. A project that declares
+nothing is unaffected either way.
 
 ---
 

@@ -4,10 +4,11 @@ Checks (in order):
 1. Python version >= 3.12
 2. cc370 / as370 / ld370 / ar370 on PATH
 3. Sysroot complete (crt0.o, crt1.o, crtm.o, libc.a)
-4. make on PATH
-5. MVS host reachable (HTTP GET)          -- needed for `make deploy`
-6. MVS credentials valid                  -- needed for `make deploy`
-7. project.toml valid + config source report
+4. Installed libc370 vs. the [toolchain] declaration
+5. make on PATH
+6. MVS host reachable (HTTP GET)          -- needed for `make deploy`
+7. MVS credentials valid                  -- needed for `make deploy`
+8. project.toml valid + config source report
 
 Exit codes:
   0 = all checks passed
@@ -26,6 +27,11 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
 # Force HTTP/1.0 — mvsMF's HTTPD speaks HTTP/1.0 only
 http.client.HTTPConnection._http_vsn = 10
 http.client.HTTPConnection._http_vsn_str = "HTTP/1.0"
@@ -36,6 +42,8 @@ sys.path.insert(0, str(Path(__file__).parent))
 from mbt import EXIT_SUCCESS, EXIT_CONFIG
 from mbt.config import MbtConfig, _ENV_MAP
 from mbt.output import format_doctor
+from mbt.sysroot import derive_sysroot
+from mbttoolchain import libc370_status
 
 # Toolchain programs the v2 build invokes (see mk/mbt.mk).
 TOOLCHAIN = ["cc370", "as370", "ld370", "ar370"]
@@ -71,28 +79,9 @@ def check_tool(name: str) -> bool:
     return False
 
 
-def _derive_sysroot() -> Path | None:
-    """Locate the cc370 sysroot the same way mk/mbt.mk does.
-
-    cc370 resolves its own headers/libs relative to its binary
-    (<bindir>/../cc370); 'cc370 -print-search-dirs' reports the
-    configure-time prefix and is wrong for a relocated toolchain.
-    Falls back to ~/.local/cc370.
-    """
-    cc = shutil.which("cc370")
-    if cc:
-        candidate = (Path(cc).resolve().parent.parent / "cc370")
-        if (candidate / "lib" / "crt0.o").exists():
-            return candidate
-    fallback = Path.home() / ".local" / "cc370"
-    if (fallback / "lib" / "crt0.o").exists():
-        return fallback
-    return None
-
-
 def check_sysroot() -> bool:
     """Check the cc370 sysroot provides crt objects and libc."""
-    sysroot = _derive_sysroot()
+    sysroot = derive_sysroot()
     if sysroot is None:
         print(
             "[mbt] ERROR: cc370 sysroot not found "
@@ -109,6 +98,30 @@ def check_sysroot() -> bool:
         )
         return False
     print(f"[mbt] sysroot: {sysroot} (crt0/crt1/crtm + libc.a OK)")
+    return True
+
+
+def check_libc370(project_path: str) -> bool:
+    """Report the installed libc370 and judge it against [toolchain].
+
+    File presence alone says nothing about *which* runtime is installed --
+    a sysroot can hold a prerelease of a version that has long been tagged
+    and still look complete. Uses the same comparison the build gates on.
+    """
+    try:
+        with open(project_path, "rb") as f:
+            cfg = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        cfg = {}   # reported by the project.toml check further down
+
+    status, message = libc370_status(cfg, derive_sysroot())
+    if status == "fail":
+        print(f"[mbt] ERROR: {message}", file=sys.stderr)
+        return False
+    if status == "unknown":
+        print(f"[mbt] WARNING: {message}", file=sys.stderr)
+        return True
+    print(f"[mbt] {message}")
     return True
 
 
@@ -184,6 +197,7 @@ def main() -> int:
     for tool in TOOLCHAIN:
         results.append(check_tool(tool))
     results.append(check_sysroot())
+    results.append(check_libc370(args.project))
     results.append(check_tool("make"))
 
     # Load config for MVS connectivity checks (needed for `make deploy`)

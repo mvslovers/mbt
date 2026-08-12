@@ -9,12 +9,17 @@ becomes a git ref and which values are rejected outright.
 
 import sys
 import unittest
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 import mbttoolchain
-from mbttoolchain import DEFAULT_REF, ToolchainError, git_ref, resolve
+from mbt import EXIT_BUILD, EXIT_SUCCESS
+from mbttoolchain import (
+    DEFAULT_REF, ToolchainError, check_libc370, declared, git_ref,
+    is_version, libc370_status, resolve,
+)
 
 
 class TestGitRef(unittest.TestCase):
@@ -127,6 +132,151 @@ class TestEnvKey(unittest.TestCase):
     def test_env_keys(self):
         self.assertEqual(mbttoolchain.env_key("cc370"), "CC370_REF")
         self.assertEqual(mbttoolchain.env_key("libc370"), "LIBC370_REF")
+
+
+class TestDeclared(unittest.TestCase):
+    """The raw value, as written -- not the tag it names."""
+
+    def test_returns_the_written_value(self):
+        cfg = {"toolchain": {"libc370": "1.0.2"}}
+        self.assertEqual(declared(cfg, "libc370"), "1.0.2")
+
+    def test_absent_is_none(self):
+        self.assertIsNone(declared({}, "libc370"))
+        self.assertIsNone(declared({"toolchain": {}}, "libc370"))
+
+    def test_blank_is_none(self):
+        self.assertIsNone(declared({"toolchain": {"libc370": "  "}}, "libc370"))
+
+    def test_non_string_is_none(self):
+        self.assertIsNone(declared({"toolchain": {"libc370": 1.02}}, "libc370"))
+
+    def test_is_version_distinguishes_refs(self):
+        self.assertTrue(is_version("1.0.2"))
+        self.assertTrue(is_version("1.0.2-dev"))
+        self.assertFalse(is_version("main"))
+        self.assertFalse(is_version("v1.0.2"))
+        self.assertFalse(is_version("58767b3"))
+
+
+class TestLibc370Status(unittest.TestCase):
+    """The comparison the build gates on and `make doctor` reports.
+
+    `sysroot` is passed as a directory that holds a synthetic libc.a, so the
+    real toolchain installed on the machine never influences the result.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.sysroot = Path(self._tmp.name)
+        (self.sysroot / "lib").mkdir()
+
+    def _install(self, version: str) -> Path:
+        (self.sysroot / "lib" / "libc.a").write_bytes(
+            f"LIBC370 {version} (abc1234)".encode("cp037")
+        )
+        return self.sysroot
+
+    def _cfg(self, value=None):
+        return {"toolchain": {"libc370": value}} if value else {}
+
+    # -- satisfied ------------------------------------------------------
+    def test_newer_satisfies_the_minimum(self):
+        status, _ = libc370_status(self._cfg("1.0.2"), self._install("1.0.3-dev"))
+        self.assertEqual(status, "ok")
+
+    def test_equal_satisfies_the_minimum(self):
+        status, _ = libc370_status(self._cfg("1.0.2"), self._install("1.0.2"))
+        self.assertEqual(status, "ok")
+
+    def test_equal_satisfies_exact(self):
+        status, _ = libc370_status(
+            self._cfg("1.0.2"), self._install("1.0.2"), exact=True
+        )
+        self.assertEqual(status, "ok")
+
+    # -- violated -------------------------------------------------------
+    def test_older_fails_the_minimum(self):
+        status, msg = libc370_status(self._cfg("1.0.2"), self._install("1.0.1"))
+        self.assertEqual(status, "fail")
+        self.assertIn("1.0.1", msg)
+        self.assertIn("1.0.2", msg)
+
+    def test_prerelease_of_the_wanted_version_fails(self):
+        # The case that motivated this: a sysroot on 1.0.2-dev while 1.0.2
+        # is released. Semver puts the prerelease below it, so >= must fail.
+        status, _ = libc370_status(self._cfg("1.0.2"), self._install("1.0.2-dev"))
+        self.assertEqual(status, "fail")
+
+    def test_newer_fails_exact(self):
+        status, msg = libc370_status(
+            self._cfg("1.0.2"), self._install("1.0.3-dev"), exact=True
+        )
+        self.assertEqual(status, "fail")
+        self.assertIn("pins 1.0.2", msg)
+
+    # -- nothing to check -----------------------------------------------
+    def test_no_declaration_skips(self):
+        status, msg = libc370_status(self._cfg(), self._install("1.0.3-dev"))
+        self.assertEqual(status, "skip")
+        self.assertIn("1.0.3-dev", msg)   # still reports what is installed
+
+    def test_branch_declaration_skips(self):
+        status, _ = libc370_status(self._cfg("main"), self._install("1.0.1"))
+        self.assertEqual(status, "skip")
+
+    def test_sha_declaration_skips(self):
+        status, _ = libc370_status(self._cfg("58767b3"), self._install("1.0.1"))
+        self.assertEqual(status, "skip")
+
+    def test_no_sysroot_skips(self):
+        status, _ = libc370_status(self._cfg("1.0.2"), None)
+        self.assertEqual(status, "skip")
+
+    # -- unreadable stamp -----------------------------------------------
+    def test_unreadable_stamp_is_unknown_not_fail(self):
+        # A future change to libc370's stamp format must not fail every build.
+        (self.sysroot / "lib" / "libc.a").write_bytes(b"\x00" * 64)
+        status, msg = libc370_status(self._cfg("1.0.2"), self.sysroot)
+        self.assertEqual(status, "unknown")
+        self.assertIn("1.0.2", msg)
+
+    def test_missing_archive_is_unknown_not_fail(self):
+        status, _ = libc370_status(self._cfg("1.0.2"), self.sysroot)
+        self.assertEqual(status, "unknown")
+
+
+class TestCheckLibc370ExitCodes(unittest.TestCase):
+    """Only a real violation may stop a build."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.sysroot = Path(self._tmp.name)
+        (self.sysroot / "lib").mkdir()
+
+    def _install(self, version: str):
+        (self.sysroot / "lib" / "libc.a").write_bytes(
+            f"LIBC370 {version} (abc1234)".encode("cp037")
+        )
+        return self.sysroot
+
+    def test_satisfied_is_success(self):
+        cfg = {"toolchain": {"libc370": "1.0.2"}}
+        self.assertEqual(check_libc370(cfg, self._install("1.0.2")), EXIT_SUCCESS)
+
+    def test_violation_is_build_failure(self):
+        cfg = {"toolchain": {"libc370": "1.0.2"}}
+        self.assertEqual(check_libc370(cfg, self._install("1.0.1")), EXIT_BUILD)
+
+    def test_unreadable_stamp_is_success(self):
+        (self.sysroot / "lib" / "libc.a").write_bytes(b"\x00" * 64)
+        cfg = {"toolchain": {"libc370": "1.0.2"}}
+        self.assertEqual(check_libc370(cfg, self.sysroot), EXIT_SUCCESS)
+
+    def test_no_declaration_is_success(self):
+        self.assertEqual(check_libc370({}, self._install("1.0.1")), EXIT_SUCCESS)
 
 
 if __name__ == "__main__":
