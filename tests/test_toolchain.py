@@ -209,12 +209,27 @@ class TestLibc370Status(unittest.TestCase):
         status, _ = libc370_status(self._cfg("1.0.2"), self._install("1.0.2-dev"))
         self.assertEqual(status, "fail")
 
-    def test_newer_fails_exact(self):
+    def test_older_fails_exact_too(self):
+        # A sysroot below the pin cannot have built what CI will build.
+        status, _ = libc370_status(
+            self._cfg("1.0.2"), self._install("1.0.1"), exact=True
+        )
+        self.assertEqual(status, "fail")
+
+    # -- drift (release only) -------------------------------------------
+    def test_newer_only_drifts_on_exact(self):
+        # The normal path: development tracks libc370 main, the release pins
+        # the current stable. Worth a warning, not a blocked release (#71).
         status, msg = libc370_status(
             self._cfg("1.0.2"), self._install("1.0.3-dev"), exact=True
         )
-        self.assertEqual(status, "fail")
-        self.assertIn("pins 1.0.2", msg)
+        self.assertEqual(status, "drift")
+        self.assertIn("1.0.2", msg)
+        self.assertIn("1.0.3-dev", msg)
+
+    def test_newer_is_plain_ok_for_a_build(self):
+        status, _ = libc370_status(self._cfg("1.0.2"), self._install("1.0.3-dev"))
+        self.assertEqual(status, "ok")
 
     # -- nothing to check -----------------------------------------------
     def test_no_declaration_skips(self):
@@ -277,6 +292,20 @@ class TestCheckLibc370ExitCodes(unittest.TestCase):
 
     def test_no_declaration_is_success(self):
         self.assertEqual(check_libc370({}, self._install("1.0.1")), EXIT_SUCCESS)
+
+    def test_release_drift_is_success(self):
+        # `make release` must not be blocked by a sysroot newer than the pin.
+        cfg = {"toolchain": {"libc370": "1.0.2"}}
+        self.assertEqual(
+            check_libc370(cfg, self._install("1.0.3-dev"), exact=True),
+            EXIT_SUCCESS,
+        )
+
+    def test_release_below_the_pin_is_still_a_failure(self):
+        cfg = {"toolchain": {"libc370": "1.0.2"}}
+        self.assertEqual(
+            check_libc370(cfg, self._install("1.0.1"), exact=True), EXIT_BUILD
+        )
 
 
 if __name__ == "__main__":
