@@ -436,7 +436,7 @@ release: package
 # 'make deps' re-stages from it after distclean.
 clean:
 	@echo "[mbt] Cleaning..."
-	@rm -rf $(BUILDDIR)/ $(DISTDIR)/ .mbt/config.mk .mbt/logs/
+	@rm -rf $(BUILDDIR)/ $(DISTDIR)/ .mbt/config.mk .mbt/logs/ $(LIBC_STAMP)
 
 distclean: clean
 	@rm -rf .mbt/
