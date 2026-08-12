@@ -99,6 +99,11 @@ version_files = ["VERSION"]
 # ── Dependencies (optional; `make deps`) ─────────────────
 # [dependencies]
 # "mvslovers/crent370" = ">=1.0.6"
+
+# ── Toolchain (optional; release CI only) ────────────────
+# [toolchain]
+# libc370 = "1.0.2"                 # bare version -> tag v1.0.2
+# cc370   = "main"                  # cc370 has no releases yet
 ```
 
 ### `[project]`
@@ -251,6 +256,42 @@ per run with `make deploy ARGS="--target ..."`.
 `"owner/repo" = ">=x.y.z"`. Resolved/downloaded by `make deps` (the v2
 dependency fetcher; not yet implemented — see roadmap).
 
+### `[toolchain]` (optional)
+
+Which cc370 / libc370 a **release** is built with.
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `cc370` | `main` | git ref for the compiler + tools. |
+| `libc370` | `main` | git ref for the sysroot (headers, `crt*.o`, `libc.a`). |
+
+A bare semver names a release and resolves to its tag — `libc370 = "1.0.2"`
+checks out `v1.0.2`. Any other value is already a git ref and is used as
+given: a branch (`main`), a `v`-prefixed tag (`v1.0.2`), or a commit SHA.
+An unknown key is a hard error, so a typo cannot quietly leave the release
+floating on `main`.
+
+Why it exists: libc370 stamps its own version into every module it is linked
+into (`src/clib/@@ver.c`), so a release built against the tip of libc370
+`main` announces a `-dev` C runtime at STC startup — and nothing records
+which toolchain produced the published artifact, although `mbt.lock` pins
+every `[dependencies]` entry by version *and* SHA256.
+
+**Only `release.yml` honours this.** `build.yml` stays on `main` on purpose:
+a PR built against the tip of the toolchain is what catches a cc370/libc370
+regression before it reaches a consumer. The cost of the asymmetry is that a
+release exercises a toolchain combination no PR build did — keep the pin
+reasonably current.
+
+`cc370` has no releases yet, so leave it at `main` (or omit it) until it does.
+
+**Bump the `mbt` submodule before you declare the section.** The workflow is
+resolved from `mbt@main` but the submodule is pinned per project, so the
+resolver may be missing from an older checkout. Declaring `[toolchain]` with a
+submodule that predates it fails the release with a message saying so, rather
+than publishing an artifact that quietly ignored the pin. A project that
+declares nothing is unaffected either way.
+
 ---
 
 ## 3. v1 → v2 `project.toml` mapping
@@ -394,10 +435,17 @@ The v2 workflows clone + `make install` the cc370 toolchain (cached per
 cc370 commit), run `make deps` (so dependency libraries are staged before
 the build), then run the host build:
 
-- `build.yml` — `make deps` + `make` + `make test` + `make lib`.
-- `release.yml` — validates the tag against `project.toml` version, runs
-  `make deps` + `make package`, and publishes a GitHub Release with
-  `dist/*` (prerelease when the tag contains `-`).
+- `build.yml` — `make deps` + `make` + `make test` + `make lib`. Always
+  builds against the tip of cc370/libc370, so a toolchain regression shows
+  up on a PR rather than in a consumer's release.
+- `release.yml` — validates the tag against `project.toml` version, checks
+  out the toolchain declared in `[toolchain]` (section 2; default `main`),
+  runs `make deps` + `make package`, and publishes a GitHub Release with
+  `dist/*` (prerelease when the tag contains `-`). The resolved refs are
+  echoed into the log as `[mbt] cc370 @ …` / `[mbt] libc370 @ …`.
+
+`release.yml` also takes `cc370_ref` / `libc370_ref` inputs, which override
+`[toolchain]` for a one-off run; leave them unset to use the declaration.
 
 Pin a tag (`@vX.Y.Z`) instead of `@main` for reproducibility. Legacy (v1)
 projects keep using `build-legacy.yml` / `release-legacy.yml` (MVS/CE in
