@@ -315,23 +315,35 @@ every `[dependencies]` entry by version *and* SHA256.
 The declaration states one thing — *this project is built with libc370
 X.Y.Z* — which CI reproduces exactly and a working copy need only satisfy:
 
-| Context | `libc370` is | On violation |
-|---------|--------------|--------------|
-| `release.yml` | the tag to check out | — |
-| `make`, `make lib`, `make test` | the **minimum** the sysroot must hold | build fails |
-| `make release`, `make prerelease` | the **exact** version the sysroot must hold | fails before tagging |
-| `make doctor` | reported and judged (`>=`) | check fails |
-| `build.yml` | **ignored** — always builds against `main` | — |
+| Context | `libc370` is | Sysroot older | Sysroot newer |
+|---------|--------------|---------------|---------------|
+| `release.yml` | the tag to check out | — | — |
+| `make`, `make lib`, `make test` | the **minimum** the sysroot must hold | build fails | fine |
+| `make release`, `make prerelease` | the same | fails | **warns** |
+| `make doctor` | reported and judged | check fails | fine |
+| `build.yml` | **ignored** — always builds against `main` | — | — |
 
 `build.yml` stays on `main` on purpose: a PR built against the tip of the
 toolchain is what catches a cc370/libc370 regression before it reaches a
 consumer. The cost of the asymmetry is that a release exercises a toolchain
 combination no PR build did — keep the pin reasonably current.
 
-The exact check on `make release` / `prerelease` gates **your** sysroot, so
-what you tag was tested against the runtime CI will link. It is not what
-makes the release correct — the pin is; the published artifact is built by
-`release.yml`, not on your machine.
+A sysroot **older** than the declaration is always an error: the pinned
+runtime demonstrably was not what the build linked against.
+
+A sysroot **newer** than it is normal — you track libc370 `main` and pin the
+current stable — so it is fine for a build. On a release it earns one warning:
+
+```
+[mbt] WARNING: tagging against libc370 1.0.2, but this build used 1.0.3-dev;
+      release CI will build with 1.0.2 -- untested here
+```
+
+That is the whole extent of it. `make release` / `prerelease` only bump, tag
+and push; `release.yml` then checks out the pin and rebuilds, so your sysroot
+never reaches the published artifact. Requiring an exact local match would
+force a downgrade before every release for a mismatch CI catches by itself.
+The pin is what makes a release correct, not your machine.
 
 Nothing is checked when no version is declared, or when the value is a branch
 or SHA rather than a version — there is then nothing to compare. So an

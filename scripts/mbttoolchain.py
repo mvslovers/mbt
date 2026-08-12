@@ -22,13 +22,18 @@ libc370, because it states one thing -- "this project is built with libc370
 X.Y.Z" -- that CI reproduces exactly and a working copy need only satisfy:
 
     make, make lib, make test    sysroot >= the declared version
-    make release / prerelease    sysroot == the declared version
+    make release / prerelease    the same, plus a warning when it is newer
 
 Nothing is checked when no version is declared, or when the value is a
 branch/SHA rather than a version: there is then nothing to compare, so an
-existing project changes behaviour only once it pins deliberately.  Note that
-the exact check gates the *maintainer's* sysroot -- the published artifact is
-built by release.yml against the pin, which is what makes a release correct.
+existing project changes behaviour only once it pins deliberately.
+
+A sysroot *older* than the declaration fails either way -- the pinned runtime
+was demonstrably not what the build linked.  A *newer* one only warns on a
+release: `make release` bumps and tags, then release.yml checks out the pin
+and rebuilds, so the local sysroot never reaches the published artifact.
+Demanding an exact match would force a downgrade before every release for a
+mismatch CI catches by itself (#71).
 
 Usage:
     python3 mbttoolchain.py [--project project.toml] [--repo NAME]
@@ -112,6 +117,8 @@ def libc370_status(cfg: dict, sysroot, exact: bool = False) -> tuple[str, str]:
           'ok'       the declaration is satisfied
           'skip'     nothing to compare (no version declared, or a git ref)
           'unknown'  a version is declared but the stamp could not be read
+          'drift'    exact only: newer than the pin, so what CI will build
+                     was never built here
           'fail'     the installed runtime violates the declaration
     """
     want = declared(cfg, "libc370")
@@ -137,20 +144,31 @@ def libc370_status(cfg: dict, sysroot, exact: bool = False) -> tuple[str, str]:
         )
 
     have_v, want_v = Version.parse(have), Version.parse(want)
-    if (have_v == want_v) if exact else (have_v >= want_v):
+
+    # Older than the declaration is a hard error in both modes: the pinned
+    # runtime demonstrably was not what this build linked against.
+    if have_v < want_v:
+        return "fail", (
+            f"libc370 in the sysroot is {have}, but project.toml requires "
+            f">= {want}; reinstall {sysroot} from libc370 v{want} or newer "
+            f"('make install' in the libc370 checkout)"
+        )
+
+    if have_v == want_v:
         return "ok", f"libc370 {have} in {sysroot} ({'==' if exact else '>='} {want})"
 
+    # Newer than the declaration. Fine for a build; for a release it means the
+    # artifact CI publishes will be built against a runtime that was never
+    # built against here -- worth saying, not worth blocking. `make release`
+    # only tags; release.yml checks out the pin and rebuilds, so demanding an
+    # exact local match would force a sysroot downgrade before every release
+    # for a mismatch CI catches by itself (#71).
     if exact:
-        return "fail", (
-            f"libc370 in the sysroot is {have}, but project.toml pins {want} -- "
-            f"a release must be built against the pinned runtime; reinstall "
-            f"{sysroot} from libc370 v{want}"
+        return "drift", (
+            f"tagging against libc370 {want}, but this build used {have}; "
+            f"release CI will build with {want} -- untested here"
         )
-    return "fail", (
-        f"libc370 in the sysroot is {have}, but project.toml requires "
-        f">= {want}; reinstall {sysroot} from libc370 v{want} or newer "
-        f"('make install' in the libc370 checkout)"
-    )
+    return "ok", f"libc370 {have} in {sysroot} (>= {want})"
 
 
 def check_libc370(cfg: dict, sysroot, exact: bool = False) -> int:
@@ -164,7 +182,7 @@ def check_libc370(cfg: dict, sysroot, exact: bool = False) -> int:
     if status == "fail":
         _log_error(message)
         return EXIT_BUILD
-    if status == "unknown":
+    if status in ("unknown", "drift"):
         _log_warn(message)
     elif status == "ok":
         print(f"[mbt] {message}")
@@ -236,7 +254,8 @@ def main() -> int:
     parser.add_argument("--check", action="store_true",
                         help="check the installed libc370 against [toolchain]")
     parser.add_argument("--exact", action="store_true",
-                        help="with --check: require an exact match (release)")
+                        help="with --check: also warn when the sysroot is "
+                             "newer than the declaration (release)")
     parser.add_argument("--sysroot",
                         help="with --check: sysroot to inspect (default: derived)")
     args = parser.parse_args()

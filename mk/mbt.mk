@@ -412,11 +412,13 @@ compiledb:
 	@python3 $(MBT_SCRIPTS)/mbtcompiledb.py --project project.toml
 
 # -- Release management --------------------------------------------
-# The build already gates on '>= the declared libc370'; a release additionally
-# requires the exact one, so what is tagged was tested against the runtime CI
-# will link.  Note this gates the *local* sysroot -- the published artifact is
-# built by release.yml against the [toolchain] pin, which is what makes the
-# release correct.
+# The build already gates on '>= the declared libc370' (during 'package'
+# above); --exact adds a WARNING when the sysroot is newer than the pin, i.e.
+# when the artifact CI is about to publish was never built here.  Deliberately
+# not an error: these targets only bump/tag/push, release.yml then checks out
+# the pin and rebuilds, so the local sysroot never reaches the published
+# artifact.  Requiring an exact match would force a sysroot downgrade before
+# every release for a mismatch CI catches by itself (#71).
 prerelease: package
 	@python3 $(MBT_SCRIPTS)/mbttoolchain.py --check --exact \
 	    --project project.toml --sysroot $(SYSROOT)
