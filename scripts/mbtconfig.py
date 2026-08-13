@@ -296,6 +296,15 @@ def generate(project_file: str = "project.toml", builddir: str = "build") -> str
     )
     lines.append("")
 
+    # -- Distribution (SMP4 installation package) --
+    # The presence of the table is the switch. 'package' builds the SMP
+    # artifacts only for a project that declares one, so every project without
+    # a [distribution] keeps producing exactly what it produced before.
+    if cfg.get("distribution"):
+        lines.append("# -- Distribution --")
+        lines.append("HAS_DISTRIBUTION := 1")
+        lines.append("")
+
     # -- Release config --
     release = cfg.get("release", {})
     if release:
