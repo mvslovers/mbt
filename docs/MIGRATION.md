@@ -61,6 +61,10 @@ cflags  = ["-I", "include"]      # extra cc370 flags (appended to -O1)
 # asflags = ["..."]              # extra as370 flags (optional)
 
 # ── Load modules ─────────────────────────────────────────
+# Every [[module]]/[[test]] name becomes a PDS member and a PGM= in the
+# generated JCL, so it must be a valid member name: 1..8 characters from
+# A-Z 0-9 @ # $, not starting with a digit.  `make` rejects anything else
+# before it builds.  ([lib] name is a host archive, not a member -- no rule.)
 [[module]]
 name    = "UFSD"
 startup = "crt1"                 # crt0 (default) | crt1 | crtm | false

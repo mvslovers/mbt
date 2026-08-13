@@ -31,6 +31,15 @@ startup = "crt0"                # crt0 (default) / crt1 (threaded) / false (asm)
 sources = ["test/mvs/tstwidg.c", "src/widget.c", "src/util.c"]
 ```
 
+`name` is a rule, not a convention: it becomes a PDS member and the `PGM=` of
+the test's job step, so it must be 1..8 characters from `A-Z 0-9 @ # $` and may
+not start with a digit. `make` rejects anything else while reading
+`project.toml` — the rule holds for `mvs = false` tests too, since the name is
+also the `--only` key and the host binary. Without that check a 9-character
+name built and deployed happily and only failed on MVS, as a JCL error that
+discards the whole job (`IEF642I EXCESSIVE PARAMETER LENGTH IN THE PGM FIELD`),
+leaving a matrix in which every test reads FAIL and none of them ran.
+
 Conventions:
 
 - **One test = one translation unit with one `main()`** (the counters in
