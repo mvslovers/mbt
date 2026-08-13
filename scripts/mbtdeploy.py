@@ -277,8 +277,17 @@ def _receive_xmit(client: MvsMFClient, config: MbtConfig,
     timeout = _receive_timeout(nbytes)
     result = client.submit_jcl(jcl, timeout=timeout)
 
+    # Keeping the spool must never be able to fail the deploy: an OSError here
+    # (read-only build/, disk full) is not an MvsMFError, so neither call site
+    # would catch it -- it would exit 99 with a traceback on a RECEIVE that may
+    # well have succeeded.  Warn, drop the hint that would point at a file that
+    # is not there, and carry on with the diagnosis.
     if spool_path and result.spool:
-        Path(spool_path).write_text(result.spool)
+        try:
+            Path(spool_path).write_text(result.spool)
+        except OSError as e:
+            _log_warn(f"could not write {spool_path}: {e}")
+            spool_path = None
 
     failure = _receive_failure(result, target_dsn, timeout,
                                str(spool_path) if spool_path else "")

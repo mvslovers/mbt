@@ -12,6 +12,8 @@ filesystem, so it is testable without MVS.
 
 import os
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -136,6 +138,56 @@ class ReceiveFailureTest(unittest.TestCase):
         # an 'except MvsMFError' that predates ReceiveError still works
         from mbt.mvsmf import MvsMFError
         self.assertIsInstance(e, MvsMFError)
+
+
+class SpoolWriteTest(unittest.TestCase):
+    """Keeping the spool must never be able to fail the deploy.
+
+    OSError is not an MvsMFError, so neither call site catches it -- an
+    unguarded write would exit 99 with a traceback on a RECEIVE that may well
+    have succeeded, which is strictly worse than the message it replaced.
+    """
+
+    class _Client:
+        def __init__(self, result):
+            self.result = result
+
+        def submit_jcl(self, jcl, timeout=120):
+            return self.result
+
+    def _run(self, result, spool_path):
+        config = types.SimpleNamespace(
+            jes_jobclass="A", jes_msgclass="X", deps_volume=None)
+        return mbtdeploy._receive_xmit(
+            self._Client(result), config, "IBMUSER.MBT.XMIT.IN", TARGET,
+            spool_path=spool_path)
+
+    def test_spool_is_written_on_a_clean_receive(self):
+        # submit_jcl collects the spool whatever the outcome, so the file is
+        # there after a success too -- no stale one survives from last time.
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d, "receive.spool")
+            self._run(_result("CC", 0, "--- JESYSMSG ---\nIEF142I ..."), p)
+            self.assertIn("IEF142I", p.read_text())
+
+    def test_unwritable_path_warns_instead_of_crashing(self):
+        with tempfile.TemporaryDirectory() as d:
+            # a directory where the file should go -> OSError on write_text
+            bad = Path(d, "receive.spool")
+            bad.mkdir()
+            rc = self._run(_result("CC", 0, "spool text"), bad)
+            self.assertEqual(rc, 0)
+
+    def test_unwritable_path_drops_the_hint_from_the_diagnosis(self):
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d, "receive.spool")
+            bad.mkdir()
+            with self.assertRaises(mbtdeploy.ReceiveError) as cm:
+                self._run(_result("ABEND", 9999, "spool text"), bad)
+            self.assertIn("abended", str(cm.exception))
+            self.assertEqual(
+                [x for x in cm.exception.details if "receive.spool" in x], [],
+                "pointed at a spool file that was never written")
 
 
 class ReceiveTimeoutTest(unittest.TestCase):
