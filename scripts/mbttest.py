@@ -39,12 +39,13 @@ from mbt.config import MbtConfig
 from mbt.mvsmf import MvsMFError
 from mbt.jcl import jobcard
 from mbt.project import ProjectError
+from mbt.spool import JCL_ERROR_RE, jcl_diagnostics
 from mbt.version import Version
 
 # Reuse the deploy plumbing (pack + upload + RECEIVE) verbatim.
 from mbtdeploy import (
     _make_client, _load_project, _staging_space, _pack, _receive_xmit,
-    _resolve_target as _resolve_linklib, STAGING_SUFFIX,
+    _resolve_target as _resolve_linklib, ReceiveError, STAGING_SUFFIX,
 )
 
 EXIT_TESTS_FAILED = 1
@@ -259,48 +260,6 @@ def _parse_step_rc(spool: str, jobname: str, step: str):
     return (None, _NO_RC)
 
 
-# JES rejected the job at conversion: not one step was attached, so no step has
-# an IEF142I/IEF450I/IEF272I line.  Deliberately not anchored on the jobname --
-# submit_jcl falls back to "UNKNOWN" when the submit response omits it.
-_JCL_ERROR_RE = re.compile(
-    r"^.*IEF452I\s+(\S+)\s+JOB NOT RUN\s+-\s+JCL ERROR.*$", re.M)
-
-# The converter/interpreter diagnostics that name the reason.  The interpreter
-# prints them in a "STMT NO. MESSAGE" table in JESYSMSG,
-#
-#          26 IEF642I EXCESSIVE PARAMETER LENGTH IN THE PGM FIELD
-#
-# so the statement number sits left of the message; keep it, it points into the
-# generated runner.  In JESMSGLG the same message can appear with a JES time /
-# job prefix instead, which is not worth reprinting.
-_JCL_DIAG_RE = re.compile(r"^(?P<pre>.*?)(?P<msg>IEF6\d\dI\b.*)$", re.M)
-_STMT_RE = re.compile(r"^\s*(\d+)\s*$")
-_MAX_DIAG = 5
-
-
-def _jcl_diagnostics(spool: str) -> list:
-    """The IEF6nnI lines from a rejected job, deduplicated and capped.
-
-    Unfiltered on purpose: IEF653I (substituted JCL) and IEF677I (warnings)
-    live in the same range and can be noise, but a couple of noisy lines
-    inside a JCL-error report cost far less than dropping the one line that
-    names the cause.
-    """
-    out, seen = [], set()
-    for m in _JCL_DIAG_RE.finditer(spool):
-        line = m.group("msg").rstrip()
-        stmt = _STMT_RE.match(m.group("pre"))
-        if stmt:
-            line = f"{line}    (STMT {stmt.group(1)})"
-        if line in seen:
-            continue
-        seen.add(line)
-        out.append(line)
-        if len(out) >= _MAX_DIAG:
-            break
-    return out
-
-
 def _job_failure(status: str, spool: str, rows: dict, jobname: str,
                  jobid: str, timeout: int, runner_path: str,
                  spool_path: str):
@@ -322,10 +281,10 @@ def _job_failure(status: str, spool: str, rows: dict, jobname: str,
     # JCL error first, and from the spool as well as the status: _parse_spool_rc
     # searches the whole spool for COND CODE before it looks for IEF452I, so a
     # stray match anywhere can leave the status saying something else.
-    if _JCL_ERROR_RE.search(spool) or status == "JCL ERROR":
+    if JCL_ERROR_RE.search(spool) or status == "JCL ERROR":
         return (
             f"runner job {jobname} {jobid} was rejected -- no test ran",
-            _jcl_diagnostics(spool) + [
+            jcl_diagnostics(spool) + [
                 f"the generated JCL is in {runner_path}",
             ],
         )
@@ -430,7 +389,15 @@ def main() -> int:
             if client.dataset_exists(testlib):
                 client.delete_dataset(testlib)
             _log(f"RECEIVE {staging} -> {testlib}...")
-            _receive_xmit(client, config, staging, testlib, args.verbose)
+            _receive_xmit(client, config, staging, testlib, args.verbose,
+                          spool_path=builddir / "testlib-receive.spool",
+                          nbytes=len(xmit_bytes))
+        except ReceiveError as e:
+            # Already a diagnosis -- do not bury it under a second headline.
+            _log_error(str(e))
+            for line in e.details:
+                _log_cont(line)
+            return EXIT_MAINFRAME
         except MvsMFError as e:
             _log_error(f"test deploy failed: {e}")
             return EXIT_MAINFRAME

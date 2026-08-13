@@ -432,6 +432,26 @@ module length). `ld370 --pack` combines the unloads into one LINKLIB
 **XMIT**; deploy uploads it, **deletes** the target LINKLIB (TSO RECEIVE
 will not merge into an existing dataset), and RECEIVEs the new one.
 
+### When the RECEIVE fails
+
+The RECEIVE job's spool is kept in `build/receive.spool`, and the failure names
+the job and what happened rather than a return code:
+
+```
+[mbt] ERROR: RECEIVE job MBTDEPL JOB01099 abended -- IBMUSER.HTTPD.V4R0M0D.LINKLIB was not written
+[mbt]        the full spool is in build/receive.spool
+```
+
+Because the target is deleted before the RECEIVE, a job that ends in an abend,
+a JCL error or RC > 4 leaves no LINKLIB at all — the previous contents are gone
+with it, so redeploy.
+
+Two outcomes are reported as **open** rather than failed: an expired poll, and
+a job that ended without a readable status. In both the RECEIVE may have
+succeeded, so check the dataset on MVS before rerunning — a rerun deletes it
+first, and would destroy what a still-running job is writing. The poll scales
+with the XMIT size; `MBT_DEPLOY_TIMEOUT` (seconds) overrides it.
+
 ---
 
 ## 5. Dependencies
