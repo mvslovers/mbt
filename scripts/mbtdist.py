@@ -208,6 +208,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     for step, dsn, _ph, fname in plan:
         receive_summary.append(f"//*   {step:<9} {fname}")
         receive_summary.append(f"//*               -> {dsn}")
+    cleanup_note = ("//*   CLEANUP   scratch the staging library, now spent")
 
     if dist.smp.accept_fmid:
         accept_summary = ("//*   ACCEPT    make this level the base a RESTORE "
@@ -224,13 +225,16 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
             f"{D.render_apply_dds(dist)}\n"
             "//SMPCNTL  DD  *\n"
             f" ACCEPT S({dist.smp.fmid}) DIS(WRITE) .\n"
-            "/*\n"
-            "//"
+            "/*"
         )
+        last_smp_step = "ACCEPT.HMASMP"
     else:
         accept_summary = ("//*   (no ACCEPT -- this level never becomes the "
                           "restore base)")
-        accept_step = "//"
+        accept_step = "//*"
+        last_smp_step = "APPLY.HMASMP"
+
+    cleanup_step = D.render_cleanup_step(dist, last_smp_step)
 
     inst_jcl = render_template("smpinst.jcl.tpl", {
         "JOBCARD": D.jobcard(f"{name}INS", f"{name.upper()[:12]} INSTALL"),
@@ -246,8 +250,9 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         "RECEIVE_STEPS": D.render_receive_steps(plan),
         "LAST_RECV": plan[-1][0],
         "APPLY_DDS": D.render_apply_dds(dist),
-        "ACCEPT_SUMMARY": accept_summary,
+        "ACCEPT_SUMMARY": f"{accept_summary}\n{cleanup_note}",
         "ACCEPT_STEP": accept_step,
+        "CLEANUP_STEP": cleanup_step,
     })
 
     # The jobs are uploaded to an FB/80 dataset and submitted, so they are held
