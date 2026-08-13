@@ -153,6 +153,26 @@ environment/anchor path). A test passes only when its step RC is 0.
 > Note: MVS 3.8j does not treat `REGION=0M` on a step as unlimited (it falls
 > back to ~512K → S878); the runner uses a concrete region.
 
+### When the job itself does not run
+
+If the job fails as a whole — JES rejects it for a JCL error, or the poll
+expires — not one step reaches an RC. There is nothing to say about the tests
+in that case, so the runner reports the job instead of printing a matrix:
+
+```
+[mbt] ERROR: runner job MBTTEST JOB01028 was rejected -- no test ran
+[mbt]        IEF642I EXCESSIVE PARAMETER LENGTH IN THE PGM FIELD    (STMT 26)
+[mbt]        the generated JCL is in build/test-runner.jcl
+```
+
+The exit code is 4 (mainframe error), not 1 (tests failed), so CI can tell the
+two apart. `build/test-runner.jcl` is written before the submit, so it is always
+there to look at — the statement number points into it; `build/test-runner.spool`
+is written whenever a job came back at all.
+
+A partial result is different and still yields a matrix: if some steps ran, the
+`NO RC` cells are real information about those steps.
+
 ### Running a subset
 
 Pass `--only` (repeatable) to build, deploy and run just the named tests --
