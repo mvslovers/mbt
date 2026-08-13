@@ -47,8 +47,20 @@ Read these before making any changes:
 
 `tomllib`, `urllib.request`, `urllib.error`, `string`, `json`, `pathlib`,
 `re`, `hashlib`, `base64`, `dataclasses`, `argparse`, `time`, `os`,
-`tarfile`, `shutil`, `subprocess` (only for git commands — `mvsrelease.py`
-and `mbt/buildstamp.py`)
+`tarfile`, `zipfile`, `shutil`, `subprocess`
+
+`subprocess` has exactly two sanctioned uses — anything else needs a reason
+in the PR:
+
+- **git**, for build provenance and release automation (`mvsrelease.py`,
+  `mbt/buildstamp.py`)
+- **invoking the cc370 toolchain**, which is not a library: `mbtdeploy.py`
+  runs `ld370 --pack`, `mbtdist.py` runs `xmit370 create`
+
+`zipfile` is for `mbtdist.py` only: the SMP installation package ships as
+both `.zip` and `.tar.gz`, mirroring what GitHub does with source archives,
+because the operators who install these products are as likely to be on
+Windows as on Unix.
 
 **No pip install. No requirements.txt. No venv.** If you find yourself
 reaching for an external package, stop and find a stdlib solution.

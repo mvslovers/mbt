@@ -274,7 +274,7 @@ else
 ALL_PREREQS   := modules $(if $(LIB_NAME),lib)
 endif
 
-.PHONY: all modules test test-mvs test-host check lib package deps deploy doctor compiledb release \
+.PHONY: all modules test test-mvs test-host check lib package dist deps deploy doctor compiledb release \
         prerelease clean distclean help
 
 # Help
@@ -297,6 +297,7 @@ help:
 	@echo ""
 	@echo "Package & Release:"
 	@echo "  package      Create release artifacts in dist/"
+	@echo "  dist         Re-render the SMP install package alone ([distribution])"
 	@echo "  deploy       Upload XMITs to MVS and RECV370"
 	@echo "  test-host    Build + run the dual tests natively (fast inner loop)"
 	@echo "  test-mvs     Build + deploy test modules + run the suite on MVS"
@@ -366,7 +367,24 @@ ifdef LIB_NAME
 	    -C $(BUILDDIR)/pkg-lib $(DIST_PREFIX)
 	@rm -rf $(BUILDDIR)/pkg-lib
 endif
+# SMP4 installation package: the SYSMOD (inline in the install job), the
+# allocation job and a zip/tar.gz holding those plus the README and the load
+# XMIT built above.  Only for projects that declare a [distribution]; the
+# load XMIT must already exist, hence after the block above.
+ifdef HAS_DISTRIBUTION
+	$(Q)python3 $(MBT_SCRIPTS)/mbtdist.py --project project.toml \
+	    --distdir $(DISTDIR) --builddir $(BUILDDIR)
+endif
 	@echo "[mbt] Package complete -> $(DISTDIR)/"
+
+# -- dist (re-render the SMP package alone) -------------------------
+# The inner loop for a samplib or JCL edit: re-runs only the generator, so it
+# takes a second instead of re-linking and re-packing.  It reuses the load
+# XMIT 'package' left in dist/ and fails with a clear message if there is
+# none.  CI and release/prerelease always go through 'package'.
+dist:
+	@python3 $(MBT_SCRIPTS)/mbtdist.py --project project.toml \
+	    --distdir $(DISTDIR) --builddir $(BUILDDIR)
 
 # -- Dependencies (download + stage declared deps into .mbt/deps) ---
 # Resolve each [dependencies] entry, download its {repo}-{ver}-lib.tar.gz,
