@@ -635,6 +635,43 @@ def render_receive_steps(plan: list[tuple[str, str, str, str]]) -> str:
     return "\n".join(lines)
 
 
+def render_cleanup_step(dist: Distribution, after_step: str) -> str:
+    """Scratch the staging library once SMP has taken what it needs from it.
+
+    The staging library is a delivery channel, not a system component -- the
+    same role a RELFILE plays for a tape product.  SMP reads the modules out
+    of it during APPLY and ACCEPT and never again; RESTORE takes its copy from
+    the distribution library.
+
+    Leaving it behind is worse than untidy.  A load library holding the same
+    members invites a STEPLIB pointed at it, and a later PTF then updates the
+    target library while that job quietly keeps running the superseded copy.
+
+    Only ever this one dataset: the target library holds the installed
+    modules, and after an ACCEPT the distribution library holds the accepted
+    copy -- scratching either would leave the SMP inventory describing an
+    install that is no longer there (F5).
+    """
+    if dist.smp.lklib in dist.allocated_datasets():   # belt and braces
+        raise DistributionError(
+            f"refusing to generate a cleanup step for {dist.smp.lklib}: "
+            f"it is one of the libraries SMP installs into"
+        )
+    return "\n".join([
+        "//*",
+        "//* ---- remove the staging library -----------------------------------",
+        "//* Only reached when everything above worked. Comment the step out",
+        "//* if you would rather keep the shipped modules on the system.",
+        "//*",
+        f"//CLEANUP EXEC PGM=IDCAMS,COND=(0,NE,{after_step})",
+        "//SYSPRINT DD  SYSOUT=*",
+        "//SYSIN    DD  *",
+        f"  DELETE {dist.smp.lklib} NONVSAM SCRATCH PURGE",
+        "/*",
+        "//",
+    ])
+
+
 def jobcard(jobname: str, programmer: str, msgclass: str = "H") -> str:
     """A JOB card for a job the *operator* submits.
 

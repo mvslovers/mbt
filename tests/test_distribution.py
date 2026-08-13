@@ -271,6 +271,44 @@ class ReceiveTest(unittest.TestCase):
         D.check_card_text(self.jcl, "receive steps")
 
 
+class CleanupTest(unittest.TestCase):
+    """The staging library is scratched once SMP has taken what it needs."""
+
+    def setUp(self):
+        self.dist = D.parse(_cfg(), "V1R1M1")
+        self.jcl = D.render_cleanup_step(self.dist, "ACCEPT.HMASMP")
+
+    def test_scratches_only_the_staging_library(self):
+        self.assertIn(f"DELETE {self.dist.smp.lklib} ", self.jcl)
+        self.assertEqual(self.jcl.count("DELETE"), 1)
+
+    def test_never_touches_what_smp_installed_into(self):
+        # F5: the target holds the installed modules and, after an ACCEPT, the
+        # DLIB holds the accepted copy. Scratching either would leave the
+        # inventory describing an install that is no longer there.
+        for dsn in self.dist.allocated_datasets():
+            self.assertNotIn(dsn, self.jcl)
+
+    def test_runs_only_after_the_last_smp_step_succeeded(self):
+        self.assertIn("COND=(0,NE,ACCEPT.HMASMP)", self.jcl)
+        # without an ACCEPT the APPLY is the last step that reads the library
+        self.assertIn("COND=(0,NE,APPLY.HMASMP)",
+                      D.render_cleanup_step(self.dist, "APPLY.HMASMP"))
+
+    def test_refuses_to_scratch_an_install_target(self):
+        # A descriptor where the staging library is also an SMP target would
+        # be rejected at parse time; this is the second lock on the same door.
+        bad = D.Distribution(smp=D.Smp(
+            fmid="TUFS110", system="Z038",
+            lklib="UFSD.V1R1M1.LINKLIB", target="UFSD.V1R1M1.LINKLIB",
+            distlib="UFSD.V1R1M1.AUFSDLOD"))
+        with self.assertRaises(D.DistributionError):
+            D.render_cleanup_step(bad, "APPLY.HMASMP")
+
+    def test_fits_on_a_card(self):
+        D.check_card_text(self.jcl, "cleanup step")
+
+
 class ApplyDDTest(unittest.TestCase):
     def setUp(self):
         self.dist = D.parse(_cfg(), "V1R1M1")
