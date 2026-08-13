@@ -1,12 +1,17 @@
 """mbt v2 distribution builder -- assemble the SMP4 installation package.
 
-Reads the `[distribution]` table of project.toml and writes, into dist/:
+Reads the `[distribution]` table of project.toml and writes two release
+assets into dist/:
 
-    <product>-<version>-<lib>.xmit   one per [[distribution.library]]
-    <product>-<version>-alloc.jcl    allocate the SMP datasets   (run once)
-    <product>-<version>-inst.jcl     RECEIVE / APPLY / ACCEPT    (repeatable)
-    <product>-<version>-smp.zip      README + every XMIT + both jobs
-    <product>-<version>-smp.tar.gz   the same, for people without unzip
+    <product>-<version>-dist.zip     README + every XMIT + both jobs
+    <product>-<version>-dist.tar.gz  the same, for people without unzip
+
+Their contents -- the source-library XMITs and the two generated jobs -- are
+built under <builddir>/dist-stage/ and published only inside the archives.
+They are of no use on their own: a job that installs a SYSMOD belongs with
+the SYSMOD it installs. What stays a separate asset is what stands on its
+own, namely the load library XMIT (the modules without SMP) and the library
+tarball that consumers resolve through `make deps`.
 
 The load library XMIT is built by `make package` (ld370 --pack) before this
 runs; this script picks it up and adds the source libraries alongside it.
@@ -160,6 +165,12 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     out = Path(distdir)
     out.mkdir(parents=True, exist_ok=True)
 
+    # Everything that is only meaningful inside the archive is built here and
+    # never lands in dist/ -- a release listing a job that installs a SYSMOD
+    # next to the SYSMOD's own archive just invites downloading the wrong one.
+    stage = Path(builddir) / "dist-stage"
+    stage.mkdir(parents=True, exist_ok=True)
+
     if not (out / load_xmit).is_file():
         # package builds it immediately before this step; without it the
         # archive would ship an install job with nothing to install.
@@ -181,15 +192,15 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         subst[f"@{lib.target_dd}@"] = lib.target
 
     stats_date = _stats_date()
-    stage_root = Path(builddir) / "dist-stage"
+    src_root = stage / "src"
     xmit_files = {dist.smp.lklib: load_xmit}
     for lib in dist.libraries:
         fname = f"{prefix}-{lib.target_dd.lower()}.xmit"
-        staged = _stage_library(lib, subst, stage_root)
-        _pack_library(staged, lib.target, out / fname, stats_date)
+        staged = _stage_library(lib, subst, src_root)
+        _pack_library(staged, lib.target, stage / fname, stats_date)
         xmit_files[lib.target] = fname
         _log(f"Packaged {fname} ({lib.dir} -> {lib.target})")
-    shutil.rmtree(stage_root, ignore_errors=True)
+    shutil.rmtree(src_root, ignore_errors=True)
 
     # ---- the SYSMOD and the two jobs ----
     mcs = D.assemble_mcs(dist, modules, name, version)
@@ -262,9 +273,10 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     D.check_card_text(alloc_jcl, alloc_job)
     D.check_card_text(inst_jcl, inst_job)
 
-    (out / alloc_job).write_text(alloc_jcl, encoding="utf-8")
-    (out / inst_job).write_text(inst_jcl, encoding="utf-8")
-    _log(f"Generated {alloc_job} and {inst_job} (FMID {dist.smp.fmid})")
+    (stage / alloc_job).write_text(alloc_jcl, encoding="utf-8")
+    (stage / inst_job).write_text(inst_jcl, encoding="utf-8")
+    _log(f"Generated {alloc_job} and {inst_job} (FMID {dist.smp.fmid}) "
+         f"in {stage}/")
 
     # ---- archive ----
     payload: list[tuple[str, Path]] = []
@@ -278,9 +290,9 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     payload.append((load_xmit, out / load_xmit))
     for _step, dsn, _ph, fname in plan:
         if dsn != dist.smp.lklib:
-            payload.append((fname, out / fname))
-    payload.append((alloc_job, out / alloc_job))
-    payload.append((inst_job, out / inst_job))
+            payload.append((fname, stage / fname))
+    payload.append((alloc_job, stage / alloc_job))
+    payload.append((inst_job, stage / inst_job))
     for item in dist.extra:
         p = Path(item)
         if not p.is_file():
@@ -289,12 +301,12 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
             )
         payload.append((p.name, p))
 
-    zip_path = out / f"{prefix}-smp.zip"
+    zip_path = out / f"{prefix}-dist.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
         for arcname, src in payload:
             z.write(src, f"{prefix}/{arcname}")
 
-    tar_path = out / f"{prefix}-smp.tar.gz"
+    tar_path = out / f"{prefix}-dist.tar.gz"
     with tarfile.open(tar_path, "w:gz") as t:
         for arcname, src in payload:
             t.add(src, f"{prefix}/{arcname}")
