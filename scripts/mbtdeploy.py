@@ -20,6 +20,11 @@ Steps:
      saved attributes, so no SPACE calculation is needed)
   5. delete the staging dataset
 
+The RECEIVE job's spool is kept in build/receive.spool, and its poll scales
+with the XMIT (MBT_DEPLOY_TIMEOUT overrides) -- a poll that expires while the
+RECEIVE is still writing would report a failed deploy, and the obvious retry
+deletes the dataset that job is filling.
+
 Target LINKLIB (first match wins):
   1. --target on the command line
   2. [deploy] target = "..." in project.toml
@@ -51,6 +56,7 @@ from mbt.config import MbtConfig
 from mbt.mvsmf import MvsMFClient, MvsMFError
 from mbt.jcl import render_template, jobcard
 from mbt.project import ProjectError
+from mbt.spool import JCL_ERROR_RE, jcl_diagnostics
 from mbt.version import Version
 
 # Shared staging dataset for the XMIT upload (same convention as bootstrap).
@@ -67,6 +73,24 @@ def _log_warn(msg: str) -> None:
 
 def _log_error(msg: str) -> None:
     print(f"[mbt] ERROR: {msg}", file=sys.stderr)
+
+
+def _log_cont(msg: str) -> None:
+    """A continuation line under a _log_error headline (aligned under it)."""
+    print(f"[mbt]        {msg}", file=sys.stderr)
+
+
+class ReceiveError(MvsMFError):
+    """A RECEIVE job that did not come back clean, with its diagnosis.
+
+    Carries the extra lines the caller prints under the headline; an
+    `except MvsMFError` that does not know about them still gets a headline
+    that says what happened.
+    """
+
+    def __init__(self, headline: str, details: list = None):
+        super().__init__(headline)
+        self.details = details or []
 
 
 def _make_client(config: MbtConfig) -> MvsMFClient:
@@ -132,14 +156,100 @@ def _pack(ld: str, load_modules: list, out: str, dsn: str,
     return f"{out}.xmit"
 
 
+def _receive_timeout(nbytes: int) -> int:
+    """Poll timeout for the RECEIVE job, scaled with the XMIT size.
+
+    submit_jcl's flat 120 s default is the wrong risk to take here: a poll
+    that expires while the RECEIVE is still writing reports a failed deploy,
+    and the obvious retry deletes the very dataset that job is filling (#78,
+    and #57 from the other side).  Waiting too long only costs time when
+    something really is stuck.  MBT_DEPLOY_TIMEOUT (seconds) overrides.
+    """
+    env = int(os.environ.get("MBT_DEPLOY_TIMEOUT", "0") or "0")
+    if env > 0:
+        return env
+    return 300 + nbytes // (1024 * 1024) * 60
+
+
+def _receive_failure(result, target_dsn: str, timeout: int,
+                     spool_path: str = ""):
+    """Did the RECEIVE fail? Return (headline, details) or None.
+
+    Unlike the test runner's job-level check, there is nothing to infer here:
+    the RECEIVE job has a single step, so result.status *is* the
+    classification.  What was missing was saying which of them happened --
+    result.rc carries _parse_retcode's sentinels (9998 JCL error, 9999
+    ABEND/timeout, -1 no retcode at all, which is every job on MVS/CE), and
+    printing those raw reads like a return code and names nothing.
+    """
+    if result.status == "CC" and result.rc <= 4:
+        return None
+
+    job = f"{result.jobname} {result.jobid}"
+    spool_hint = [f"the full spool is in {spool_path}"] if spool_path else []
+
+    # -- outcome genuinely open: say so, and do not invite a rerun --
+    #
+    # A rerun deletes the target before its own RECEIVE, so telling the user
+    # the dataset is gone when it may not be is how a false alarm turns
+    # destructive.  TIMEOUT means the job had not ended; UNKNOWN means it did
+    # but its spool named no outcome (or could not be fetched at all), which
+    # includes a RECEIVE that in fact succeeded.
+    if result.status in ("TIMEOUT", "ACTIVE"):
+        return (
+            f"RECEIVE job {job} did not finish within {timeout}s "
+            f"-- outcome unknown",
+            [
+                f"the job may still be running and writing {target_dsn}",
+                "check it on MVS before rerunning -- a rerun deletes that "
+                "dataset first",
+                "raise the poll with MBT_DEPLOY_TIMEOUT=<seconds>",
+            ] + spool_hint,
+        )
+
+    # -- the job ended and said what happened --
+    #
+    # The target is deleted before the RECEIVE (replace semantics), so in
+    # these three cases it is simply not there -- worth saying, because the
+    # previous contents are gone with it.
+    not_written = f"{target_dsn} was not written"
+
+    if result.status == "JCL ERROR" or JCL_ERROR_RE.search(result.spool or ""):
+        return (
+            f"RECEIVE job {job} was rejected -- {not_written}",
+            jcl_diagnostics(result.spool or "") + spool_hint,
+        )
+
+    if result.status == "ABEND":
+        return (f"RECEIVE job {job} abended -- {not_written}", spool_hint)
+
+    if result.status == "CC":
+        return (f"RECEIVE job {job} failed with RC={result.rc} "
+                f"-- {not_written}", spool_hint)
+
+    return (
+        f"RECEIVE job {job} ended with no usable status ({result.status}) "
+        f"-- outcome unknown",
+        [f"check {target_dsn} on MVS before rerunning -- a rerun deletes it "
+         f"first"] + spool_hint,
+    )
+
+
 def _receive_xmit(client: MvsMFClient, config: MbtConfig,
                   xmit_dsn: str, target_dsn: str,
-                  verbose: bool = False) -> int:
+                  verbose: bool = False,
+                  spool_path=None, nbytes: int = 0) -> int:
     """Submit a TSO RECEIVE job to unpack an XMIT into the target dataset.
 
     The target must NOT exist (RECEIVE refuses to merge); deploy deletes
     it first.  When deps_volume is set, the freshly allocated target is
     placed on that volume.
+
+    spool_path: where to keep the job's spool, so a failure can be read
+    afterwards instead of guessed at.  nbytes sizes the poll (see
+    _receive_timeout); 0 keeps the base timeout.
+
+    Raises ReceiveError (an MvsMFError) naming what went wrong.
     """
     jc = jobcard("MBTDEPL", config.jes_jobclass, config.jes_msgclass,
                  "MBT DEPLOY")
@@ -164,9 +274,25 @@ def _receive_xmit(client: MvsMFClient, config: MbtConfig,
         "TARGET_DSN": target_dsn,
         "RECEIVE_CMD": receive_cmd,
     })
-    result = client.submit_jcl(jcl)
-    if not result.success or result.rc > 4:
-        raise MvsMFError(f"RECEIVE job failed (RC={result.rc}) for {xmit_dsn}")
+    timeout = _receive_timeout(nbytes)
+    result = client.submit_jcl(jcl, timeout=timeout)
+
+    # Keeping the spool must never be able to fail the deploy: an OSError here
+    # (read-only build/, disk full) is not an MvsMFError, so neither call site
+    # would catch it -- it would exit 99 with a traceback on a RECEIVE that may
+    # well have succeeded.  Warn, drop the hint that would point at a file that
+    # is not there, and carry on with the diagnosis.
+    if spool_path and result.spool:
+        try:
+            Path(spool_path).write_text(result.spool)
+        except OSError as e:
+            _log_warn(f"could not write {spool_path}: {e}")
+            spool_path = None
+
+    failure = _receive_failure(result, target_dsn, timeout,
+                               str(spool_path) if spool_path else "")
+    if failure:
+        raise ReceiveError(*failure)
     return result.rc
 
 
@@ -259,8 +385,16 @@ def main() -> int:
             client.delete_dataset(target)
 
         _log(f"RECEIVE {staging} -> {target}...")
-        _receive_xmit(client, config, staging, target, args.verbose)
+        _receive_xmit(client, config, staging, target, args.verbose,
+                      spool_path=builddir / "receive.spool",
+                      nbytes=len(xmit_bytes))
         _log(f"Deploy complete: {len(built)} module(s) -> {target}")
+    except ReceiveError as e:
+        # Already a diagnosis -- do not bury it under a second "deploy failed".
+        _log_error(str(e))
+        for line in e.details:
+            _log_cont(line)
+        return EXIT_MAINFRAME
     except MvsMFError as e:
         _log_error(f"deploy failed: {e}")
         return EXIT_MAINFRAME

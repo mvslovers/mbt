@@ -279,36 +279,10 @@ class HealthySpoolTest(unittest.TestCase):
                                  300, RUNNER, SPOOLF))
 
     def test_no_false_jcl_error_from_a_healthy_spool(self):
-        self.assertIsNone(mbttest._JCL_ERROR_RE.search(self.spool))
-        self.assertEqual(mbttest._jcl_diagnostics(self.spool), [])
-
-
-class JclDiagnosticsTest(unittest.TestCase):
-    def test_deduplicates_and_caps(self):
-        spool = "\n".join([f"IEF6{i:02d}I MESSAGE {i}" for i in range(10, 20)]
-                          + ["IEF610I MESSAGE 10"] * 3)
-        out = mbttest._jcl_diagnostics(spool)
-        self.assertEqual(len(out), mbttest._MAX_DIAG)
-        self.assertEqual(len(set(out)), len(out))
-
-    def test_survives_leading_carriage_control(self):
-        spool = " 6.41.22 JOB 1028  IEF642I EXCESSIVE PARAMETER LENGTH\n"
-        self.assertEqual(mbttest._jcl_diagnostics(spool),
-                         ["IEF642I EXCESSIVE PARAMETER LENGTH"])
-
-    def test_statement_number_is_kept(self):
-        # The interpreter's "STMT NO. MESSAGE" table -- the number points into
-        # the generated runner, so it is worth carrying over.
-        spool = (" STMT NO. MESSAGE\n"
-                 "        26 IEF642I EXCESSIVE PARAMETER LENGTH IN THE PGM FIELD\n")
-        self.assertEqual(
-            mbttest._jcl_diagnostics(spool),
-            ["IEF642I EXCESSIVE PARAMETER LENGTH IN THE PGM FIELD    (STMT 26)"])
-
-    def test_same_message_at_two_statements_kept_apart(self):
-        spool = ("        26 IEF642I EXCESSIVE PARAMETER LENGTH\n"
-                 "        31 IEF642I EXCESSIVE PARAMETER LENGTH\n")
-        self.assertEqual(len(mbttest._jcl_diagnostics(spool)), 2)
+        # The spool primitives themselves live in tests/test_spool.py; this is
+        # the one assertion that needs a real 30-step spool to mean anything.
+        self.assertIsNone(mbttest.JCL_ERROR_RE.search(self.spool))
+        self.assertEqual(mbttest.jcl_diagnostics(self.spool), [])
 
 
 class AssertionCountTest(unittest.TestCase):
