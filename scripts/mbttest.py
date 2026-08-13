@@ -9,13 +9,16 @@ Each [[test]] builds a standalone load module (build/NAME.iebcopy). This driver:
      failure never blocks the rest
   3. submits it, parses each step's RC (IEF142I/IEF450I) and each leg's
      "N/M passed (K failed)" summary
-  4. prints a per-test matrix and exits nonzero if any test failed
+  4. prints a per-test matrix and exits nonzero if any test failed -- unless
+     no step got a verdict at all, which is a job-level fault (JCL error,
+     expired poll) and is reported as such instead of as failed tests
 
 Tests LOAD data modules (IRXANCHR/IRXPARMS/IRXTSPRM/...) at runtime; those live
 in the production LINKLIB, hence the STEPLIB concatenation TESTLIB+LINKLIB. The
 production LINKLIB must exist -- run 'make deploy' before 'make test-mvs'.
 
-Exit codes: 0 all passed; 2 config/validation; 4 mainframe error; 1 tests failed.
+Exit codes: 0 all passed; 2 config/validation; 4 mainframe error (including a
+runner job that did not run); 1 tests failed.
 """
 
 import os
@@ -59,6 +62,11 @@ def _log(msg: str) -> None:
 
 def _log_error(msg: str) -> None:
     print(f"[mbt] ERROR: {msg}", file=sys.stderr)
+
+
+def _log_cont(msg: str) -> None:
+    """A continuation line under a _log_error headline (aligned under it)."""
+    print(f"[mbt]        {msg}", file=sys.stderr)
 
 
 def _test_names(project: dict) -> list:
@@ -231,6 +239,13 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
     return "\n".join(lines) + "\n", step_map
 
 
+# The step has no verdict in the spool at all -- neither executed, nor abended,
+# nor skipped. Shared with _job_failure(), which fires when *every* step reads
+# this way; keep it a constant so editing the display text cannot silently
+# disable that guard.
+_NO_RC = "NO RC"
+
+
 def _parse_step_rc(spool: str, jobname: str, step: str):
     """Return (rc:int, status:str) for a step. rc=9999 for ABEND, None if absent."""
     ab = re.search(rf"IEF450I\s+{jobname}\s+{step}\s+-\s+ABEND\s+(\S+)", spool)
@@ -241,7 +256,98 @@ def _parse_step_rc(spool: str, jobname: str, step: str):
         return (int(cc.group(1)), "CC")
     if re.search(rf"IEF272I\s+{jobname}\s+{step}\s+-\s+STEP WAS NOT EXECUTED", spool):
         return (None, "NOT EXECUTED")
-    return (None, "NO RC")
+    return (None, _NO_RC)
+
+
+# JES rejected the job at conversion: not one step was attached, so no step has
+# an IEF142I/IEF450I/IEF272I line.  Deliberately not anchored on the jobname --
+# submit_jcl falls back to "UNKNOWN" when the submit response omits it.
+_JCL_ERROR_RE = re.compile(
+    r"^.*IEF452I\s+(\S+)\s+JOB NOT RUN\s+-\s+JCL ERROR.*$", re.M)
+
+# The converter/interpreter diagnostics that name the reason.  The interpreter
+# prints them in a "STMT NO. MESSAGE" table in JESYSMSG,
+#
+#          26 IEF642I EXCESSIVE PARAMETER LENGTH IN THE PGM FIELD
+#
+# so the statement number sits left of the message; keep it, it points into the
+# generated runner.  In JESMSGLG the same message can appear with a JES time /
+# job prefix instead, which is not worth reprinting.
+_JCL_DIAG_RE = re.compile(r"^(?P<pre>.*?)(?P<msg>IEF6\d\dI\b.*)$", re.M)
+_STMT_RE = re.compile(r"^\s*(\d+)\s*$")
+_MAX_DIAG = 5
+
+
+def _jcl_diagnostics(spool: str) -> list:
+    """The IEF6nnI lines from a rejected job, deduplicated and capped.
+
+    Unfiltered on purpose: IEF653I (substituted JCL) and IEF677I (warnings)
+    live in the same range and can be noise, but a couple of noisy lines
+    inside a JCL-error report cost far less than dropping the one line that
+    names the cause.
+    """
+    out, seen = [], set()
+    for m in _JCL_DIAG_RE.finditer(spool):
+        line = m.group("msg").rstrip()
+        stmt = _STMT_RE.match(m.group("pre"))
+        if stmt:
+            line = f"{line}    (STMT {stmt.group(1)})"
+        if line in seen:
+            continue
+        seen.add(line)
+        out.append(line)
+        if len(out) >= _MAX_DIAG:
+            break
+    return out
+
+
+def _job_failure(status: str, spool: str, rows: dict, jobname: str,
+                 jobid: str, timeout: int, runner_path: str,
+                 spool_path: str):
+    """Did the job fail as a whole? Return (headline, details) or None.
+
+    The trigger is that *no* step got a verdict -- the exact condition under
+    which the matrix would print a full column of `FAIL NO RC` for tests of
+    which none is broken and none has run, pointing at everything except the
+    cause (#74).  Reading it off the parsed rows rather than re-scanning the
+    spool keeps it in step with _parse_step_rc: when every step ABENDed the
+    rows carry IEF450I verdicts, so this correctly stays quiet and the matrix
+    (which then really is test-level information) prints as before.
+    """
+    if not rows or not all(st == _NO_RC
+                           for legs in rows.values()
+                           for (_rc, st) in legs.values()):
+        return None
+
+    # JCL error first, and from the spool as well as the status: _parse_spool_rc
+    # searches the whole spool for COND CODE before it looks for IEF452I, so a
+    # stray match anywhere can leave the status saying something else.
+    if _JCL_ERROR_RE.search(spool) or status == "JCL ERROR":
+        return (
+            f"runner job {jobname} {jobid} was rejected -- no test ran",
+            _jcl_diagnostics(spool) + [
+                f"the generated JCL is in {runner_path}",
+            ],
+        )
+
+    if status == "TIMEOUT":
+        return (
+            f"runner job {jobname} {jobid} did not finish within {timeout}s "
+            f"-- no test result",
+            [
+                "the job may still be running -- check it on MVS before rerunning",
+                "raise the poll with MBT_TEST_TIMEOUT=<seconds>",
+            ],
+        )
+
+    return (
+        f"runner job {jobname} {jobid} produced no return code for any step "
+        f"-- no test ran",
+        [
+            f"the full spool is in {spool_path}",
+            f"the generated JCL is in {runner_path}",
+        ],
+    )
 
 
 # Test summary lines vary per test (=== N/M passed ===, Passed: N, ...), but
@@ -359,10 +465,11 @@ def main() -> int:
     runner_path.write_text(jcl)
     _log(f"Runner JCL -> {runner_path} ({len(step_map)} step(s))")
 
-    # The default 120 s poll is too short for large runners (a full-suite
-    # job has 110 steps and runs for several minutes; the poll then gives
-    # up and every step reports "NO RC" with an empty spool).  Scale the
-    # timeout with the step count; MBT_TEST_TIMEOUT (seconds) overrides.
+    # The default 120 s poll is too short for large runners (a full-suite job
+    # has 110 steps and runs for several minutes; the poll then gives up with
+    # an empty spool).  Scale the timeout with the step count; MBT_TEST_TIMEOUT
+    # (seconds) overrides.  When it is still too short, _job_failure() below
+    # reports the expired poll rather than a matrix of failed tests.
     timeout = int(os.environ.get("MBT_TEST_TIMEOUT", "0") or "0")
     if timeout <= 0:
         timeout = max(120, 10 * len(step_map))
@@ -373,13 +480,30 @@ def main() -> int:
         return EXIT_MAINFRAME
 
     spool = result.spool or ""
-    (builddir / "test-runner.spool").write_text(spool)
+    spool_path = builddir / "test-runner.spool"
+    spool_path.write_text(spool)
     jobname = result.jobname or "MBTTEST"
 
     # -- per-step RC + aggregate summary --
     rows = {}   # test -> {leg: (rc, status)}
     for step, (test, leg) in step_map.items():
         rows.setdefault(test, {})[leg] = _parse_step_rc(spool, jobname, step)
+
+    # A job that never ran gives no step a verdict; printing the matrix then
+    # blames the tests for a job-level fault (#74).  Note the deliberate
+    # asymmetry: a TIMEOUT whose spool did arrive complete falls through and
+    # prints the matrix below -- real per-step verdicts beat a warning about
+    # the poll.  EXIT_MAINFRAME, not EXIT_TESTS_FAILED, so CI can tell the two
+    # states apart.
+    failure = _job_failure(result.status, spool, rows, jobname, result.jobid,
+                           timeout, str(runner_path), str(spool_path))
+    if failure:
+        headline, details = failure
+        _log_error(headline)
+        for line in details:
+            _log_cont(line)
+        return EXIT_MAINFRAME
+
     n_pass = len(_PASS.findall(spool))
     n_fail = len(_FAIL.findall(spool))
 
