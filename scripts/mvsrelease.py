@@ -46,11 +46,36 @@ def _log_error(msg: str) -> None:
     print(f"[{MODULE}] ERROR: {msg}", file=sys.stderr)
 
 
+# Every git call must target the *project's* repository. Given no directory,
+# git discovers one by searching upward from the cwd -- a different repository
+# whenever the project sits inside a larger checkout, while the version being
+# tagged still comes from the inner project.toml. That combination deleted and
+# recreated the outer repository's tags, and pushed commits to its default
+# branch, at exit 0. Resolving the root once, here, means no call site can
+# forget to pass it.
+_REPO = Path(".")
+
+
 def _git(*args: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git"] + list(args),
+        ["git", "-C", str(_REPO)] + list(args),
         capture_output=True, text=True
     )
+
+
+def _repo_root(project_path: str) -> Path | None:
+    """The git toplevel holding `project_path`, or None outside a checkout.
+
+    Runs before _REPO is set, so it names its own directory.
+    """
+    project_dir = Path(project_path).resolve().parent
+    result = subprocess.run(
+        ["git", "-C", str(project_dir), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip()).resolve()
 
 
 def _next_dev_version(v: Version) -> str:
@@ -93,8 +118,10 @@ def _bump_version(version_files: list[str],
     """Bump version in all version_files. Returns True on success."""
     changed = []
     for vf in version_files:
-        vf_path = Path(vf)
-        _log(f"Updating {vf_path} ({old_version} -> {new_version})...")
+        # Declared relative to the project root, which _REPO now names --
+        # not to whatever directory the interpreter was started in.
+        vf_path = _REPO / vf
+        _log(f"Updating {vf} ({old_version} -> {new_version})...")
         if _update_version_in_file(vf_path, old_version, new_version):
             changed.append(str(vf_path))
         else:
@@ -256,6 +283,35 @@ def main() -> int:
         return EXIT_CONFIG
 
     project = config.project
+
+    # Point every later git call at the project's own repository, and refuse
+    # to run when the project is not that repository's root. Both release
+    # modes tag and push. Doing either to a repository the caller never named
+    # is destructive, so this is an error, not a warning.
+    global _REPO
+    project_dir = Path(args.project).resolve().parent
+    root = _repo_root(args.project)
+    if root is None:
+        _log_error(
+            f"{project_dir} is not inside a git repository.\n"
+            f"[{MODULE}]        release and prerelease tag and push a git "
+            f"repository. There is none here."
+        )
+        return EXIT_CONFIG
+    if root != project_dir:
+        _log_error(
+            f"{args.project} is not at the root of its git repository.\n"
+            f"[{MODULE}]          project:    {project_dir}\n"
+            f"[{MODULE}]          repository: {root}\n"
+            f"[{MODULE}]        Releasing here would tag and push the outer "
+            f"repository,\n"
+            f"[{MODULE}]        using a version that belongs to this project. "
+            f"Give this\n"
+            f"[{MODULE}]        project its own repository, or release from "
+            f"{root}."
+        )
+        return EXIT_CONFIG
+    _REPO = root
 
     # Check for clean working tree
     result = _git("status", "--porcelain")
