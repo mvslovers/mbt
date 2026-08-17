@@ -11,14 +11,17 @@ Each [[test]] builds a standalone load module (build/NAME.iebcopy). This driver:
      "N/M passed (K failed)" summary
   4. prints a per-test matrix and exits nonzero if any test failed -- unless
      no step got a verdict at all, which is a job-level fault (JCL error,
-     expired poll) and is reported as such instead of as failed tests
+     expired poll, unreadable spool) and is reported as such instead of as
+     failed tests.  A step left without a verdict by a *partial* readback is
+     shown as `??` and counted as neither pass nor fail.
 
 Tests LOAD data modules (IRXANCHR/IRXPARMS/IRXTSPRM/...) at runtime; those live
 in the production LINKLIB, hence the STEPLIB concatenation TESTLIB+LINKLIB. The
 production LINKLIB must exist -- run 'make deploy' before 'make test-mvs'.
 
 Exit codes: 0 all passed; 2 config/validation; 4 mainframe error (including a
-runner job that did not run); 1 tests failed.
+runner job that did not run, and one whose output could not be read back);
+1 tests failed.
 """
 
 import os
@@ -36,7 +39,7 @@ except ModuleNotFoundError:
 
 from mbt import EXIT_SUCCESS, EXIT_CONFIG, EXIT_MAINFRAME
 from mbt.config import MbtConfig
-from mbt.mvsmf import MvsMFError
+from mbt.mvsmf import JES_DDNAMES, MvsMFError
 from mbt.jcl import jobcard
 from mbt.project import ProjectError
 from mbt.spool import JCL_ERROR_RE, jcl_diagnostics
@@ -63,6 +66,10 @@ def _log(msg: str) -> None:
 
 def _log_error(msg: str) -> None:
     print(f"[mbt] ERROR: {msg}", file=sys.stderr)
+
+
+def _log_warn(msg: str) -> None:
+    print(f"[mbt] WARNING: {msg}", file=sys.stderr)
 
 
 def _log_cont(msg: str) -> None:
@@ -260,9 +267,36 @@ def _parse_step_rc(spool: str, jobname: str, step: str):
     return (None, _NO_RC)
 
 
+# How many failed readback requests to print before summarising the rest.  A
+# full-suite runner has ~110 spool files; when mvsMF is abending, every one of
+# them fails and the list is the same message 110 times over.
+MAX_SPOOL_ERRORS = 5
+
+
+def _readback_details(spool_errors: list) -> list:
+    """The failed requests, plus how to get the return codes without them.
+
+    IEFACTRT writes each step's RC to SYSLOG, so the run above is recoverable
+    from the console alone -- which is the point: this diagnosis fires exactly
+    when the REST API is the thing that is broken.
+    """
+    shown = list(spool_errors[:MAX_SPOOL_ERRORS])
+    if len(spool_errors) > MAX_SPOOL_ERRORS:
+        shown.append(f"... and {len(spool_errors) - MAX_SPOOL_ERRORS} more")
+    return shown + [
+        "this is the readback failing, not the job -- the tests may well "
+        "have passed",
+        "the return codes are on the console: IEFACTRT writes the per-step RC "
+        "to SYSLOG,",
+        "  IEFACTRT B05     /TSTEXPIR/00:00:00.02/00:00:00.05/00000/MBTTEST",
+        "  " + " " * 51 + "^^^^^ step RC",
+        "and $HASP165 carries the job-level MAX COND CODE",
+    ]
+
+
 def _job_failure(status: str, spool: str, rows: dict, jobname: str,
                  jobid: str, timeout: int, runner_path: str,
-                 spool_path: str):
+                 spool_path: str, spool_errors: list = None):
     """Did the job fail as a whole? Return (headline, details) or None.
 
     The trigger is that *no* step got a verdict -- the exact condition under
@@ -272,6 +306,11 @@ def _job_failure(status: str, spool: str, rows: dict, jobname: str,
     spool keeps it in step with _parse_step_rc: when every step ABENDed the
     rows carry IEF450I verdicts, so this correctly stays quiet and the matrix
     (which then really is test-level information) prints as before.
+
+    spool_errors: the requests that failed while reading the spool back.  That
+    gives the fall-through a third reason to distinguish (#87) -- but only for
+    a readback that failed outright.  When it failed in part, some steps do
+    carry verdicts, this returns None, and main() marks the rest `??`.
     """
     if not rows or not all(st == _NO_RC
                            for legs in rows.values()
@@ -299,6 +338,21 @@ def _job_failure(status: str, spool: str, rows: dict, jobname: str,
             ],
         )
 
+    # The job ran and the spool could not be read back (#87).  Deliberately
+    # third: the two branches above come from the status endpoint, which did
+    # answer, and what it says is the better fact -- an unreadable spool is
+    # then only how the verdict went missing, not what happened.
+    if spool_errors:
+        # The spool file is written unconditionally, so it exists either way --
+        # but when /files itself failed it is empty, and pointing at an empty
+        # file as if it held something is how a hint becomes a wrong lead.
+        return (
+            f"runner job {jobname} {jobid} ran, but its output could not be "
+            f"read -- no test result",
+            _readback_details(spool_errors)
+            + ([f"what was read is in {spool_path}"] if spool else []),
+        )
+
     return (
         f"runner job {jobname} {jobid} produced no return code for any step "
         f"-- no test ran",
@@ -314,6 +368,50 @@ def _job_failure(status: str, spool: str, rows: dict, jobname: str,
 # a uniform, format-independent tally (counts both the batch and TSO leg).
 _PASS = re.compile(r"^\s*PASS:", re.M)
 _FAIL = re.compile(r"^\s*FAIL:", re.M)
+
+
+def _verdicts_at_risk(spool_errors: list) -> bool:
+    """Could the failed readback have swallowed a step's verdict?
+
+    Only if it lost a JES DD.  A step's verdict is an IEF142I/IEF450I/IEF272I
+    line and those are written by JES, so a SYSPRINT that did not come back
+    costs assertion output, never a return code.  Keeping the two apart
+    matters in both directions: excuse every hole and a step that really has
+    no verdict (#74) gets waved through as `unknown` because an unrelated DD
+    failed; excuse none and #87 stands.
+    """
+    return any(e.split(":", 1)[0] in JES_DDNAMES for e in spool_errors or [])
+
+
+def _matrix(rows: dict, spool_errors: list = None) -> tuple:
+    """Render the per-test matrix. Return (lines, failed, unread).
+
+    A step with no verdict in a spool that was read in full really is wrong,
+    and counts as a failure.  When the readback lost the DD the verdict would
+    have been in, it is not a verdict about the test at all -- neither pass
+    nor fail, just unknown -- and counting it as failed is the same
+    mistranslation as #87, one step down: a green test reported as broken
+    because a REST call 500'd.  Those cells print `??` and are tallied apart.
+    """
+    unknown = _verdicts_at_risk(spool_errors)
+    lines = [f"  {'TEST':<10} {'BATCH':<14} {'TSO':<14}",
+             f"  {'-'*10} {'-'*14} {'-'*14}"]
+    failed = unread = 0
+    for test in sorted(rows):
+        cells = []
+        for leg in ("batch", "tso"):
+            rc, st = rows[test].get(leg, (None, "MISSING"))
+            if unknown and st == _NO_RC:
+                unread += 1
+                cells.append(f"??   {st}")
+                continue
+            ok = (rc == 0)
+            if not ok:
+                failed += 1
+            cells.append(("ok " if ok else "FAIL ")
+                         + (st if rc in (None, 9999) else f"CC {rc}"))
+        lines.append(f"  {test:<10} {cells[0]:<14} {cells[1]:<14}")
+    return (lines, failed, unread)
 
 
 def main() -> int:
@@ -447,6 +545,7 @@ def main() -> int:
         return EXIT_MAINFRAME
 
     spool = result.spool or ""
+    spool_errors = list(result.spool_errors or [])
     spool_path = builddir / "test-runner.spool"
     spool_path.write_text(spool)
     jobname = result.jobname or "MBTTEST"
@@ -463,7 +562,8 @@ def main() -> int:
     # the poll.  EXIT_MAINFRAME, not EXIT_TESTS_FAILED, so CI can tell the two
     # states apart.
     failure = _job_failure(result.status, spool, rows, jobname, result.jobid,
-                           timeout, str(runner_path), str(spool_path))
+                           timeout, str(runner_path), str(spool_path),
+                           spool_errors)
     if failure:
         headline, details = failure
         _log_error(headline)
@@ -474,24 +574,36 @@ def main() -> int:
     n_pass = len(_PASS.findall(spool))
     n_fail = len(_FAIL.findall(spool))
 
-    print(f"\n  {'TEST':<10} {'BATCH':<14} {'TSO':<14}")
-    print(f"  {'-'*10} {'-'*14} {'-'*14}")
-    failed = 0
-    for test in sorted(rows):
-        cells = []
-        for leg in ("batch", "tso"):
-            rc, st = rows[test].get(leg, (None, "MISSING"))
-            ok = (rc == 0)
-            if not ok:
-                failed += 1
-            cells.append(("ok " if ok else "FAIL ") + (st if rc in (None, 9999) else f"CC {rc}"))
-        print(f"  {test:<10} {cells[0]:<14} {cells[1]:<14}")
+    lines, failed, unread = _matrix(rows, spool_errors)
+    print()
+    for line in lines:
+        print(line)
     print(f"\n  job {jobname} {result.jobid}  | assertions (batch+tso): "
           f"{n_pass} PASS, {n_fail} FAIL")
+
+    # Print this last, after the matrix it qualifies: part of the spool is
+    # missing, so both the ?? cells and the assertion tally are short of the
+    # truth, and neither is the tests' fault.
+    if unread:
+        _log_error(f"{unread} step(s) have no verdict because the spool could "
+                   f"not be read in full -- shown as ?? above, not as failures")
+        for line in _readback_details(spool_errors):
+            _log_cont(line)
+    elif spool_errors:
+        _log_warn(f"part of the spool could not be read ({len(spool_errors)} "
+                  f"request(s) failed); every step still has a return code, "
+                  f"but the assertion tally may be short")
+        for line in spool_errors[:MAX_SPOOL_ERRORS]:
+            _log_cont(line)
 
     if failed:
         _log(f"{failed} step(s) FAILED")
         return EXIT_TESTS_FAILED
+    # No step failed, but some have no verdict at all -- that is not a pass.
+    # EXIT_MAINFRAME, matching the job-level faults above: the fault is the
+    # readback, not the tests.
+    if unread:
+        return EXIT_MAINFRAME
     _log("all test steps passed")
     return EXIT_SUCCESS
 
