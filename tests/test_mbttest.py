@@ -292,5 +292,137 @@ class AssertionCountTest(unittest.TestCase):
         self.assertEqual(len(mbttest._FAIL.findall(spool)), 1)
 
 
+# -- Unreadable spool (issue #87) --------------------------------------------
+#
+# The jobs API could not return the spool: HTTP 500 on /files, and on the
+# per-DD /records calls.  The readback failure became an empty string, which
+# is what a job with no output produces, so the runner said "no test ran" for
+# a job whose every step had ended RC 0000 -- and mvsmf#282 went looking for
+# the fault in the harness and in the tests, where it was not.
+
+READBACK_ERR = ["HTTP 500 Internal Server Error for GET "
+                "/restjobs/jobs/MBTTEST/JOB01179/files"]
+
+NO_RC_ROWS = _rows((None, "NO RC"), (None, "NO RC"))
+
+
+class ReadbackFailureTest(unittest.TestCase):
+    def _call(self, status, spool, rows, errors, timeout=300):
+        return mbttest._job_failure(status, spool, rows, "MBTTEST", "JOB01179",
+                                    timeout, RUNNER, SPOOLF, errors)
+
+    def test_says_the_output_could_not_be_read_not_that_nothing_ran(self):
+        out = self._call("CC", "", NO_RC_ROWS, READBACK_ERR)
+        self.assertIsNotNone(out)
+        head, details = out
+        self.assertIn("could not be read", head)
+        self.assertNotIn("no test ran", head)
+        self.assertIn("JOB01179", head)
+        joined = " ".join(details)
+        self.assertIn("HTTP 500", joined)
+        self.assertIn("/files", joined)
+
+    def test_hints_at_the_console_where_the_rcs_survive(self):
+        # The whole point: this fires when the REST API is what is broken, so
+        # the workaround must not need it.  IEFACTRT puts the step RC in SYSLOG.
+        _head, details = self._call("CC", "", NO_RC_ROWS, READBACK_ERR)
+        joined = "\n".join(details)
+        self.assertIn("IEFACTRT", joined)
+        self.assertIn("$HASP165", joined)
+        self.assertIn("may well have passed", joined)
+
+    def test_the_rc_column_marker_lines_up_under_the_sample(self):
+        # A caret that points at the wrong field is worse than none.
+        _head, details = self._call("CC", "", NO_RC_ROWS, READBACK_ERR)
+        sample = next(d for d in details if "IEFACTRT B05" in d)
+        caret = next(d for d in details if "^^^^^" in d)
+        self.assertEqual(caret.index("^"), sample.index("00000/MBTTEST"))
+
+    def test_error_list_is_capped(self):
+        errs = [f"SYSPRINT{i}: HTTP 500" for i in range(40)]
+        _head, details = self._call("CC", "", NO_RC_ROWS, errs)
+        self.assertEqual(len([d for d in details if "HTTP 500" in d]),
+                         mbttest.MAX_SPOOL_ERRORS)
+        self.assertTrue(any("and 35 more" in d for d in details), details)
+
+    # -- ordering: the status endpoint answered, and it is the better fact --
+
+    def test_jcl_error_still_wins(self):
+        out = self._call("JCL ERROR", JCL_ERROR_SPOOL, NO_RC_ROWS, READBACK_ERR)
+        self.assertIn("rejected", out[0])
+
+    def test_timeout_still_wins(self):
+        out = self._call("TIMEOUT", "", NO_RC_ROWS, READBACK_ERR, timeout=420)
+        self.assertIn("420s", out[0])
+        self.assertNotIn("could not be read", out[0])
+
+    # -- and it stays out of the way of the state it was confused with --
+
+    def test_no_errors_still_reads_as_no_test_ran(self):
+        # A job that genuinely produced nothing, with a readback that worked.
+        out = self._call("UNKNOWN", "", NO_RC_ROWS, [])
+        self.assertIn("no return code for any step", out[0])
+
+    def test_absent_argument_keeps_the_old_behaviour(self):
+        out = mbttest._job_failure("UNKNOWN", "", NO_RC_ROWS, "MBTTEST",
+                                   "JOB01179", 300, RUNNER, SPOOLF)
+        self.assertIn("no return code for any step", out[0])
+
+    def test_verdicts_present_means_this_is_not_a_job_level_fault(self):
+        # A partial readback leaves some steps with verdicts -- _job_failure
+        # must stay quiet there and let _matrix mark the rest (see below).
+        out = self._call("CC", "IEF142I ...",
+                         _rows((0, "CC"), (None, "NO RC")), READBACK_ERR)
+        self.assertIsNone(out)
+
+
+class PartialReadbackMatrixTest(unittest.TestCase):
+    """The half of #87 that never reaches _job_failure.
+
+    When /files answers but individual /records calls 500, some steps carry
+    IEF142I verdicts and the job-level guard correctly stays quiet.  The
+    remaining cells then used to print `FAIL NO RC` and count towards the exit
+    code -- reporting tests that passed as broken because a REST call failed.
+    """
+
+    ROWS = {
+        "TSTA": {"batch": (0, "CC"), "tso": (0, "CC")},
+        "TSTB": {"batch": (None, "NO RC"), "tso": (None, "NO RC")},
+    }
+
+    def test_unread_cells_are_neither_pass_nor_fail(self):
+        lines, failed, unread = mbttest._matrix(self.ROWS, READBACK_ERR)
+        self.assertEqual(failed, 0)
+        self.assertEqual(unread, 2)
+        self.assertTrue(any("??" in ln for ln in lines))
+        self.assertFalse(any("FAIL" in ln for ln in lines), lines)
+
+    def test_a_real_failure_alongside_is_still_a_failure(self):
+        rows = dict(self.ROWS, TSTC={"batch": (12, "CC"), "tso": (0, "CC")})
+        _lines, failed, unread = mbttest._matrix(rows, READBACK_ERR)
+        self.assertEqual(failed, 1)
+        self.assertEqual(unread, 2)
+
+    def test_without_a_readback_failure_no_rc_is_still_a_failure(self):
+        # A step with no verdict in a spool that was read in full really is
+        # wrong -- #74's behaviour must not be softened by this.
+        lines, failed, unread = mbttest._matrix(self.ROWS, [])
+        self.assertEqual(failed, 2)
+        self.assertEqual(unread, 0)
+        self.assertTrue(any("FAIL NO RC" in ln for ln in lines), lines)
+
+    def test_abend_is_a_verdict_even_with_a_hole_in_the_spool(self):
+        rows = {"TSTA": {"batch": (9999, "ABEND S806"), "tso": (0, "CC")}}
+        lines, failed, unread = mbttest._matrix(rows, READBACK_ERR)
+        self.assertEqual((failed, unread), (1, 0))
+        self.assertTrue(any("S806" in ln for ln in lines))
+
+    def test_clean_run_is_unchanged(self):
+        rows = {"TSTA": {"batch": (0, "CC"), "tso": (0, "CC")}}
+        lines, failed, unread = mbttest._matrix(rows, [])
+        self.assertEqual((failed, unread), (0, 0))
+        self.assertEqual(lines[2].rstrip(), "  TSTA       ok CC 0        ok CC 0")
+
+
 if __name__ == "__main__":
     unittest.main()

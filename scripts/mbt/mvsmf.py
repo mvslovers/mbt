@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 import urllib.error
 import base64
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 # Force HTTP/1.0 — mvsMF's HTTPD server speaks HTTP/1.0 and does not
 # send Content-Length or chunked encoding. Python 3.13+ with HTTP/1.1
@@ -31,6 +31,17 @@ class MvsMFError(Exception):
     pass
 
 
+# An HTTP error carries the server's response body, which on an abending mvsMF
+# is a multi-line HTML page.  A diagnosis prints one line per failed request,
+# so flatten and cap it -- the method, path and status code are at the front.
+_ERR_MAX = 200
+
+
+def _one_line(err: Exception, limit: int = _ERR_MAX) -> str:
+    s = " ".join(str(err).split())
+    return s if len(s) <= limit else s[:limit - 3] + "..."
+
+
 @dataclass
 class JobResult:
     """Result of a submitted JCL job."""
@@ -39,6 +50,11 @@ class JobResult:
     rc: int           # 0, 4, 8, ... or 9999 for ABEND
     status: str       # "CC", "ABEND", "JCL ERROR", "TIMEOUT", "UNKNOWN"
     spool: str        # concatenated spool output
+    # Requests that failed while reading the spool back, one line each.  An
+    # empty spool with no errors is a job that produced no output; an empty
+    # spool *with* errors is a job whose output could not be read, which is a
+    # different fact and must not be reported as the first (#87).
+    spool_errors: list = field(default_factory=list)
 
     @property
     def success(self) -> bool:
@@ -47,6 +63,11 @@ class JobResult:
     @property
     def abended(self) -> bool:
         return self.status == "ABEND"
+
+    @property
+    def spool_unread(self) -> bool:
+        """Did any part of the spool readback fail?"""
+        return bool(self.spool_errors)
 
 
 class MvsMFClient:
@@ -179,8 +200,11 @@ class MvsMFClient:
         Use this to fetch spool after a submit with
         collect_spool=False, e.g. when a job fails and
         you need the full spool for diagnostics.
+
+        Returns the text alone.  Callers that must tell an empty spool from an
+        unreadable one read JobResult.spool_errors instead.
         """
-        return self._collect_spool(jobname, jobid)
+        return self._collect_spool(jobname, jobid)[0]
 
     def _poll_job(self, jobname: str, jobid: str,
                   timeout: int,
@@ -218,10 +242,10 @@ class MvsMFClient:
                     rc, status = (-1, "UNKNOWN")
 
                 if collect_spool:
-                    spool = self._collect_spool(
+                    spool, spool_errors = self._collect_spool(
                         jobname, jobid, jes_only=jes_only)
                 else:
-                    spool = ""
+                    spool, spool_errors = "", []
 
                 # Fallback: if retcode was null, parse from spool
                 if rc == -1 and spool:
@@ -229,21 +253,23 @@ class MvsMFClient:
 
                 return JobResult(
                     jobid=jobid, jobname=jobname,
-                    rc=rc, status=status, spool=spool
+                    rc=rc, status=status, spool=spool,
+                    spool_errors=spool_errors
                 )
 
         # Timed out
-        spool = self._collect_spool(jobname, jobid)
+        spool, spool_errors = self._collect_spool(jobname, jobid)
         return JobResult(
             jobid=jobid, jobname=jobname,
-            rc=9999, status="TIMEOUT", spool=spool
+            rc=9999, status="TIMEOUT", spool=spool,
+            spool_errors=spool_errors
         )
 
     _JES_DDNAMES = {"JESJCLIN", "JESMSGLG", "JESJCL", "JESYSMSG"}
 
     def _collect_spool(self, jobname: str,
                        jobid: str,
-                       jes_only: bool = False) -> str:
+                       jes_only: bool = False) -> tuple[str, list]:
         """Collect spool files for a job.
 
         Args:
@@ -252,6 +278,14 @@ class MvsMFClient:
                 much faster for multi-step jobs where each step
                 produces its own SYSPRINT/SYSTERM DDs.
 
+        Returns:
+            (text, errors) -- the concatenated spool, and one line per request
+            that failed.  A readback failure used to become an empty string,
+            indistinguishable from a job that produced no output, which is how
+            a server-side 500 came to be reported as "no test ran" (#87).  The
+            text is still returned alongside: a partial spool is worth keeping,
+            it just may not be complete.
+
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}/files
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}/files/{n}/records
         """
@@ -259,11 +293,11 @@ class MvsMFClient:
             data = self._json_request(
                 "GET", f"/restjobs/jobs/{jobname}/{jobid}/files"
             )
-        except MvsMFError:
-            return ""
+        except MvsMFError as e:
+            return ("", [_one_line(e)])
 
         files = data if isinstance(data, list) else data.get("items", [])
-        parts = []
+        parts, errors = [], []
         for f in files:
             fid = f.get("id", "")
             ddname = f.get("ddname", "")
@@ -280,9 +314,13 @@ class MvsMFClient:
                 content = raw.decode("utf-8", errors="replace").replace("\r", "")
                 parts.append(f"--- {ddname} ---\n{content}")
             except MvsMFError as e:
+                # Keep the marker in the text -- it shows where the hole is when
+                # the saved spool is read by hand -- and report it as well, so
+                # the caller does not have to sniff its own output for it.
                 parts.append(f"--- {ddname} --- [FAILED TO RETRIEVE: {e}]")
+                errors.append(f"{ddname}: {_one_line(e)}")
 
-        return "\n".join(parts)
+        return ("\n".join(parts), errors)
 
     @staticmethod
     def _parse_retcode(retcode_str: str | None) -> tuple[int, str]:

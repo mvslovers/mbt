@@ -171,7 +171,44 @@ there to look at — the statement number points into it; `build/test-runner.spo
 is written whenever a job came back at all.
 
 A partial result is different and still yields a matrix: if some steps ran, the
-`NO RC` cells are real information about those steps.
+`NO RC` cells are real information about those steps — *provided the spool was
+read in full*, which is the next case.
+
+### When the spool cannot be read back
+
+The tests running and their results arriving are two different things. If the
+jobs API cannot return the spool, the run reports that, rather than the "no test
+ran" it looks like from the empty result:
+
+```
+[mbt] ERROR: runner job MBTTEST JOB01179 ran, but its output could not be read -- no test result
+[mbt]        HTTP 500 Internal Server Error for GET /restjobs/jobs/MBTTEST/JOB01179/files
+[mbt]        this is the readback failing, not the job -- the tests may well have passed
+[mbt]        the return codes are on the console: IEFACTRT writes the per-step RC to SYSLOG,
+[mbt]          IEFACTRT B05     /TSTEXPIR/00:00:00.02/00:00:00.05/00000/MBTTEST
+[mbt]                                                             ^^^^^ step RC
+[mbt]        and $HASP165 carries the job-level MAX COND CODE
+[mbt]        whatever was read is in build/test-runner.spool
+```
+
+Exit code 4 again — it is a mvsMF communication error, which is what 4 means.
+The console hint is the recoverable part: `IEFACTRT` and `$HASP165` need no
+working REST API, so a run whose results are sitting on the spool intact can be
+read off SYSLOG instead of rerun.
+
+When only *some* `/records` calls fail, the steps whose verdict did arrive are
+printed as usual and the rest show `??`, counted as neither pass nor fail:
+
+```
+  TEST       BATCH          TSO
+  ---------- -------------- --------------
+  TSTA       ok CC 0        ok CC 0
+  TSTB       ??   NO RC     ??   NO RC
+```
+
+A `??` never becomes a test failure — the exit code is 1 only if a step really
+returned nonzero, and 4 when `??` cells are all that is missing. The assertion
+tally under the matrix is short by whatever was not read, and says so.
 
 ### Running a subset
 
