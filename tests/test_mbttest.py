@@ -303,6 +303,13 @@ class AssertionCountTest(unittest.TestCase):
 READBACK_ERR = ["HTTP 500 Internal Server Error for GET "
                 "/restjobs/jobs/MBTTEST/JOB01179/files"]
 
+# A per-DD failure. JESYSMSG is where the IEF142I verdicts live; SYSPRINT is
+# where they emphatically do not.
+JES_DD_ERR = ["JESYSMSG: HTTP 500 Internal Server Error for GET "
+              "/restjobs/jobs/MBTTEST/JOB01179/files/2/records"]
+SYSPRINT_ERR = ["SYSPRINT: HTTP 500 Internal Server Error for GET "
+                "/restjobs/jobs/MBTTEST/JOB01179/files/7/records"]
+
 NO_RC_ROWS = _rows((None, "NO RC"), (None, "NO RC"))
 
 
@@ -375,6 +382,17 @@ class ReadbackFailureTest(unittest.TestCase):
                          _rows((0, "CC"), (None, "NO RC")), READBACK_ERR)
         self.assertIsNone(out)
 
+    def test_no_spool_hint_when_nothing_was_read(self):
+        # The spool file is written unconditionally, so it is there -- empty.
+        # Pointing at it as if it held something sends the reader nowhere.
+        _head, details = self._call("CC", "", NO_RC_ROWS, READBACK_ERR)
+        self.assertEqual([d for d in details if SPOOLF in d], [])
+
+    def test_partial_spool_is_still_worth_pointing_at(self):
+        _head, details = self._call("CC", "--- JESMSGLG ---\n$HASP373",
+                                    NO_RC_ROWS, READBACK_ERR)
+        self.assertTrue(any(SPOOLF in d for d in details), details)
+
 
 class PartialReadbackMatrixTest(unittest.TestCase):
     """The half of #87 that never reaches _job_failure.
@@ -391,7 +409,7 @@ class PartialReadbackMatrixTest(unittest.TestCase):
     }
 
     def test_unread_cells_are_neither_pass_nor_fail(self):
-        lines, failed, unread = mbttest._matrix(self.ROWS, READBACK_ERR)
+        lines, failed, unread = mbttest._matrix(self.ROWS, JES_DD_ERR)
         self.assertEqual(failed, 0)
         self.assertEqual(unread, 2)
         self.assertTrue(any("??" in ln for ln in lines))
@@ -399,7 +417,7 @@ class PartialReadbackMatrixTest(unittest.TestCase):
 
     def test_a_real_failure_alongside_is_still_a_failure(self):
         rows = dict(self.ROWS, TSTC={"batch": (12, "CC"), "tso": (0, "CC")})
-        _lines, failed, unread = mbttest._matrix(rows, READBACK_ERR)
+        _lines, failed, unread = mbttest._matrix(rows, JES_DD_ERR)
         self.assertEqual(failed, 1)
         self.assertEqual(unread, 2)
 
@@ -411,9 +429,23 @@ class PartialReadbackMatrixTest(unittest.TestCase):
         self.assertEqual(unread, 0)
         self.assertTrue(any("FAIL NO RC" in ln for ln in lines), lines)
 
+    def test_a_lost_non_jes_dd_does_not_excuse_a_missing_verdict(self):
+        # The narrow case the coarse rule got wrong: SYSPRINT failing cannot
+        # remove an IEF142I line, so a step with no verdict is still broken
+        # (#74) and must not be waved through as unknown.
+        lines, failed, unread = mbttest._matrix(self.ROWS, SYSPRINT_ERR)
+        self.assertEqual((failed, unread), (2, 0))
+        self.assertTrue(any("FAIL NO RC" in ln for ln in lines), lines)
+
+    def test_a_lost_jes_dd_among_others_still_counts(self):
+        lines, _failed, unread = mbttest._matrix(
+            self.ROWS, SYSPRINT_ERR + JES_DD_ERR)
+        self.assertEqual(unread, 2)
+        self.assertTrue(any("??" in ln for ln in lines))
+
     def test_abend_is_a_verdict_even_with_a_hole_in_the_spool(self):
         rows = {"TSTA": {"batch": (9999, "ABEND S806"), "tso": (0, "CC")}}
-        lines, failed, unread = mbttest._matrix(rows, READBACK_ERR)
+        lines, failed, unread = mbttest._matrix(rows, JES_DD_ERR)
         self.assertEqual((failed, unread), (1, 0))
         self.assertTrue(any("S806" in ln for ln in lines))
 

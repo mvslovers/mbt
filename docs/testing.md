@@ -196,8 +196,10 @@ The console hint is the recoverable part: `IEFACTRT` and `$HASP165` need no
 working REST API, so a run whose results are sitting on the spool intact can be
 read off SYSLOG instead of rerun.
 
-When only *some* `/records` calls fail, the steps whose verdict did arrive are
-printed as usual and the rest show `??`, counted as neither pass nor fail:
+When only *some* `/records` calls fail and the lost DD is one of the JES ones
+(`JESMSGLG`, `JESYSMSG`, `JESJCL`, `JESJCLIN` — where the `IEF142I`/`IEF450I`
+verdicts are written), the steps whose verdict did arrive print as usual and the
+rest show `??`, counted as neither pass nor fail:
 
 ```
   TEST       BATCH          TSO
@@ -209,6 +211,11 @@ printed as usual and the rest show `??`, counted as neither pass nor fail:
 A `??` never becomes a test failure — the exit code is 1 only if a step really
 returned nonzero, and 4 when `??` cells are all that is missing. The assertion
 tally under the matrix is short by whatever was not read, and says so.
+
+A lost `SYSPRINT` is deliberately *not* excused this way: it cannot remove an
+`IEF142I` line, so a step with no verdict is then still genuinely wrong and
+still counts as a failure. Only the DD that carries the verdicts can make one
+unknown.
 
 ### Running a subset
 

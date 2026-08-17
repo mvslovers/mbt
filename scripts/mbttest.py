@@ -39,7 +39,7 @@ except ModuleNotFoundError:
 
 from mbt import EXIT_SUCCESS, EXIT_CONFIG, EXIT_MAINFRAME
 from mbt.config import MbtConfig
-from mbt.mvsmf import MvsMFError
+from mbt.mvsmf import JES_DDNAMES, MvsMFError
 from mbt.jcl import jobcard
 from mbt.project import ProjectError
 from mbt.spool import JCL_ERROR_RE, jcl_diagnostics
@@ -343,12 +343,14 @@ def _job_failure(status: str, spool: str, rows: dict, jobname: str,
     # answer, and what it says is the better fact -- an unreadable spool is
     # then only how the verdict went missing, not what happened.
     if spool_errors:
+        # The spool file is written unconditionally, so it exists either way --
+        # but when /files itself failed it is empty, and pointing at an empty
+        # file as if it held something is how a hint becomes a wrong lead.
         return (
             f"runner job {jobname} {jobid} ran, but its output could not be "
             f"read -- no test result",
-            _readback_details(spool_errors) + [
-                f"whatever was read is in {spool_path}",
-            ],
+            _readback_details(spool_errors)
+            + ([f"what was read is in {spool_path}"] if spool else []),
         )
 
     return (
@@ -368,16 +370,30 @@ _PASS = re.compile(r"^\s*PASS:", re.M)
 _FAIL = re.compile(r"^\s*FAIL:", re.M)
 
 
+def _verdicts_at_risk(spool_errors: list) -> bool:
+    """Could the failed readback have swallowed a step's verdict?
+
+    Only if it lost a JES DD.  A step's verdict is an IEF142I/IEF450I/IEF272I
+    line and those are written by JES, so a SYSPRINT that did not come back
+    costs assertion output, never a return code.  Keeping the two apart
+    matters in both directions: excuse every hole and a step that really has
+    no verdict (#74) gets waved through as `unknown` because an unrelated DD
+    failed; excuse none and #87 stands.
+    """
+    return any(e.split(":", 1)[0] in JES_DDNAMES for e in spool_errors or [])
+
+
 def _matrix(rows: dict, spool_errors: list = None) -> tuple:
     """Render the per-test matrix. Return (lines, failed, unread).
 
     A step with no verdict in a spool that was read in full really is wrong,
-    and counts as a failure.  With a hole in the spool it is not a verdict
-    about the test at all -- neither pass nor fail, just unknown -- and
-    counting it as failed is the same mistranslation as #87, one step down:
-    a green test reported as broken because a REST call 500'd.  Those cells
-    print `??` and are tallied separately.
+    and counts as a failure.  When the readback lost the DD the verdict would
+    have been in, it is not a verdict about the test at all -- neither pass
+    nor fail, just unknown -- and counting it as failed is the same
+    mistranslation as #87, one step down: a green test reported as broken
+    because a REST call 500'd.  Those cells print `??` and are tallied apart.
     """
+    unknown = _verdicts_at_risk(spool_errors)
     lines = [f"  {'TEST':<10} {'BATCH':<14} {'TSO':<14}",
              f"  {'-'*10} {'-'*14} {'-'*14}"]
     failed = unread = 0
@@ -385,7 +401,7 @@ def _matrix(rows: dict, spool_errors: list = None) -> tuple:
         cells = []
         for leg in ("batch", "tso"):
             rc, st = rows[test].get(leg, (None, "MISSING"))
-            if spool_errors and st == _NO_RC:
+            if unknown and st == _NO_RC:
                 unread += 1
                 cells.append(f"??   {st}")
                 continue

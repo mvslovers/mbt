@@ -42,6 +42,14 @@ def _one_line(err: Exception, limit: int = _ERR_MAX) -> str:
     return s if len(s) <= limit else s[:limit - 3] + "..."
 
 
+# The JES system DDs.  Everything JES itself says about a job is in these --
+# the step IEF142I/IEF450I/IEF272I lines included -- so a caller that needs
+# only return codes can restrict the readback to them (jes_only), and one
+# diagnosing a failed readback can tell whether the part that went missing
+# was the part that carries the verdicts.
+JES_DDNAMES = {"JESJCLIN", "JESMSGLG", "JESJCL", "JESYSMSG"}
+
+
 @dataclass
 class JobResult:
     """Result of a submitted JCL job."""
@@ -63,11 +71,6 @@ class JobResult:
     @property
     def abended(self) -> bool:
         return self.status == "ABEND"
-
-    @property
-    def spool_unread(self) -> bool:
-        """Did any part of the spool readback fail?"""
-        return bool(self.spool_errors)
 
 
 class MvsMFClient:
@@ -265,8 +268,6 @@ class MvsMFClient:
             spool_errors=spool_errors
         )
 
-    _JES_DDNAMES = {"JESJCLIN", "JESMSGLG", "JESJCL", "JESYSMSG"}
-
     def _collect_spool(self, jobname: str,
                        jobid: str,
                        jes_only: bool = False) -> tuple[str, list]:
@@ -286,6 +287,11 @@ class MvsMFClient:
             text is still returned alongside: a partial spool is worth keeping,
             it just may not be complete.
 
+            A per-DD failure is reported as "{ddname}: {message}"; a failure of
+            the /files listing itself has no such prefix, because nothing is
+            then known about which DDs there were.  Callers rely on that
+            prefix to tell which part of the spool went missing.
+
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}/files
         Endpoint: GET /zosmf/restjobs/jobs/{name}/{id}/files/{n}/records
         """
@@ -303,7 +309,7 @@ class MvsMFClient:
             ddname = f.get("ddname", "")
             if not fid:
                 continue
-            if jes_only and ddname not in self._JES_DDNAMES:
+            if jes_only and ddname not in JES_DDNAMES:
                 continue
             try:
                 raw = self._request(

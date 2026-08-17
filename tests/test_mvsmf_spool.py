@@ -82,6 +82,14 @@ class CollectSpoolTest(unittest.TestCase):
         self.assertIn("500", errors[0])
         self.assertIn("/files", errors[0])
 
+    def test_listing_failure_carries_no_ddname_prefix(self):
+        # Nothing is known about which DDs there were, and mbttest reads the
+        # "{ddname}: " prefix to tell which part of the spool went missing.
+        _text, errors = _StubClient(MvsMFError(
+            HTTP_500.format(path="/restjobs/jobs/MBTTEST/JOB01179/files")
+        ))._collect_spool(*JOB)
+        self.assertTrue(errors[0].startswith("HTTP "), errors[0])
+
     def test_failed_records_call_is_reported_and_names_the_dd(self):
         err = MvsMFError(HTTP_500.format(
             path="/restjobs/jobs/MBTTEST/JOB01179/files/2/records"))
@@ -132,10 +140,11 @@ class JobResultTest(unittest.TestCase):
         a.spool_errors.append("x")
         self.assertEqual(b.spool_errors, [], "default list is shared")
 
-    def test_spool_unread_distinguishes_empty_from_unreadable(self):
-        self.assertFalse(JobResult("J", "N", 0, "CC", "").spool_unread)
-        self.assertTrue(
-            JobResult("J", "N", 0, "CC", "", ["HTTP 500"]).spool_unread)
+    def test_construction_without_errors_still_works(self):
+        # tests/test_mbtdeploy.py and scripts/legacy/ build JobResult with the
+        # original five fields; the new one must stay optional.
+        r = JobResult(jobid="J", jobname="N", rc=0, status="CC", spool="s")
+        self.assertEqual(r.spool_errors, [])
 
 
 class OneLineTest(unittest.TestCase):
