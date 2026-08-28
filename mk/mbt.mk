@@ -131,13 +131,20 @@ $(BUILDDIR)/%.o: %.c
 	$(Q)$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
 	$(Q)d="$@"; d="$${d%.o}.d"; sed 's/#/\\#/g' "$$d" > "$$d.e" && mv "$$d.e" "$$d"
 
+# as370 returns IFOX00's severity as its exit status -- 0 clean, 4 warning,
+# 8 error, 12 severe, 16 terminal -- and a warned assembly still punches its
+# deck. On MVS that was COND=(8,LT): the ASM step returned 4 and the linkage
+# editor ran anyway. make stops on any non-zero status, so a single warned card
+# would fail a build over a diagnostic the assembler itself considers survivable.
+# The rules below keep RC < 8 and re-raise anything at or above 8 with its own
+# code; either way as370's diagnostics have already gone to stderr.
 $(BUILDDIR)/%.o: %.asm
 	$(E) "[as370] $<"
-	$(Q)$(AS) $(ASFLAGS) -o $@ $<
+	$(Q)$(AS) $(ASFLAGS) -o $@ $< || { rc=$$?; [ $$rc -lt 8 ] || exit $$rc; }
 
 $(BUILDDIR)/%.o: %.s
 	$(E) "[as370] $<"
-	$(Q)$(AS) $(ASFLAGS) -o $@ $<
+	$(Q)$(AS) $(ASFLAGS) -o $@ $< || { rc=$$?; [ $$rc -lt 8 ] || exit $$rc; }
 
 # -- Link helpers --------------------------------------------------
 # Called by the generated module rules below.
