@@ -126,6 +126,14 @@ vpath %.s $(SRC_DIRS)
 DEPFLAGS := -MMD -MP
 
 # -- Pattern rules -------------------------------------------------
+# A failed recipe must not leave its target behind. as370 writes its object deck
+# even when it flags the assembly, so without this a build that stopped at RC 8
+# leaves a .o that is NEWER than its source -- and the next `make` calls it up to
+# date, links it, and exits 0. Demonstrated: a module whose comment card ate a
+# statement fails the build once, then "succeeds" on the second invocation with
+# the deck that is missing the statement.
+.DELETE_ON_ERROR:
+
 $(BUILDDIR)/%.o: %.c
 	$(E) "[cc370] $<"
 	$(Q)$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
