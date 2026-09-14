@@ -224,6 +224,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     if dist.smp.accept_fmid:
         accept_summary = ("//*   ACCEPT    make this level the base a RESTORE "
                           "returns to")
+        accept_cond = D.accept_cond(dist)
         accept_step = (
             "//*\n"
             "//* ---- ACCEPT -------------------------------------------------------\n"
@@ -232,7 +233,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
             "//* a RESTORE would DELETE the module instead of reverting it.\n"
             "//* Service (PTFs) is deliberately never accepted.\n"
             "//*\n"
-            "//ACCEPT  EXEC SMPAPP,COND=(0,NE,APPLY.HMASMP)\n"
+            f"//ACCEPT  EXEC SMPAPP,COND={accept_cond}\n"
             f"{D.render_apply_dds(dist)}\n"
             "//SMPCNTL  DD  *\n"
             f" ACCEPT S({dist.smp.fmid}) DIS(WRITE) .\n"
