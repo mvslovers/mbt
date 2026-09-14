@@ -215,6 +215,38 @@ class AssembleTest(unittest.TestCase):
         mcs = D.assemble_mcs(dist, ["X"], "p", "1.0.0")
         self.assertIn("++VER(Z038) REQ(TUFS110)", mcs)
 
+    def test_delete_becomes_delete(self):
+        dist = D.parse(_cfg(delete=["TUFS122"]), "V1R2M3")
+        mcs = D.assemble_mcs(dist, ["X"], "p", "1.2.3")
+        self.assertIn("++VER(Z038) DELETE(TUFS122)", mcs)
+
+    def test_delete_and_prereq_share_the_ver(self):
+        dist = D.parse(_cfg(prereq=["TUFS110"], delete=["TUFS122"]), "V1R2M3")
+        mcs = D.assemble_mcs(dist, ["X"], "p", "1.2.3")
+        self.assertIn("++VER(Z038) REQ(TUFS110) DELETE(TUFS122)", mcs)
+
+    def test_delete_rejects_a_malformed_id(self):
+        with self.assertRaises(D.DistributionError):
+            D.parse(_cfg(delete=["NOPE"]), "V1R2M3")
+
+    def test_a_function_cannot_delete_itself(self):
+        # A new level needs a new id; the id is what deletes the one before it.
+        cfg = _cfg(delete=["TUFS110"])
+        cfg["distribution"]["smp"]["fmid"] = "TUFS110"
+        with self.assertRaises(D.DistributionError):
+            D.parse(cfg, "V1R1M0")
+
+    def test_accept_gate_is_strict_without_a_delete(self):
+        self.assertEqual(D.accept_cond(D.parse(_cfg(), "V1R1M1")),
+                         "(0,NE,APPLY.HMASMP)")
+
+    def test_accept_gate_tolerates_the_rc4_a_delete_causes(self):
+        # HMA2461 SYSMOD <old> NOT FOUND ON SMPSCDS LIBRARY makes the APPLY
+        # end RC 04.  A strict gate skips the ACCEPT in silence, and the
+        # deleted id then survives in the ACDS.
+        dist = D.parse(_cfg(delete=["TUFS122"]), "V1R2M3")
+        self.assertEqual(D.accept_cond(dist), "(4,LT,APPLY.HMASMP)")
+
     def test_long_module_list_wraps_inside_the_limit(self):
         many = [f"MOD{i:05d}" for i in range(40)]
         mcs = D.assemble_mcs(self.dist, many, "ufsd", "1.1.1")

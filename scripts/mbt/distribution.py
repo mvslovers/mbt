@@ -15,6 +15,16 @@ re-binding it, so AC, RENT/REUS and the entry point survive exactly as ld370
 set them.  Text members (PROC, PARMLIB, sample JCL) travel as `++MAC` steered
 by `DISTLIB()`/`SYSLIB()`.
 
+A release replaces the one before it through `++VER … DELETE(<old-fmid>)`
+(`[distribution.smp] delete`).  SMP keys element ownership on `MOD(name)` in
+the CDS, not on the library the element lives in, so a SYSMOD that does not
+own an element cannot install it: the element summary says `NOT SEL`, nothing
+is copied, and every condition code still reads success.  `DELETE` is how
+ownership moves -- SMP deletes the predecessor's LMODs from the target
+library, then copies the new ones in -- and it is why each release wants its
+own FMID rather than re-spending one.  Measured on mvsdev 2026-09-14,
+HMASMP LVL 04.48.
+
 Everything in this module is pure: it takes parsed TOML plus file contents and
 returns strings.  File, archive and template handling lives in mbtdist.py.
 """
@@ -236,6 +246,7 @@ class Smp:
     target: str      # DSN the load modules are installed into
     distlib: str     # DSN of the distribution library backing them
     prereq: tuple[str, ...] = ()
+    delete: tuple[str, ...] = ()
     accept_fmid: bool = True
 
     @property
@@ -286,7 +297,7 @@ class Distribution:
 
 _DIST_KEYS = {"readme", "extra", "smp", "library"}
 _SMP_KEYS = {"fmid", "system", "lklib", "target", "distlib", "prereq",
-             "accept_fmid"}
+             "delete", "accept_fmid"}
 _LIB_KEYS = {"dir", "target", "distlib"}
 
 
@@ -344,6 +355,25 @@ def parse(cfg: dict, vrm: str) -> Distribution | None:
                 f"SYSMOD id"
             )
 
+    # The functions this level replaces.  SMP deletes them -- their elements,
+    # their inventory entries in whichever zone is being processed -- and the
+    # elements become this FMID's.  Without it a successor cannot install at
+    # all: SMP keys element ownership on MOD(name), so a SYSMOD that does not
+    # own MOD(x) reports NOT SEL, copies nothing, and still ends RC 00.
+    delete = tuple(str(d).upper() for d in smp_cfg.get("delete", []))
+    for d in delete:
+        if not _FMID_RE.match(d):
+            raise DistributionError(
+                f"[distribution.smp]: delete '{d}' is not a valid 7-character "
+                f"SYSMOD id"
+            )
+    if fmid in delete:
+        raise DistributionError(
+            f"[distribution.smp]: delete names this SYSMOD's own fmid "
+            f"'{fmid}'. A function cannot delete itself -- a new level needs "
+            f"a new id, and that id is what deletes the one before it."
+        )
+
     smp = Smp(
         fmid=fmid,
         system=str(_require(smp_cfg, "system", "[distribution.smp]")).upper(),
@@ -354,6 +384,7 @@ def parse(cfg: dict, vrm: str) -> Distribution | None:
         distlib=expand(_require(smp_cfg, "distlib", "[distribution.smp]"),
                        "[distribution.smp] distlib"),
         prereq=prereq,
+        delete=delete,
         accept_fmid=bool(smp_cfg.get("accept_fmid", True)),
     )
 
@@ -488,6 +519,8 @@ def assemble_mcs(dist: Distribution,
     ver = f"++VER({smp.system})"
     if smp.prereq:
         ver += f" REQ({','.join(smp.prereq)})"
+    if smp.delete:
+        ver += f" DELETE({','.join(smp.delete)})"
     out.append(ver)
     out.append(f"   /* {product} {version}".ljust(65) + "*/")
     out.append("   /* Load modules are copied from the LKLIB, not re-bound.".ljust(65) + "*/ .")
@@ -633,6 +666,29 @@ def render_receive_steps(plan: list[tuple[str, str, str, str]]) -> str:
             "/*",
         ]
     return "\n".join(lines)
+
+
+def accept_cond(dist: Distribution) -> str:
+    """The COND that decides whether the ACCEPT step runs.
+
+    Normally the APPLY must end RC 0.  A SYSMOD that DELETEs its predecessor
+    cannot: the deleted id has no SMPSCDS backup entry and never will, so the
+    APPLY says
+
+        HMA2270 APPLY PROCESSING SUCCESSFULLY COMPLETED FOR SYSMOD <new>
+        HMA2461 SYSMOD <old> NOT FOUND ON SMPSCDS LIBRARY
+        HMA2050 APPLY PROCESSING COMPLETED - HIGHEST RETURN CODE IS 04
+
+    and RC 04 is the honest result.  Under the strict gate the ACCEPT is then
+    skipped *in silence*, leaving the old id deleted in the CDS and still
+    REC APP ACC RGN in the ACDS -- each zone is deleted by its own pass, the
+    CDS by APPLY and the ACDS by ACCEPT.  Measured on mvsdev 2026-09-14:
+    JOB00293 skipped the ACCEPT, JOB00297 with the relaxed gate completed.
+
+    Relaxed only when there is a DELETE.  With no deletion in play, RC 04 out
+    of an APPLY is still worth stopping for.
+    """
+    return "(4,LT,APPLY.HMASMP)" if dist.smp.delete else "(0,NE,APPLY.HMASMP)"
 
 
 def render_cleanup_step(dist: Distribution, after_step: str) -> str:
