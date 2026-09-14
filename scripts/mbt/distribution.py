@@ -671,9 +671,10 @@ def render_receive_steps(plan: list[tuple[str, str, str, str]]) -> str:
 def accept_cond(dist: Distribution) -> str:
     """The COND that decides whether the ACCEPT step runs.
 
-    Normally the APPLY must end RC 0.  A SYSMOD that DELETEs its predecessor
-    cannot: the deleted id has no SMPSCDS backup entry and never will, so the
-    APPLY says
+    Normally the APPLY must end RC 0.  A SYSMOD that DELETEs a predecessor the
+    system actually holds cannot: SMP looks for a backup of what it is about to
+    delete, the deleted id has no SMPSCDS entry and never will, and the APPLY
+    says
 
         HMA2270 APPLY PROCESSING SUCCESSFULLY COMPLETED FOR SYSMOD <new>
         HMA2461 SYSMOD <old> NOT FOUND ON SMPSCDS LIBRARY
@@ -684,6 +685,13 @@ def accept_cond(dist: Distribution) -> str:
     REC APP ACC RGN in the ACDS -- each zone is deleted by its own pass, the
     CDS by APPLY and the ACDS by ACCEPT.  Measured on mvsdev 2026-09-14:
     JOB00293 skipped the ACCEPT, JOB00297 with the relaxed gate completed.
+
+    Only an upgrade produces that 04.  A *fresh* install carrying the same
+    DELETE has nothing to delete and therefore nothing to miss a backup of: it
+    ends CC 0000 with no HMA2461 at all (measured JOB00304 / ftpd JOB00309
+    against JOB00297 / ftpd JOB00325).  So the relaxed gate is load-bearing on
+    an upgrade and merely harmless on a first install -- not a weaker form of
+    the same case.
 
     Relaxed only when there is a DELETE.  With no deletion in play, RC 04 out
     of an APPLY is still worth stopping for.
