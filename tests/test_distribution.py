@@ -134,6 +134,12 @@ class TrapTest(unittest.TestCase):
         with self.assertRaises(D.DistributionError):
             D.jobcard("UFSDINS", "X" * (D.MAX_PROGRAMMER_NAME + 1))
 
+    def test_job_card_region_covers_the_receive_steps(self):
+        # #106: the RECEIVE steps' IEBCOPY runs out of buffer storage
+        # (IEB135I) at a 512K class default.  Their EXEC carries no REGION of
+        # its own because the JOB card's applies to every step of the job.
+        self.assertIn("REGION=4096K", D.jobcard("UFSDINS", "UFSD INSTALL"))
+
 
 class CardTextTest(unittest.TestCase):
     def test_the_generated_limit_is_column_71(self):

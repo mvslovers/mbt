@@ -1913,7 +1913,7 @@ $JOBCARD
 //*-----------------------------------------------------------
 //* TSO RECEIVE: $XMIT_DSN → $TARGET_DSN
 //*-----------------------------------------------------------
-//RECV    EXEC PGM=IKJEFT01
+//RECV    EXEC PGM=IKJEFT01,REGION=4096K
 //SYSTSPRT DD SYSOUT=*
 //SYSTSIN  DD *
  RECEIVE INDSN('$XMIT_DSN')

@@ -221,3 +221,81 @@ class ReceiveTimeoutTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StagingCleanupTest(unittest.TestCase):
+    """A failed RECEIVE keeps its input, so the job can be retried (#106).
+
+    Deleting the staging dataset on every exit path meant a manual resubmit
+    of the failed job -- with a bigger REGION, say -- found no input and the
+    XMIT had to be uploaded again.  Any other failure still cleans up.
+    """
+
+    STAGING = "IBMUSER.MBT.XMIT.IN"
+
+    class _Client:
+        def __init__(self, fail_upload=False):
+            self.existing = set()
+            self.deleted = []
+            self.fail_upload = fail_upload
+
+        def dataset_exists(self, dsn):
+            return dsn in self.existing
+
+        def delete_dataset(self, dsn):
+            self.deleted.append(dsn)
+            self.existing.discard(dsn)
+
+        def create_dataset(self, dsn, *args):
+            self.existing.add(dsn)
+
+        def upload_binary(self, dsn, data):
+            if self.fail_upload:
+                raise mbtdeploy.MvsMFError("upload failed")
+
+    def _main(self, client, receive):
+        from unittest import mock
+        config = types.SimpleNamespace(
+            hlq="IBMUSER", project=types.SimpleNamespace(name="httpd"))
+        with tempfile.TemporaryDirectory() as d:
+            xmit = Path(d, "httpd.deploy")
+            xmit.write_bytes(b"\0" * 80)
+            with mock.patch.object(sys, "argv", ["mbtdeploy", "--builddir", d]), \
+                 mock.patch.object(mbtdeploy, "MbtConfig", return_value=config), \
+                 mock.patch.object(mbtdeploy, "_load_project", return_value={}), \
+                 mock.patch.object(mbtdeploy, "_built_modules",
+                                   return_value=["HTTPD"]), \
+                 mock.patch.object(mbtdeploy, "_resolve_target",
+                                   return_value=TARGET), \
+                 mock.patch.object(mbtdeploy, "_pack", return_value=str(xmit)), \
+                 mock.patch.object(mbtdeploy, "_make_client",
+                                   return_value=client), \
+                 mock.patch.object(mbtdeploy, "_receive_xmit",
+                                   side_effect=receive), \
+                 mock.patch.object(mbtdeploy, "_log"), \
+                 mock.patch.object(mbtdeploy, "_log_error"), \
+                 mock.patch.object(mbtdeploy, "_log_cont"):
+                return mbtdeploy.main()
+
+    def test_failed_receive_keeps_the_staging_dataset(self):
+        client = self._Client()
+
+        def receive(*a, **kw):
+            raise mbtdeploy.ReceiveError("RECEIVE job failed with RC=8", [])
+
+        rc = self._main(client, receive)
+        self.assertEqual(rc, mbtdeploy.EXIT_MAINFRAME)
+        self.assertIn(self.STAGING, client.existing)
+        self.assertNotIn(self.STAGING, client.deleted)
+
+    def test_successful_receive_deletes_the_staging_dataset(self):
+        client = self._Client()
+        rc = self._main(client, lambda *a, **kw: 0)
+        self.assertEqual(rc, mbtdeploy.EXIT_SUCCESS)
+        self.assertNotIn(self.STAGING, client.existing)
+
+    def test_other_failures_still_delete_the_staging_dataset(self):
+        client = self._Client(fail_upload=True)
+        rc = self._main(client, lambda *a, **kw: 0)
+        self.assertEqual(rc, mbtdeploy.EXIT_MAINFRAME)
+        self.assertNotIn(self.STAGING, client.existing)

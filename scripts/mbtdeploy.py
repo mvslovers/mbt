@@ -370,6 +370,7 @@ def main() -> int:
     # -- 2..5. Upload, replace target, RECEIVE --
     client = _make_client(config)
     staging = f"{config.hlq}.{STAGING_SUFFIX}"
+    keep_staging = False
     try:
         if client.dataset_exists(staging):
             client.delete_dataset(staging)
@@ -391,16 +392,21 @@ def main() -> int:
         _log(f"Deploy complete: {len(built)} module(s) -> {target}")
     except ReceiveError as e:
         # Already a diagnosis -- do not bury it under a second "deploy failed".
+        # The staging dataset stays: it makes the failed job retryable by hand
+        # (a bigger REGION, say), and a job that timed out may still be reading
+        # it.  The next deploy deletes it before its own upload.
+        keep_staging = True
         _log_error(str(e))
         for line in e.details:
             _log_cont(line)
+        _log_cont(f"{staging} kept for a retry of the RECEIVE")
         return EXIT_MAINFRAME
     except MvsMFError as e:
         _log_error(f"deploy failed: {e}")
         return EXIT_MAINFRAME
     finally:
         try:
-            if client.dataset_exists(staging):
+            if not keep_staging and client.dataset_exists(staging):
                 client.delete_dataset(staging)
         except MvsMFError:
             _log_warn(f"could not delete staging dataset {staging}")
