@@ -477,6 +477,7 @@ def main() -> int:
             return EXIT_CONFIG
         xmit_bytes = Path(xmit).read_bytes()
         staging = f"{config.hlq}.{STAGING_SUFFIX}"
+        keep_staging = False
         try:
             if client.dataset_exists(staging):
                 client.delete_dataset(staging)
@@ -492,16 +493,20 @@ def main() -> int:
                           nbytes=len(xmit_bytes))
         except ReceiveError as e:
             # Already a diagnosis -- do not bury it under a second headline.
+            # Keep the staging dataset so the failed job can be retried by hand
+            # (see mbtdeploy.main); the next run deletes it before uploading.
+            keep_staging = True
             _log_error(str(e))
             for line in e.details:
                 _log_cont(line)
+            _log_cont(f"{staging} kept for a retry of the RECEIVE")
             return EXIT_MAINFRAME
         except MvsMFError as e:
             _log_error(f"test deploy failed: {e}")
             return EXIT_MAINFRAME
         finally:
             try:
-                if client.dataset_exists(staging):
+                if not keep_staging and client.dataset_exists(staging):
                     client.delete_dataset(staging)
             except MvsMFError:
                 pass

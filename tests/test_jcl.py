@@ -234,6 +234,8 @@ class TestRenderTemplate(unittest.TestCase):
         result = render_template("receive.jcl.tpl", vars_)
         self.assertIn("IKJEFT01", result)
         self.assertIn("RECEIVE", result)
+        # #106: at the class default IEBCOPY fails IEB135I (no buffer).
+        self.assertIn("//RECV    EXEC PGM=IKJEFT01,REGION=4096K", result)
         self.assertIn("IBMUSER.DEPS.NCALIB.XMIT", result)
         self.assertIn("IBMUSER.DEPS.CRENT370.V1R0M0.NCALIB", result)
 
