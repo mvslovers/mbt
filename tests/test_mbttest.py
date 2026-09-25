@@ -56,36 +56,125 @@ class GenRunnerTest(unittest.TestCase):
         self.assertIn(f"REGION={mbttest.RUNNER_REGION}", self.jcl)
 
 
+FIX = "IBMUSER.REXX370.FIX.TSTLOAD"
+
+
 class FixtureRunnerTest(unittest.TestCase):
     def setUp(self):
         self.fix = {
-            "TSTLOAD": {
-                "pds": "IBMUSER.REXX370.FIX.TSTLOAD",
-                "dds": ["SYSEXEC", "ALTDD"],
-                "members": [("HELLO", "/* c */\nsay 'hi'\n"), ("EMPTY", "")],
-            }
+            "TSTLOAD": [
+                {"dd": "SYSEXEC", "pds": f"{FIX}.SYSEXEC",
+                 "members": [("HELLO", "/* c */\nsay 'hi'\n"), ("EMPTY", "")]},
+                {"dd": "SYSPROC", "pds": f"{FIX}.SYSPROC",
+                 "members": [("PROCONLY", "say 'proc'\n")]},
+            ]
         }
         self.jcl, self.smap = mbttest._gen_runner(
             JC, ["TSTLOAD", "TSTTOKN"], TESTLIB, LINKLIB, self.fix)
 
     def test_iebgener_load_step_per_member(self):
         self.assertIn("EXEC PGM=IEBGENER", self.jcl)
-        self.assertIn("//SYSUT2   DD DSN=IBMUSER.REXX370.FIX.TSTLOAD(HELLO),DISP=SHR", self.jcl)
-        self.assertIn("//SYSUT2   DD DSN=IBMUSER.REXX370.FIX.TSTLOAD(EMPTY),DISP=SHR", self.jcl)
+        self.assertIn(f"//SYSUT2   DD DSN={FIX}.SYSEXEC(HELLO),DISP=SHR", self.jcl)
+        self.assertIn(f"//SYSUT2   DD DSN={FIX}.SYSEXEC(EMPTY),DISP=SHR", self.jcl)
+        # 72 columns on one line, so it is continued (#109's own T10 case)
+        self.assertIn(f"//SYSUT2   DD DSN={FIX}.SYSPROC(PROCONLY),\n"
+                      f"//             DISP=SHR", self.jcl)
+
+    def test_no_card_passes_column_71(self):
+        long = [ln for ln in self.jcl.splitlines()
+                if ln.startswith("//") and len(ln) > 71]
+        self.assertEqual(long, [])
+
+    def test_member_is_loaded_only_into_its_own_dds_pds(self):
+        # #109: a search-order test needs PROCONLY under SYSPROC and *not*
+        # under SYSEXEC, or the search finds it in SYSEXEC first.
+        self.assertNotIn(f"{FIX}.SYSEXEC(PROCONLY)", self.jcl)
+        self.assertNotIn(f"{FIX}.SYSPROC(HELLO)", self.jcl)
 
     def test_dlm_lets_rexx_comment_pass(self):
         # the '/* c */' content must survive (DLM moves the terminator off '/*')
         self.assertIn(f"//SYSUT1   DD *,DLM={mbttest._FIX_DLM}", self.jcl)
         self.assertIn("/* c */", self.jcl)
 
-    def test_both_dds_added_to_fixture_test_steps(self):
-        self.assertIn("//SYSEXEC  DD DSN=IBMUSER.REXX370.FIX.TSTLOAD,DISP=SHR", self.jcl)
-        self.assertIn("//ALTDD    DD DSN=IBMUSER.REXX370.FIX.TSTLOAD,DISP=SHR", self.jcl)
+    def test_each_dd_points_at_its_own_pds(self):
+        for step in ("//B01", "//T01"):
+            body = self.jcl.split(step)[1].split("\n//B02")[0].split("\n//T02")[0]
+            self.assertIn(f"//SYSEXEC  DD DSN={FIX}.SYSEXEC,DISP=SHR", body)
+            self.assertIn(f"//SYSPROC  DD DSN={FIX}.SYSPROC,DISP=SHR", body)
 
     def test_non_fixture_test_gets_no_fixture_dd(self):
         # TSTTOKN has no fixture -> no FIX.TSTLOAD DD leaks into its step
         toks = self.jcl.split("//B02")[1].split("//T01")[0]  # TSTTOKN batch step
         self.assertNotIn("FIX.TSTLOAD", toks)
+
+
+class DdCardTest(unittest.TestCase):
+    # HLQ, project, test and DD all 8 characters: the longest (39) fixture DSN
+    LONG = "ABCDEFGH.PROJECTX.FIX.TESTNAME.DDNAMEXX"
+
+    def test_short_card_stays_on_one_line(self):
+        self.assertEqual(mbttest._dd_card("SYSEXEC", "A.B"),
+                         "//SYSEXEC  DD DSN=A.B,DISP=SHR")
+
+    def test_long_card_is_continued_within_column_71(self):
+        card = mbttest._dd_card("SYSUT2", f"{self.LONG}(MEMBERXX)")
+        lines = card.split("\n")
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(all(len(ln) <= 71 for ln in lines), lines)
+        self.assertTrue(lines[0].endswith(","))
+        self.assertEqual(lines[1].strip(), "//             DISP=SHR".strip())
+
+
+class ResolveFixturesTest(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        import types
+        self._tmp = tempfile.TemporaryDirectory()
+        d = Path(self._tmp.name)
+        for m in ("hello", "empty", "proconly"):
+            (d / m).write_text(f"say '{m}'\n")
+        self.d = d
+        self.config = types.SimpleNamespace(
+            hlq="IBMUSER", project=types.SimpleNamespace(name="rexx370"))
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _project(self, *blocks):
+        return {"test": [{"name": "TSTLOAD", "fixture": [
+            {"dd": dd, "members": [str(self.d / m) for m in ms]}
+            for dd, ms in blocks]}]}
+
+    def test_one_pds_per_block(self):
+        fx = mbttest._resolve_fixtures(
+            self._project(("SYSEXEC", ["hello", "empty"]),
+                          ("SYSPROC", ["proconly"])),
+            ["TSTLOAD"], self.config)
+        self.assertEqual(
+            [(b["dd"], b["pds"], [m for m, _ in b["members"]])
+             for b in fx["TSTLOAD"]],
+            [("SYSEXEC", "IBMUSER.REXX370.FIX.TSTLOAD.SYSEXEC", ["HELLO", "EMPTY"]),
+             ("SYSPROC", "IBMUSER.REXX370.FIX.TSTLOAD.SYSPROC", ["PROCONLY"])])
+
+    def test_same_member_may_appear_under_two_dds(self):
+        # formerly deduplicated across the whole test, which would have
+        # dropped the second copy
+        fx = mbttest._resolve_fixtures(
+            self._project(("SYSEXEC", ["hello"]), ("ALTDD", ["hello"])),
+            ["TSTLOAD"], self.config)
+        self.assertEqual([len(b["members"]) for b in fx["TSTLOAD"]], [1, 1])
+
+    def test_dd_declared_twice_is_rejected(self):
+        with self.assertRaises(mbttest.ProjectError) as cm:
+            mbttest._resolve_fixtures(
+                self._project(("SYSEXEC", ["hello"]), ("sysexec", ["empty"])),
+                ["TSTLOAD"], self.config)
+        self.assertIn("SYSEXEC", str(cm.exception))
+
+    def test_unselected_test_is_skipped(self):
+        fx = mbttest._resolve_fixtures(
+            self._project(("SYSEXEC", ["hello"])), ["TSTTOKN"], self.config)
+        self.assertEqual(fx, {})
 
 
 class PerLegParmTest(unittest.TestCase):

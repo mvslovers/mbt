@@ -244,11 +244,20 @@ dd = "ALTDD"
 members = ["test/fixtures/tstload/ALTM"]
 ```
 
-For each fixture test the runner allocates a **per-test** fixture PDS
-(`{HLQ}.{PROJECT}.FIX.{TEST}` -- per-test so member names may collide across
-tests), loads each member via an `IEBGENER` step (`DLM=` so a `/* ... */` REXX
-comment in the data does not end the instream early; member name = file basename
-uppercased), and adds each declared `dd` to that test's batch + TSO steps.
+Each `[[test.fixture]]` block gets its **own** PDS,
+`{HLQ}.{PROJECT}.FIX.{TEST}.{DD}`: per test so member names may collide across
+tests, and per DD so a member is visible **only** under the DD that declares it.
+That is what a search-order test needs -- e.g. a member that `SYSPROC` has and
+`SYSEXEC` does not, which a search of `SYSEXEC` then `SYSPROC` must find in the
+second. A member that is read through two DDs must be listed under both.
+
+The runner deletes and reallocates each PDS before every run, loads each member
+via an `IEBGENER` step (`DLM=` so a `/* ... */` REXX comment in the data does
+not end the instream early; member name = file basename uppercased), and adds
+each declared `dd` to that test's batch + TSO steps. A DD may be declared only
+once per test -- list all its members in one block. Earlier releases put all of
+a test's DDs on one shared `{HLQ}.{PROJECT}.FIX.{TEST}`; the runner deletes that
+dataset when it finds it.
 
 ### Per-leg arguments (environment-dependent tests)
 
