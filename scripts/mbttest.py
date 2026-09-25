@@ -99,10 +99,17 @@ def _resolve_testlib(config: MbtConfig, project: dict) -> str:
 def _resolve_fixtures(project: dict, tests: list, config: MbtConfig) -> dict:
     """Resolve each selected test's [[test.fixture]] blocks.
 
-    Returns { test: {"pds": dsn, "dds": [ddname], "members": [(name, text)]} }
-    for tests that declare fixtures. Each test gets its own per-test fixture PDS
-    (member names may collide across tests, e.g. TSTLOAD's HELLO vs TSTJCL's),
-    and all of a test's DDs point at it. Member name = file basename uppercased.
+    Returns { test: [{"dd": ddname, "pds": dsn, "members": [(name, text)]}] }
+    for tests that declare fixtures. Every block gets its own PDS,
+    {HLQ}.{PROJECT}.FIX.{TEST}.{DD}: per test so member names may collide
+    across tests (TSTLOAD's HELLO vs TSTJCL's), and per DD so a member is
+    visible only under the DD that declares it -- a search-order test needs a
+    member that one DD has and another does not (#109). Member name = file
+    basename uppercased.
+
+    Raises ProjectError when one test declares the same DD twice: that would
+    be two DD statements of one name in the step. Raises OSError when a member
+    file cannot be read.
     """
     want = {t.upper() for t in tests}
     name = config.project.name.upper()
@@ -111,21 +118,27 @@ def _resolve_fixtures(project: dict, tests: list, config: MbtConfig) -> dict:
         tn = t.get("name", "")
         if tn.upper() not in want or not t.get("fixture"):
             continue
-        dds, members, seen = [], [], set()
+        blocks, dds = [], set()
         for fx in t["fixture"]:
-            dds.append(fx["dd"])
+            dd = fx["dd"].upper()
+            if dd in dds:
+                raise ProjectError(
+                    f"test {tn}: fixture DD {dd} is declared twice -- "
+                    f"list all its members in one [[test.fixture]] block")
+            dds.add(dd)
+            members, seen = [], set()
             for mfile in fx.get("members", []):
                 member = Path(mfile).stem.upper()[:8]
                 if member in seen:
                     continue
                 seen.add(member)
-                text = Path(mfile).read_text()
-                members.append((member, text))
-        out[tn] = {
-            "pds": f"{config.hlq}.{name}.FIX.{tn}",
-            "dds": dds,
-            "members": members,
-        }
+                members.append((member, Path(mfile).read_text()))
+            blocks.append({
+                "dd": fx["dd"],
+                "pds": f"{config.hlq}.{name}.FIX.{tn}.{dd}",
+                "members": members,
+            })
+        out[tn] = blocks
     return out
 
 
@@ -156,17 +169,27 @@ def _resolve_parms(project: dict, tests: list) -> dict:
 _FIX_DLM = "$A"
 
 
+def _dd_card(ddname: str, dsn: str) -> str:
+    """A `DD DSN=...,DISP=SHR` card, continued when it would pass column 71.
+
+    A fixture DSN reaches 39 characters ({HLQ}.{PROJECT}.FIX.{TEST}.{DD},
+    all but FIX of them 8), and with a member name the SYSUT2 card is then 76
+    columns long.  Past 71 JCL does not see the rest of it.
+    """
+    card = f"//{ddname:<8} DD DSN={dsn},DISP=SHR"
+    if len(card) <= 71:
+        return card
+    return f"//{ddname:<8} DD DSN={dsn},\n//             DISP=SHR"
+
+
 def _fixture_dds(fixtures: dict, test: str) -> str:
     """The DD cards (STEPLIB-style) a fixture test's steps need, or ''.
 
-    fixtures[test] = {"pds": dsn, "dds": [ddname, ...], "members": [...]}.
-    All of a test's DDs point at its single per-test fixture PDS.
+    fixtures[test] = [{"dd": ddname, "pds": dsn, "members": [...]}, ...].
+    Each DD points at its own block's PDS.
     """
-    fx = fixtures.get(test)
-    if not fx:
-        return ""
-    return "".join(f"//{dd:<8} DD DSN={fx['pds']},DISP=SHR\n"
-                   for dd in fx["dds"])
+    return "".join(_dd_card(fx["dd"], fx["pds"]) + "\n"
+                   for fx in fixtures.get(test, []))
 
 
 def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
@@ -174,10 +197,10 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
     """Build the runner JCL. Return (jcl_text, step_map).
 
     step_map: { step_name: (test_name, leg) } for leg in {'batch','tso'}.
-    fixtures: { test: {"pds": dsn, "dds": [...], "members": [(name, text)]} } --
-    members are pre-loaded into the per-test PDS by generated IEBGENER steps
-    (the PDS is allocated out-of-band before submit); each DD is added to that
-    test's batch + TSO steps.
+    fixtures: { test: [{"dd": ddname, "pds": dsn, "members": [(name, text)]}] }
+    -- members are pre-loaded into their block's PDS by generated IEBGENER
+    steps (the PDSes are allocated out-of-band before submit); each DD is
+    added to that test's batch + TSO steps.
     parms: { test: {"batch": str|None, "tso": str|None} } -- a per-leg program
     argument (batch via PARM=, TSO via the CALL arg), for tests whose expected
     result differs by environment (e.g. TISTSO asserts is_tso()==0 batch / ==1
@@ -193,22 +216,20 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
     lines = [jobname_card]
     step_map = {}
 
-    # -- fixture-load steps first (members into each test's PDS) --
+    # -- fixture-load steps first (members into each block's PDS) --
     fx_i = 0
     for test in tests:
-        fx = fixtures.get(test)
-        if not fx:
-            continue
-        for member, text in fx["members"]:
-            fx_i += 1
-            lines.append(f"//FX{fx_i:03d}  EXEC PGM=IEBGENER")
-            lines.append("//SYSPRINT DD SYSOUT=*")
-            lines.append("//SYSIN    DD DUMMY")
-            lines.append(f"//SYSUT2   DD DSN={fx['pds']}({member}),DISP=SHR")
-            lines.append(f"//SYSUT1   DD *,DLM={_FIX_DLM}")
-            for ln in text.splitlines():
-                lines.append(ln)
-            lines.append(_FIX_DLM)
+        for fx in fixtures.get(test, []):
+            for member, text in fx["members"]:
+                fx_i += 1
+                lines.append(f"//FX{fx_i:03d}  EXEC PGM=IEBGENER")
+                lines.append("//SYSPRINT DD SYSOUT=*")
+                lines.append("//SYSIN    DD DUMMY")
+                lines.append(_dd_card("SYSUT2", f"{fx['pds']}({member})"))
+                lines.append(f"//SYSUT1   DD *,DLM={_FIX_DLM}")
+                for ln in text.splitlines():
+                    lines.append(ln)
+                lines.append(_FIX_DLM)
 
     # -- batch leg --
     for i, t in enumerate(tests, 1):
@@ -445,6 +466,14 @@ def main() -> int:
         _log_error(f"no built test modules in {builddir}/ (run 'make test' first)")
         return EXIT_CONFIG
 
+    # Before anything touches MVS: a fixture error is a configuration error,
+    # and finding it after the TESTLIB upload only costs the upload.
+    try:
+        fixtures = _resolve_fixtures(project, tests, config)
+    except (ProjectError, OSError) as e:
+        _log_error(f"fixture: {e}")
+        return EXIT_CONFIG
+
     testlib = _resolve_testlib(config, project)
     linklib = _resolve_linklib(args, config, project)
     _log(f"Test library:  {testlib} ({len(tests)} test(s))")
@@ -511,18 +540,26 @@ def main() -> int:
             except MvsMFError:
                 pass
 
-    # -- prepare per-test fixture PDSes (allocate empty; the runner's IEBGENER
-    #    steps load the members). Each test gets its own PDS so member names may
-    #    collide across tests. --
-    fixtures = _resolve_fixtures(project, tests, config)
-    for tn, fx in fixtures.items():
-        pds = fx["pds"]
+    # -- prepare the fixture PDSes, one per [[test.fixture]] block (allocate
+    #    empty; the runner's IEBGENER steps load the members). --
+    name = config.project.name.upper()
+    for tn, blocks in fixtures.items():
+        # The single per-test PDS of earlier releases (#109).  Removed so it
+        # does not linger, and so no catalog has to hold FIX.{TEST} as a
+        # dataset beside FIX.{TEST}.{DD} -- not measured whether every
+        # catalog type on 3.8j accepts that.
+        legacy = f"{config.hlq}.{name}.FIX.{tn}"
         try:
-            if client.dataset_exists(pds):
-                client.delete_dataset(pds)
-            client.create_dataset(pds, "PO", "FB", 80, 3120,
-                                  ["TRK", 2, 1, 5], "SYSDA")
-            _log(f"Fixture {pds} ({len(fx['members'])} member(s) for {tn})")
+            if client.dataset_exists(legacy):
+                client.delete_dataset(legacy)
+            for fx in blocks:
+                pds = fx["pds"]
+                if client.dataset_exists(pds):
+                    client.delete_dataset(pds)
+                client.create_dataset(pds, "PO", "FB", 80, 3120,
+                                      ["TRK", 2, 1, 5], "SYSDA")
+                _log(f"Fixture {pds} ({len(fx['members'])} member(s) "
+                     f"for {tn} {fx['dd']})")
         except MvsMFError as e:
             _log_error(f"fixture alloc failed for {tn}: {e}")
             return EXIT_MAINFRAME
