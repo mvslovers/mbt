@@ -93,6 +93,92 @@ class NorentNoreusTest(unittest.TestCase):
         self.assertIn("MODULE_IRXANCHR_NOREUS := 1", self._emit(noreus=True))
 
 
+class AliasesTest(unittest.TestCase):
+    """aliases = [...] on [[module]] -> MODULE_<key>_ALIASES -> ld370 --alias
+    (#112).  Validated like member names, and unique within the library."""
+
+    def _emit(self, **extra):
+        lines = []
+        mod = {"name": "BREXX", "entry": "@@CRT1", "startup": "crt1",
+               "sources": [], **extra}
+        mbtconfig._emit_module(lines, mod, "build", set(), set(), "MODULES")
+        return "\n".join(lines)
+
+    def _generate(self, toml_text):
+        with tempfile.TemporaryDirectory() as d:
+            proj = Path(d, "project.toml")
+            proj.write_text(toml_text)
+            return mbtconfig.generate(str(proj), builddir=str(Path(d, "build")))
+
+    def test_default_emits_none(self):
+        self.assertNotIn("_ALIASES", self._emit())
+
+    def test_aliases_emitted_in_order(self):
+        self.assertIn("MODULE_BREXX_ALIASES := REXX RX",
+                      self._emit(aliases=["REXX", "RX"]))
+
+    def test_hash_in_alias_is_escaped(self):
+        self.assertIn("MODULE_BREXX_ALIASES := IRX\\#A",
+                      self._emit(aliases=["IRX#A"]))
+
+    def test_valid_aliases_generate(self):
+        out = self._generate('[[module]]\nname = "BREXX"\n'
+                             'aliases = ["REXX", "RX"]\nsources = []\n')
+        self.assertIn("MODULE_BREXX_ALIASES := REXX RX", out)
+
+    def _rejects(self, toml_text, *fragments):
+        with self.assertRaises(mbtconfig.ConfigError) as cm:
+            self._generate(toml_text)
+        for f in fragments:
+            self.assertIn(f, str(cm.exception))
+
+    def test_long_alias_rejected(self):
+        self._rejects('[[module]]\nname = "BREXX"\naliases = ["REXXEXEC1"]\n'
+                      'sources = []\n', "REXXEXEC1", "8 at most")
+
+    def test_lowercase_alias_rejected(self):
+        self._rejects('[[module]]\nname = "BREXX"\naliases = ["rexx"]\n'
+                      'sources = []\n', "rexx")
+
+    def test_non_string_alias_rejected(self):
+        self._rejects('[[module]]\nname = "BREXX"\naliases = [1]\n'
+                      'sources = []\n', "BREXX")
+
+    def test_aliases_must_be_a_list(self):
+        self._rejects('[[module]]\nname = "BREXX"\naliases = "REXX"\n'
+                      'sources = []\n', "list")
+
+    def test_alias_equal_to_its_own_module_rejected(self):
+        # ld370 does NOT refuse this one (rc 0), so the check has to be here
+        self._rejects('[[module]]\nname = "BREXX"\naliases = ["BREXX"]\n'
+                      'sources = []\n', "BREXX", "already module")
+
+    def test_alias_equal_to_another_module_rejected(self):
+        self._rejects('[[module]]\nname = "BREXX"\naliases = ["MVSDUMP"]\n'
+                      'sources = []\n\n[[module]]\nname = "MVSDUMP"\n'
+                      'sources = []\n', "MVSDUMP", "already module")
+
+    def test_alias_declared_before_the_module_it_clashes_with(self):
+        # the module list is taken up front, not as the loop goes
+        self._rejects('[[module]]\nname = "MVSDUMP"\nsources = []\n\n'
+                      '[[module]]\nname = "BREXX"\naliases = ["MVSDUMP"]\n'
+                      'sources = []\n', "MVSDUMP")
+
+    def test_alias_used_by_two_modules_rejected(self):
+        self._rejects('[[module]]\nname = "BREXX"\naliases = ["RX"]\n'
+                      'sources = []\n\n[[module]]\nname = "OTHER"\n'
+                      'aliases = ["RX"]\nsources = []\n',
+                      "RX", 'alias of module "BREXX"')
+
+    def test_same_alias_twice_rejected(self):
+        self._rejects('[[module]]\nname = "BREXX"\naliases = ["RX", "RX"]\n'
+                      'sources = []\n', "RX")
+
+    def test_aliases_on_a_test_rejected(self):
+        self._rejects('[[test]]\nname = "TSTX"\naliases = ["TX"]\n'
+                      'sources = []\n', "TSTX", "[[module]]")
+
+
 class MvsFalseTest(unittest.TestCase):
     """`mvs = false` (the mirror of `host = false`): a test whose fixtures only
     resolve on the host has nothing to build for MVS -- generate() must drop it

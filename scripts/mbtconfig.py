@@ -102,6 +102,50 @@ def _validate_names(cfg: dict) -> None:
     for kind in ("module", "test"):
         for entry in cfg.get(kind, []):
             _check_member_name(entry.get("name"), kind)
+    _validate_aliases(cfg)
+
+
+def _validate_aliases(cfg: dict) -> None:
+    """Check the `aliases` of every [[module]] (issue #112).
+
+    An alias is a directory entry of the same library, so it obeys the member
+    name rule and may not repeat any other name in it -- a module's or another
+    alias.  ld370 --pack refuses such a library too, but only at deploy or
+    package time and without naming the block; this names it at `make`.
+
+    [[test]] takes no aliases: a test is run by its own name, and an ignored
+    key would read as though it did something.
+    """
+    for entry in cfg.get("test", []):
+        if "aliases" in entry:
+            raise ConfigError(
+                f'project.toml: test "{entry.get("name")}" has aliases -- '
+                f"only a [[module]] can have them"
+            )
+    owner = {m["name"]: m["name"] for m in cfg.get("module", [])}
+    for mod in cfg.get("module", []):
+        aliases = mod.get("aliases", [])
+        if not isinstance(aliases, list):
+            raise ConfigError(
+                f'project.toml: module "{mod["name"]}" aliases must be a list '
+                f'of names, e.g. aliases = ["REXX", "RX"]'
+            )
+        for alias in aliases:
+            if not isinstance(alias, str) or not alias:
+                raise ConfigError(
+                    f'project.toml: module "{mod["name"]}" has an alias that '
+                    f"is not a name: {alias!r}"
+                )
+            _check_member_name(alias, f'module {mod["name"]} alias')
+            if alias in owner:
+                other = owner[alias]
+                what = ("module" if other == alias
+                        else f'an alias of module "{other}"')
+                raise ConfigError(
+                    f'project.toml: alias "{alias}" of module "{mod["name"]}" '
+                    f"is already {what} -- one name per library"
+                )
+            owner[alias] = mod["name"]
 
 
 def _make_escape(s: str) -> str:
@@ -254,6 +298,13 @@ def _emit_module(lines, mod, builddir, all_src_dirs, all_objs, var_prefix):
         lines.append(f"MODULE_{key}_NORENT := 1")
     if mod.get("noreus", False):
         lines.append(f"MODULE_{key}_NOREUS := 1")
+    # aliases: extra directory entries for the same load module (IEWL ALIAS),
+    # passed to ld370 as --alias.  Escaped like _NAME: a '#' may only reach
+    # the recipe through variable expansion.
+    aliases = mod.get("aliases", [])
+    if aliases:
+        lines.append(f"MODULE_{key}_ALIASES := "
+                     + " ".join(_make_escape(a) for a in aliases))
     lines.append("")
 
 

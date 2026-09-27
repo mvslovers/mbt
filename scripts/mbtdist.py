@@ -156,6 +156,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         raise D.DistributionError(
             "[distribution] needs at least one [[module]] to ship"
         )
+    D.check_no_aliases(cfg.get("module", []))
 
     prefix = f"{name}-{version}"
     alloc_job = f"{prefix}-alloc.jcl"

@@ -494,6 +494,27 @@ def _select_member_cards(members: list[str]) -> list[str]:
     return lines
 
 
+def check_no_aliases(module_cfgs: list[dict]) -> None:
+    """Refuse to package a module that has aliases -- not yet (mbt#112).
+
+    The load library ld370 packs carries the alias directory entries, but the
+    JCLIN copies with SELECT MEMBER=(<module>), and whether SMP4 carries a
+    copied module's aliases into the target library and records them in the
+    CDS has not been measured.  A package that installs the module without
+    them would report success in every step and leave REXX/RX unresolvable,
+    so it is refused until the measurement decides how the SYSMOD has to
+    carry them.
+    """
+    for mod in module_cfgs:
+        if mod.get("aliases"):
+            raise DistributionError(
+                f'module {mod["name"]} has aliases '
+                f'({", ".join(mod["aliases"])}), and the SMP package cannot '
+                f"carry them yet: whether SMP installs a copied load "
+                f"module's aliases is unmeasured (mvslovers/mbt#112)"
+            )
+
+
 def assemble_mcs(dist: Distribution,
                  modules: list[str],
                  product: str,
