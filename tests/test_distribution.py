@@ -134,18 +134,6 @@ class TrapTest(unittest.TestCase):
         with self.assertRaises(D.DistributionError):
             D.jobcard("UFSDINS", "X" * (D.MAX_PROGRAMMER_NAME + 1))
 
-    def test_module_with_aliases_is_refused(self):
-        # #112: whether SMP installs a copied module's aliases is unmeasured;
-        # a package that silently drops them must not be built.
-        with self.assertRaises(D.DistributionError) as cm:
-            D.check_no_aliases([{"name": "UFSD"},
-                                {"name": "BREXX", "aliases": ["REXX", "RX"]}])
-        self.assertIn("BREXX", str(cm.exception))
-        self.assertIn("#112", str(cm.exception))
-
-    def test_modules_without_aliases_pass(self):
-        D.check_no_aliases([{"name": "UFSD"}, {"name": "UFSD#A", "aliases": []}])
-
     def test_job_card_region_covers_the_receive_steps(self):
         # #106: the RECEIVE steps' IEBCOPY runs out of buffer storage
         # (IEB135I) at a 512K class default.  Their EXEC carries no REGION of
@@ -208,6 +196,38 @@ class AssembleTest(unittest.TestCase):
         for m in self.modules:
             self.assertIn(
                 f"++MOD({m}) LKLIB(UFSDLOAD) DISTLIB(AUFSDLOD) .", self.mcs)
+
+    def test_aliases_travel_as_talias_in_the_measured_form(self):
+        # #112, TTST009 on mvsdev: exactly this shape installed true aliases.
+        mcs = D.assemble_mcs(self.dist, ["UFSD", "UFSDSSIR"], "ufsd", "1.1.1",
+                             {"UFSD": ["UFSDA1", "UFSDA2"]})
+        self.assertIn("++MOD(UFSD) LKLIB(UFSDLOAD) DISTLIB(AUFSDLOD)\n"
+                      "      TALIAS(UFSDA1,UFSDA2) .\n", mcs)
+        # a module without aliases is emitted as before
+        self.assertIn("++MOD(UFSDSSIR) LKLIB(UFSDLOAD) DISTLIB(AUFSDLOD) .\n",
+                      mcs)
+        # the JCLIN stays COPY: an alias is not a member of its own
+        self.assertIn("SELECT MEMBER=(UFSD,UFSDSSIR)", mcs)
+
+    def test_no_aliases_leaves_the_sysmod_unchanged(self):
+        self.assertEqual(
+            D.assemble_mcs(self.dist, self.modules, "ufsd", "1.1.1", {}),
+            self.mcs)
+        self.assertNotIn("TALIAS", self.mcs)
+
+    def test_talias_that_needs_two_cards_is_refused(self):
+        # a list split over cards was not measured
+        seven = [f"ALIAS{i:03d}" for i in range(7)]
+        with self.assertRaises(D.DistributionError) as cm:
+            D.assemble_mcs(self.dist, ["UFSD"], "ufsd", "1.1.1",
+                           {"UFSD": seven})
+        self.assertIn("UFSD", str(cm.exception))
+
+    def test_six_eight_character_aliases_still_fit(self):
+        six = [f"ALIAS{i:03d}" for i in range(6)]
+        mcs = D.assemble_mcs(self.dist, ["UFSD"], "ufsd", "1.1.1",
+                             {"UFSD": six})
+        self.assertIn("TALIAS(ALIAS000,", mcs)
 
     def test_the_sample_library_is_not_in_the_sysmod(self):
         # It ships as its own XMIT, so nothing in the SYSMOD comes from a file

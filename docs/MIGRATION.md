@@ -179,8 +179,13 @@ rule as `name`) and must not repeat any module name or other alias in the
 project -- `make` rejects that. ld370 enters an alias at the external symbol of
 that name if the module has one, otherwise at the module's entry point, so an
 alias that happens to name a function inside the module starts *there*.
-`make deploy` and `make test-mvs` carry the aliases; `make package` refuses a
-module with aliases until it is measured whether SMP installs them (#112).
+`make deploy` and `make test-mvs` carry the aliases. `make package` declares
+them to SMP as `TALIAS(...)` on the module's `++MOD`: without that, SMP copies
+the module and silently leaves its aliases behind, and every step still ends RC
+0 (measured, #112). An upgrade with `delete` moves them onto the new module. A
+release that *drops* an alias is not measured -- in the target library it would
+most likely survive, pointing at the deleted module -- so check #112 before
+removing one.
 Changing `aliases` does not by itself relink the module -- `make clean` first.
 
 `startup` selects how the module is linked:
