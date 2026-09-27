@@ -494,31 +494,42 @@ def _select_member_cards(members: list[str]) -> list[str]:
     return lines
 
 
-def check_no_aliases(module_cfgs: list[dict]) -> None:
-    """Refuse to package a module that has aliases -- not yet (mbt#112).
+def _mod_statement(mod: str, lklib_dd: str, distlib_dd: str,
+                   aliases: list[str]) -> list[str]:
+    """The ++MOD statement for one load module, with its aliases if any.
 
-    The load library ld370 packs carries the alias directory entries, but the
-    JCLIN copies with SELECT MEMBER=(<module>), and whether SMP4 carries a
-    copied module's aliases into the target library and records them in the
-    CDS has not been measured.  A package that installs the module without
-    them would report success in every step and leave REXX/RX unresolvable,
-    so it is refused until the measurement decides how the SYSMOD has to
-    carry them.
+    Aliases travel as TALIAS on the ++MOD, and nothing else changes: with a
+    COPY-defined LMOD, SMP copies the aliases along with the module when they
+    are named there *and* sit in the LKLIB -- and ld370 --pack puts them
+    there.  The JCLIN stays COPY, so nothing is re-bound and AC, RENT/REUS
+    and the entry point survive.  SMP records them on the MOD entry
+    (TALIAS = ...), in both zones.  Measured on mvsdev 2026-09-27 (mbt#112):
+    TTST008 without TALIAS installed the module and silently dropped its
+    aliases; TTST009 with it installed true aliases into the target library
+    and the DLIB; TTST010, DELETE(TTST009), moved them onto the new module.
+
+    TALIAS gets a card of its own, the form that was measured.  A list split
+    over several cards was not, so a list too long for one card is refused
+    rather than guessed at.
     """
-    for mod in module_cfgs:
-        if mod.get("aliases"):
-            raise DistributionError(
-                f'module {mod["name"]} has aliases '
-                f'({", ".join(mod["aliases"])}), and the SMP package cannot '
-                f"carry them yet: whether SMP installs a copied load "
-                f"module's aliases is unmeasured (mvslovers/mbt#112)"
-            )
+    head = f"++MOD({mod}) LKLIB({lklib_dd}) DISTLIB({distlib_dd})"
+    if not aliases:
+        return [head + " ."]
+    talias = f"      TALIAS({','.join(aliases)}) ."
+    if len(talias) > MAX_CARD_COL:
+        raise DistributionError(
+            f"module {mod}: TALIAS({','.join(aliases)}) does not fit on one "
+            f"card ({len(talias)} columns, limit {MAX_CARD_COL}); splitting "
+            f"it over several cards has not been measured (mbt#112)"
+        )
+    return [head, talias]
 
 
 def assemble_mcs(dist: Distribution,
                  modules: list[str],
                  product: str,
-                 version: str) -> str:
+                 version: str,
+                 aliases: dict[str, list[str]] | None = None) -> str:
     """Build the complete SYSMOD as card image text.
 
     It covers the load modules only -- roughly twenty lines. Sample material
@@ -530,6 +541,7 @@ def assemble_mcs(dist: Distribution,
         modules: MVS member names of the load modules, in project.toml order
         product: project name, for the comment block
         version: project version, for the comment block
+        aliases: {module: [alias, ...]} for the modules that have any
 
     Returns:
         The SYSMOD, ready to go inline behind //SMPPTFIN DD DATA,DLM=.
@@ -557,9 +569,10 @@ def assemble_mcs(dist: Distribution,
     # Whole load modules only. A single object ++MOD against a copy-defined
     # LMOD would make SMP bind that object alone, with no INCLUDE of the
     # current version -- the module would be destroyed, not updated.
+    aliases = aliases or {}
     for mod in modules:
-        out.append(f"++MOD({mod}) LKLIB({smp.lklib_dd}) "
-                   f"DISTLIB({smp.distlib_dd}) .")
+        out.extend(_mod_statement(mod, smp.lklib_dd, smp.distlib_dd,
+                                  aliases.get(mod, [])))
 
     text = "\n".join(out) + "\n"
     check_card_text(text, f"generated SYSMOD {smp.fmid}")

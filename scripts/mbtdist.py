@@ -156,7 +156,6 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         raise D.DistributionError(
             "[distribution] needs at least one [[module]] to ship"
         )
-    D.check_no_aliases(cfg.get("module", []))
 
     prefix = f"{name}-{version}"
     alloc_job = f"{prefix}-alloc.jcl"
@@ -204,7 +203,9 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     shutil.rmtree(src_root, ignore_errors=True)
 
     # ---- the SYSMOD and the two jobs ----
-    mcs = D.assemble_mcs(dist, modules, name, version)
+    aliases = {m["name"]: m["aliases"]
+               for m in cfg.get("module", []) if m.get("aliases")}
+    mcs = D.assemble_mcs(dist, modules, name, version, aliases)
     plan = D.receive_plan(dist, xmit_files)
 
     alloc_jcl = render_template("smpalloc.jcl.tpl", {
