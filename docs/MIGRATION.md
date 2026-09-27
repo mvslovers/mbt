@@ -184,7 +184,7 @@ them to SMP as `TALIAS(...)` on the module's `++MOD`: without that, SMP copies
 the module and silently leaves its aliases behind, and every step still ends RC
 0 (measured, #112). An upgrade with `delete` moves them onto the new module. A
 release that *drops* an alias is not measured -- in the target library it would
-most likely survive, pointing at the deleted module -- so check #112 before
+most likely survive, pointing at the deleted module -- so check #115 before
 removing one.
 Changing `aliases` does not by itself relink the module -- `make clean` first.
 
