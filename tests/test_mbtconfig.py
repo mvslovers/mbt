@@ -149,7 +149,8 @@ class AliasesTest(unittest.TestCase):
                       'sources = []\n', "list")
 
     def test_alias_equal_to_its_own_module_rejected(self):
-        # ld370 does NOT refuse this one (rc 0), so the check has to be here
+        # ld370 refuses it as well ("names two directory entries"), but this
+        # names the block
         self._rejects('[[module]]\nname = "BREXX"\naliases = ["BREXX"]\n'
                       'sources = []\n', "BREXX", "already module")
 

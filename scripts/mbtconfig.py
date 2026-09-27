@@ -110,8 +110,10 @@ def _validate_aliases(cfg: dict) -> None:
 
     An alias is a directory entry of the same library, so it obeys the member
     name rule and may not repeat any other name in it -- a module's or another
-    alias.  ld370 --pack refuses such a library too, but only at deploy or
-    package time and without naming the block; this names it at `make`.
+    alias.  ld370 refuses the same library too -- an alias equal to its own
+    module when linking, a clash across modules only when --pack builds the
+    library for deploy or package -- but without naming the project.toml
+    block.  This names it, and at `make`.
 
     [[test]] takes no aliases: a test is run by its own name, and an ignored
     key would read as though it did something.
