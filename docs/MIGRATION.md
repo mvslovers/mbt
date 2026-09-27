@@ -171,6 +171,17 @@ that would differ on every run and recompile the including TU forever.
 | `exclude` | `[]` | Glob pattern(s) removed from `sources`. |
 | `entry` | `@@CRT0` | Entry point symbol. |
 | `startup` | `crt0` | C runtime: `crt0`, `crt1`, `crtm`, or `false` (none). |
+| `aliases` | `[]` | Alias names for the module (IEWL `ALIAS`), e.g. `["REXX", "RX"]`. |
+
+`aliases` gives the load module extra directory entries that point at the same
+member, passed to ld370 as `--alias`. Each is a member name (1–8 chars, same
+rule as `name`) and must not repeat any module name or other alias in the
+project -- `make` rejects that. ld370 enters an alias at the external symbol of
+that name if the module has one, otherwise at the module's entry point, so an
+alias that happens to name a function inside the module starts *there*.
+`make deploy` and `make test-mvs` carry the aliases; `make package` refuses a
+module with aliases until it is measured whether SMP installs them (#112).
+Changing `aliases` does not by itself relink the module -- `make clean` first.
 
 `startup` selects how the module is linked:
 
@@ -183,8 +194,8 @@ that would differ on every run and recompile the including TU forever.
 
 ### `[[test]]` (repeatable)
 
-Same fields as `[[module]]`. Built only by `make test`, never by `make`,
-and never deployed.
+Same fields as `[[module]]`, except `aliases`. Built only by `make test`,
+never by `make`, and never deployed.
 
 ### `[lib]`
 

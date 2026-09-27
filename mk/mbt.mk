@@ -157,8 +157,9 @@ $(BUILDDIR)/%.o: %.s
 # -- Link helpers --------------------------------------------------
 # Called by the generated module rules below.
 # $(1) = entry, $(2) = name, $(3) = objects, $(4) = AC, $(5) = norent, $(6) = noreus
-# AC/norent/noreus are passed by VALUE (looked up by the make-safe key in the
-# rule) so they resolve even for a module name carrying '#'.
+# AC/norent/noreus/aliases are passed by VALUE (looked up by the make-safe key
+# in the rule) so they resolve even for a module name carrying '#'.  $(7) is
+# the module's alias list, one --alias per name (#112).
 #
 # $(LIBC_FIRST) is empty for modules and '-lc' for tests (set as a
 # target-specific variable on TEST_IMGS below).  crt0/crt1/crtm all declare
@@ -172,22 +173,22 @@ $(BUILDDIR)/%.o: %.s
 
 define LINK_CRT0
 	$(E) "[ld370] $(2) (entry=$(1), crt0)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRT1
 	$(E) "[ld370] $(2) (entry=$(1), crt1)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
 	$(E) "[ld370] $(2) (entry=$(1), crtm)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
 	$(E) "[ld370] $(2) (entry=$(1), no crt)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
@@ -196,7 +197,7 @@ endef
 # module length), so 'deploy' can ld370 --pack them into one LINKLIB XMIT.
 # For each MODULE and TEST, create:
 #   build/NAME.iebcopy: build/obj1.o build/obj2.o ...
-#       $(call LINK_xxx, ENTRY, NAME, $^, AC, NORENT, NOREUS)
+#       $(call LINK_xxx, ENTRY, NAME, $^, AC, NORENT, NOREUS, ALIASES)
 #   name (lowercase): build/NAME.iebcopy    <- alias
 
 # $(1) is the make-safe key; the real member name is MODULE_$(1)_NAME (may
@@ -204,7 +205,7 @@ endef
 # via variable expansion -- after comment stripping -- so it stays literal.
 define _MODULE_RULE
 $(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy: $$(MODULE_$(1)_OBJS) $(INTERNAL_ARCHIVE)
-	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$$(MODULE_$(1)_NAME),$$(MODULE_$(1)_OBJS),$$(MODULE_$(1)_AC),$$(MODULE_$(1)_NORENT),$$(MODULE_$(1)_NOREUS))
+	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$$(MODULE_$(1)_NAME),$$(MODULE_$(1)_OBJS),$$(MODULE_$(1)_AC),$$(MODULE_$(1)_NORENT),$$(MODULE_$(1)_NOREUS),$$(MODULE_$(1)_ALIASES))
 
 .PHONY: $$(MODULE_$(1)_ALIAS)
 $$(MODULE_$(1)_ALIAS): $(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy

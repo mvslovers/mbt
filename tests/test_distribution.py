@@ -134,6 +134,18 @@ class TrapTest(unittest.TestCase):
         with self.assertRaises(D.DistributionError):
             D.jobcard("UFSDINS", "X" * (D.MAX_PROGRAMMER_NAME + 1))
 
+    def test_module_with_aliases_is_refused(self):
+        # #112: whether SMP installs a copied module's aliases is unmeasured;
+        # a package that silently drops them must not be built.
+        with self.assertRaises(D.DistributionError) as cm:
+            D.check_no_aliases([{"name": "UFSD"},
+                                {"name": "BREXX", "aliases": ["REXX", "RX"]}])
+        self.assertIn("BREXX", str(cm.exception))
+        self.assertIn("#112", str(cm.exception))
+
+    def test_modules_without_aliases_pass(self):
+        D.check_no_aliases([{"name": "UFSD"}, {"name": "UFSD#A", "aliases": []}])
+
     def test_job_card_region_covers_the_receive_steps(self):
         # #106: the RECEIVE steps' IEBCOPY runs out of buffer storage
         # (IEB135I) at a 512K class default.  Their EXEC carries no REGION of
