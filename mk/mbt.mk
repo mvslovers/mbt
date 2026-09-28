@@ -324,7 +324,7 @@ help:
 	@echo "Other:"
 	@echo "  deps         Download declared dependencies (like old bootstrap)"
 	@echo "  doctor       Check toolchain and connectivity"
-	@echo "  compiledb    Write compile_commands.json for clangd"
+	@echo "  compiledb    Write compile_commands.json (clang) for clangd / IDEs"
 	@echo "  clean        Remove build/ dist/ (keeps staged deps)"
 	@echo "  distclean    clean + remove all of .mbt/ (incl. deps)"
 	@echo "  help         Show this message"
