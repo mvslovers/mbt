@@ -4,9 +4,13 @@ Reads the v2 project.toml, resolves every C source across modules, tests
 and the library, and writes a compilation database so clangd can provide
 diagnostics, completion and navigation for the cc370 cross-build.
 
-Each entry compiles with cc370 + the project cflags + the cc370 sysroot
-include dir (so clangd finds <clibecb.h> etc.), plus clang-friendly flags
-to parse the MVS C dialect.
+This is a *clang* compilation database, not a cc370 one: every entry is
+a clang command (clang flags, the project cflags, the cc370 sysroot include
+dir so clangd finds <clibecb.h> etc.), and arguments[0] is "clang".  The
+format requires arguments[0] to be the program that runs the command, and
+while clangd never executes it, other consumers do -- CLion/IntelliJ run it
+to query built-in macros and include paths, and cc370 (GCC 3.4.6) rejects
+the clang flags, so every #include showed as unresolved (#118).
 """
 
 import sys
@@ -25,19 +29,29 @@ from mbtconfig import _parse_toml, _resolve_sources
 # clang/LLVM has no S/370 backend, so clangd falls back to the host target
 # (e.g. little-endian arm64, LP64) -- wrong for the i370/MVS build. We steer
 # it as close to the real target as clang allows:
-#   --target=s390x-ibm-linux  z/Architecture is the S/370 descendant and is
-#                             big-endian like i370, so byte-order-dependent
-#                             headers/structs parse correctly.
-#   -U__LP64__                s390x is 64-bit; undefining __LP64__ makes LP32
-#                             headers (e.g. time64.h) take their 32-bit branch,
-#                             matching the real ILP32 i370 build.
+#   --target=powerpc-unknown-eabi
+#                             32-bit bare-metal PowerPC has cc370's data model:
+#                             ILP32, big-endian, unsigned char, and size_t /
+#                             ptrdiff_t as 'long unsigned int' / 'long int'.
+#                             Measured with clang -E -dM (#119).  The near
+#                             misses and why they are wrong:
+#                             - s390x-ibm-linux + -U__LP64__: -U only removes
+#                               the macro; pointers and long stay 8 bytes, so
+#                               sizeof/offsetof and pointer casts come out
+#                               wrong.  (There is no 31/32-bit s390 triple.)
+#                             - powerpc-unknown-linux-gnu: right sizes, but
+#                               sizeof is 'unsigned int', so clang flags every
+#                               libc declaration of the sysroot (size_t is
+#                               'unsigned long' under __MVS__) as an
+#                               incompatible redeclaration of a builtin --
+#                               3616 diagnostics on brexx370 against
+#                               1331 with this target.
 #   -std=gnu99                the cc370 build dialect: C99 plus the GNU 'asm'
 #                             keyword the crent370 headers use (strict -std=c99
 #                             rejects 'asm' and yields hundreds of errors).
 CLANGD_FLAGS = [
     "-xc",
-    "--target=s390x-ibm-linux",
-    "-U__LP64__",
+    "--target=powerpc-unknown-eabi",
     "-std=gnu99",
     "-nostdinc",
     "-D__MVS__",
@@ -97,7 +111,7 @@ def _all_sources(cfg: dict) -> list:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Generate compile_commands.json for clangd (cc370 build)"
+        description="Generate a clang compile_commands.json for the cc370 build"
     )
     parser.add_argument("--project", default="project.toml")
     args = parser.parse_args()
@@ -127,7 +141,7 @@ def main() -> int:
 
     entries = []
     for src in _all_sources(cfg):
-        arguments = ["cc370"] + CLANGD_FLAGS + list(cflags) + inc + ["-c", src]
+        arguments = ["clang"] + CLANGD_FLAGS + list(cflags) + inc + ["-c", src]
         entries.append({
             "directory": str(project_dir),
             "arguments": arguments,
