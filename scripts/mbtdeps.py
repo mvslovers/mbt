@@ -229,7 +229,8 @@ def main() -> int:
             version = locked["version"]
         else:
             try:
-                version = _resolve_one(owner, repo, constraint)
+                version = _resolve_one(owner, repo, constraint,
+                                       warn=_log_warn)
             except DependencyError as e:
                 _log_error(str(e))
                 return EXIT_DEPENDENCY

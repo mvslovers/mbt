@@ -517,11 +517,18 @@ pinned.** It also keeps a whole ecosystem of rolling `-dev` prereleases
 building green without a lock-churn commit every time an upstream
 re-pushes (see issue #52).
 
-A prerelease that has been deleted on GitHub can still resolve from the
-local download cache (`~/.mbt/cache`). `make deps` then warns that the
-release no longer exists: the build succeeds on that machine and fails
-wherever the cache is absent, CI included. Being offline falls back to
-the cache without a warning.
+Resolving a range always asks GitHub: the local download cache
+(`~/.mbt/cache`) holds only what this machine happened to download, so
+it answers only when GitHub cannot — offline, HTTP 5xx, or
+rate-limited (403/429; set `GITHUB_TOKEN` to lift the limit). That
+fallback warns, because a newer release may exist. A locked stable
+version that is already cached needs no network at all.
+
+A prerelease that has been deleted on GitHub can still be served from
+the cache. `make deps` then warns that the release no longer exists:
+the build succeeds on that machine and fails wherever the cache is
+absent, CI included. Downloading while offline falls back to the cache
+without a warning.
 
 A range that names a prerelease bound (`>=1.0.0-dev`) opts that
 dependency into prereleases; a plain range (`>=1.0.0`) ignores them.

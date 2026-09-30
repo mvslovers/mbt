@@ -149,13 +149,40 @@ def _resolve_from_cache(owner: str, repo: str,
     return str(max(candidates))
 
 
+def _resolve_offline(owner: str, repo: str, constraint: str,
+                     reason: str, warn) -> str:
+    """Resolve from the local cache because GitHub could not be asked.
+
+    The cache only holds what this machine happened to download, so the
+    answer may be older than the newest matching release -- hence the
+    warning.
+
+    Raises:
+        DependencyError: If no cached version satisfies the constraint
+    """
+    cached = _resolve_from_cache(owner, repo, constraint)
+    if cached is None:
+        raise DependencyError(
+            f"{reason} for {owner}/{repo}, and no cached version "
+            f"satisfies {constraint!r}"
+        )
+    if warn is not None:
+        warn(f"{reason}: resolved {owner}/{repo} {constraint} -> {cached} "
+             f"from the local cache; a newer release may exist")
+    return cached
+
+
 def _resolve_one(owner: str, repo: str,
-                 constraint: str) -> str:
+                 constraint: str, warn=None) -> str:
     """Query GitHub API and return highest version matching constraint.
 
-    First checks the local cache. If a matching version is found
-    there, uses it without contacting GitHub. Otherwise falls back
-    to the GitHub Releases API.
+    GitHub is authoritative: the local cache holds only what this machine
+    happened to download, so resolving from it first made a range pick
+    the highest *cached* version and let two machines disagree (issue
+    #125). The cache is consulted only when GitHub cannot answer --
+    unreachable, HTTP 5xx, or rate-limited (403/429) -- and then
+    warn(message) is called when given. Any other HTTP error (404: no
+    such repo) is fatal.
 
     Stable releases only, unless constraint is an exact prerelease pin
     (e.g. '=1.0.1-dev'), in which case prerelease releases are included.
@@ -163,25 +190,23 @@ def _resolve_one(owner: str, repo: str,
     Raises:
         DependencyError: If no matching release found or API fails
     """
-    # Try local cache first
-    cached = _resolve_from_cache(owner, repo, constraint)
-    if cached is not None:
-        return cached
-
-    url = f"{_GH_API}/repos/{owner}/{repo}/releases"
+    url = f"{_GH_API}/repos/{owner}/{repo}/releases?per_page=100"
     req = _gh_request(url)
 
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             releases = json.loads(resp.read())
     except urllib.error.HTTPError as e:
+        if e.code in (403, 429) or e.code >= 500:
+            return _resolve_offline(owner, repo, constraint,
+                                    f"GitHub API HTTP {e.code}", warn)
         raise DependencyError(
             f"GitHub API error for {owner}/{repo}: HTTP {e.code}"
         )
     except urllib.error.URLError as e:
-        raise DependencyError(
-            f"Cannot reach GitHub API for {owner}/{repo}: {e.reason}"
-        )
+        return _resolve_offline(owner, repo, constraint,
+                                f"Cannot reach GitHub API ({e.reason})",
+                                warn)
 
     allow_prerelease = _constraint_allows_prerelease(constraint)
 

@@ -160,7 +160,7 @@ class TestMainReResolve(unittest.TestCase):
             + "".join(f'"{k}" = "{v}"\n' for k, v in deps.items()))
         Path("mbt.lock").write_text(json.dumps(lock))
 
-        def resolve(owner, repo, constraint):
+        def resolve(owner, repo, constraint, warn=None):
             self.resolved.append(f"{owner}/{repo}")
             return available[f"{owner}/{repo}"]
 
