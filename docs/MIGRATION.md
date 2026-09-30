@@ -298,7 +298,7 @@ exclude = ["src/cgistart.c"]   # a per-module root + shipped in [lib], not an au
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `target` | `{HLQ}.{NAME}.{VRM}.LINKLIB` | Target load library DSN. |
+| `target` | `{HLQ}.{PROJECT}.{VRM}.LINKLIB` | Target load library DSN. `{PROJECT}` is the name cut to a valid 8-character qualifier (`crypto370` → `CRYPTO37`). |
 
 The default for ufsd 1.0.0-dev is `IBMUSER.UFSD.V1R0M0D.LINKLIB`
 (`HLQ` from `.env`/`MBT_MVS_HLQ`, default `IBMUSER`). Override here, or

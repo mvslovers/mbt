@@ -53,6 +53,7 @@ except ModuleNotFoundError:
 
 from mbt import EXIT_SUCCESS, EXIT_BUILD, EXIT_CONFIG, EXIT_MAINFRAME
 from mbt.config import MbtConfig
+from mbt.datasets import mvs_qualifier
 from mbt.mvsmf import MvsMFClient, MvsMFError
 from mbt.jcl import render_template, jobcard
 from mbt.project import ProjectError
@@ -125,7 +126,7 @@ def _resolve_target(args, config: MbtConfig, project: dict) -> str:
     deploy = project.get("deploy", {})
     if deploy.get("target"):
         return deploy["target"]
-    name = config.project.name.upper()
+    name = mvs_qualifier(config.project.name)
     vrm = Version.parse(config.project.version).to_vrm()
     return f"{config.hlq}.{name}.{vrm}.LINKLIB"
 

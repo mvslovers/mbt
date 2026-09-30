@@ -299,3 +299,26 @@ class StagingCleanupTest(unittest.TestCase):
         rc = self._main(client, lambda *a, **kw: 0)
         self.assertEqual(rc, mbtdeploy.EXIT_MAINFRAME)
         self.assertNotIn(self.STAGING, client.existing)
+
+
+class ResolveTargetTest(unittest.TestCase):
+    """The default LINKLIB uses a valid project qualifier (#127)."""
+
+    def _config(self, name):
+        return types.SimpleNamespace(
+            hlq="IBMUSER",
+            project=types.SimpleNamespace(name=name, version="1.0.0-dev"))
+
+    def test_long_name_is_truncated(self):
+        args = types.SimpleNamespace(target=None)
+        self.assertEqual(
+            mbtdeploy._resolve_target(args, self._config("crypto370"), {}),
+            "IBMUSER.CRYPTO37.V1R0M0D.LINKLIB")
+
+    def test_deploy_target_untouched(self):
+        args = types.SimpleNamespace(target=None)
+        project = {"deploy": {"target": "CRYPTO370.DEV.LINKLIB"}}
+        self.assertEqual(
+            mbtdeploy._resolve_target(args, self._config("crypto370"),
+                                      project),
+            "CRYPTO370.DEV.LINKLIB")

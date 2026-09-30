@@ -299,6 +299,14 @@ httpd v3.3.1
 | Dependency | `{DEPS_HLQ}.{DEP}.{VRM}.{SUFFIX}` | `IBMUSER.DEPS.CRENT370.V1R0M0.MACLIB` |
 | Install (fixed) | `{HLQ}.{name}` | `IBMUSER.HTTPD.LOAD` |
 
+`{PROJECT}` is the project name made into a valid qualifier: uppercased,
+every character outside `A-Z 0-9 @ # $` dropped, cut to 8 characters —
+`crypto370` becomes `CRYPTO37`, `lstring370` becomes `LSTRING3`. This holds
+for the build, TESTLIB, fixture and default deploy data sets alike. Two
+names that agree in their first 8 valid characters (`lstring370`,
+`lstring371`) share a qualifier; give one of them an explicit `[deploy]` /
+`[test_deploy] target` if both are ever built under one HLQ.
+
 ---
 
 ## Packaging

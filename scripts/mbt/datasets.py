@@ -14,7 +14,7 @@ from .version import to_vrm
 DEFAULT_SYSTEM_MACLIBS = ["SYS1.MACLIB", "SYS1.AMODGEN"]
 
 
-def _mvs_qualifier(name: str) -> str:
+def mvs_qualifier(name: str) -> str:
     """Derive a valid MVS dataset name qualifier from a project name.
 
     MVS qualifiers allow only A-Z, 0-9, @, #, $ and are limited to 8
@@ -68,7 +68,7 @@ class DatasetResolver:
         config = self.config
         project = config.project
         hlq = config.hlq
-        proj_name = _mvs_qualifier(project.name)
+        proj_name = mvs_qualifier(project.name)
 
         if config.is_ci:
             qualifier = f"B{config.build_id}"
@@ -159,7 +159,7 @@ class DatasetResolver:
         config = self.config
         project = config.project
         hlq = config.hlq
-        proj_name = _mvs_qualifier(project.name)
+        proj_name = mvs_qualifier(project.name)
 
         if not project.install_naming:
             return {}
