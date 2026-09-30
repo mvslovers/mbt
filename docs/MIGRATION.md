@@ -565,9 +565,10 @@ The v2 workflows clone + `make install` the cc370 toolchain (cached per
 cc370 commit), run `make deps` (so dependency libraries are staged before
 the build), then run the host build:
 
-- `build.yml` — `make deps` + `make` + `make test` + `make lib`. Always
-  builds against the tip of cc370/libc370, so a toolchain regression shows
-  up on a PR rather than in a consumer's release.
+- `build.yml` — `make deps` + `make` + `make test` + `make lib`. Builds
+  against the tip of cc370/libc370 by default, so a toolchain regression
+  shows up on a PR rather than in a consumer's release. It ignores
+  `[toolchain]`.
 - `release.yml` — validates the tag against `project.toml` version, checks
   out the toolchain declared in `[toolchain]` (section 2; default `main`),
   runs `make deps` + `make package`, and publishes a GitHub Release with
@@ -576,6 +577,19 @@ the build), then run the host build:
 
 `release.yml` also takes `cc370_ref` / `libc370_ref` inputs, which override
 `[toolchain]` for a one-off run; leave them unset to use the declaration.
+
+`build.yml` takes the same two inputs (branch, tag or SHA; default `main`).
+They exist to hold a consumer's build CI on an older toolchain while it
+migrates across a breaking change — for example `libc370_ref: v1.0.8` during
+the libc370 2.0 migration — and the line comes out again in the migrating PR.
+Both workflows log the refs they fetched as `[mbt] cc370 @ …` /
+`[mbt] libc370 @ …`.
+
+A held sysroot does not hold the dependencies. `make deps` accepts a moved
+SHA for a prerelease (`-dev`, `-rcN`) dependency and re-pins the lock, so a
+dependency that migrates first and publishes a new `-dev` build can bring
+2.0 headers into a consumer that is still held on 1.x. Stable versions are
+pinned hard by `mbt.lock`.
 
 Pin a tag (`@vX.Y.Z`) instead of `@main` for reproducibility. Legacy (v1)
 projects keep using `build-legacy.yml` / `release-legacy.yml` (MVS/CE in
