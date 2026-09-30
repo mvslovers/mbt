@@ -21,11 +21,13 @@ production LINKLIB must exist -- run 'make deploy' before 'make test-mvs'.
 
 Exit codes: 0 all passed; 2 config/validation; 4 mainframe error (including a
 runner job that did not run, and one whose output could not be read back);
-1 tests failed.
+5 a fixture member could not be loaded, so the test verdicts are not about the
+tests; 1 tests failed.
 """
 
 import os
 import re
+import math
 import sys
 import argparse
 from pathlib import Path
@@ -37,7 +39,7 @@ try:
 except ModuleNotFoundError:
     import tomli as tomllib
 
-from mbt import EXIT_SUCCESS, EXIT_CONFIG, EXIT_MAINFRAME
+from mbt import EXIT_SUCCESS, EXIT_CONFIG, EXIT_MAINFRAME, EXIT_DATASET
 from mbt.config import MbtConfig
 from mbt.mvsmf import JES_DDNAMES, MvsMFError
 from mbt.jcl import jobcard
@@ -169,6 +171,34 @@ def _resolve_parms(project: dict, tests: list) -> dict:
 _FIX_DLM = "$A"
 
 
+# Fixture PDS geometry: FB, LRECL 80, BLKSIZE 3120 -- 39 records per block.
+# SYSDA's device type is not known here, so assume a 3330 track, which takes
+# 4 blocks of 3120 -- larger devices take more, and the surplus is margin.  A
+# directory block holds about 6 entries without user data.
+_FIX_RECS_PER_BLOCK = 39
+_FIX_BLOCKS_PER_TRACK = 4
+_FIX_MEMBERS_PER_DIRBLK = 6
+
+
+def _fixture_space(members: list) -> list:
+    """TRK space for one fixture PDS, sized to the members it will hold.
+
+    members: [(name, text)].  Each member starts a new block, so the blocks
+    are counted per member and rounded up there, not on the total.  The
+    estimate is doubled for margin, and the secondary lets an underestimate
+    still extend -- the PDS is scratched and reallocated every run, so over-
+    allocating costs nothing that lasts.  A fixed TRK(2,1,5) ended in SE37
+    at 64 members (#122); no fixture gets less than that.
+    """
+    blocks = sum(max(1, math.ceil(len(text.splitlines()) / _FIX_RECS_PER_BLOCK))
+                 for _name, text in members)
+    dirblks = max(5, math.ceil(len(members) / _FIX_MEMBERS_PER_DIRBLK) + 1)
+    # directory blocks are 256 bytes; allow a track per 16 of them
+    tracks = math.ceil(blocks / _FIX_BLOCKS_PER_TRACK) + math.ceil(dirblks / 16)
+    primary = max(2, 2 * tracks)
+    return ["TRK", primary, max(1, primary // 2), dirblks]
+
+
 def _dd_card(ddname: str, dsn: str) -> str:
     """A `DD DSN=...,DISP=SHR` card, continued when it would pass column 71.
 
@@ -194,9 +224,11 @@ def _fixture_dds(fixtures: dict, test: str) -> str:
 
 def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
                 fixtures: dict = None, parms: dict = None) -> tuple:
-    """Build the runner JCL. Return (jcl_text, step_map).
+    """Build the runner JCL. Return (jcl_text, step_map, fx_map).
 
     step_map: { step_name: (test_name, leg) } for leg in {'batch','tso'}.
+    fx_map: { step_name: (test_name, ddname, member, pds) }, one IEBGENER
+    step per fixture member, so a failed load can be reported as one (#122).
     fixtures: { test: [{"dd": ddname, "pds": dsn, "members": [(name, text)]}] }
     -- members are pre-loaded into their block's PDS by generated IEBGENER
     steps (the PDSes are allocated out-of-band before submit); each DD is
@@ -215,6 +247,7 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
         steplib += f"//         DD DSN={linklib},DISP=SHR\n"
     lines = [jobname_card]
     step_map = {}
+    fx_map = {}
 
     # -- fixture-load steps first (members into each block's PDS) --
     fx_i = 0
@@ -222,6 +255,7 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
         for fx in fixtures.get(test, []):
             for member, text in fx["members"]:
                 fx_i += 1
+                fx_map[f"FX{fx_i:03d}"] = (test, fx["dd"], member, fx["pds"])
                 lines.append(f"//FX{fx_i:03d}  EXEC PGM=IEBGENER")
                 lines.append("//SYSPRINT DD SYSOUT=*")
                 lines.append("//SYSIN    DD DUMMY")
@@ -265,7 +299,7 @@ def _gen_runner(jobname_card: str, tests: list, testlib: str, linklib: str,
         lines.append("/*")
         step_map[s] = (t, "tso")
 
-    return "\n".join(lines) + "\n", step_map
+    return "\n".join(lines) + "\n", step_map, fx_map
 
 
 # The step has no verdict in the spool at all -- neither executed, nor abended,
@@ -404,7 +438,80 @@ def _verdicts_at_risk(spool_errors: list) -> bool:
     return any(e.split(":", 1)[0] in JES_DDNAMES for e in spool_errors or [])
 
 
-def _matrix(rows: dict, spool_errors: list = None) -> tuple:
+def _fixture_bad_steps(spool: str, jobname: str, fx_map: dict,
+                       spool_errors: list = None) -> list:
+    """The fixture-load steps that did not end CC 0: [(step, rc, status)].
+
+    A step with no verdict is left out when the readback lost a JES DD --
+    that is the readback's fault, reported elsewhere, not a failed load.
+    """
+    unknown = _verdicts_at_risk(spool_errors)
+    bad = []
+    for step in fx_map:
+        rc, st = _parse_step_rc(spool, jobname, step)
+        if rc == 0 or (unknown and st == _NO_RC):
+            continue
+        bad.append((step, rc, st))
+    return bad
+
+
+def _fixture_failed_tests(spool: str, jobname: str, fx_map: dict,
+                          spool_errors: list = None) -> set:
+    """The tests at least one of whose fixture members did not load."""
+    return {fx_map[step][0]
+            for step, _rc, _st in _fixture_bad_steps(spool, jobname, fx_map,
+                                                     spool_errors)}
+
+
+def _fixture_failures(spool: str, jobname: str, fx_map: dict,
+                      spool_errors: list = None):
+    """Did a fixture member fail to load? Return (headline, details) or None.
+
+    The load steps carry no COND=EVEN, so one ABEND skips every load after it
+    while the tests still run -- and fail on the members that are missing,
+    which reads like a fault in the program under test (#122: SE37 at member
+    65 of 81, 17 tests failing rc 20 on "member not found").  A step that
+    failed is named with its member; a run of skipped steps is one line.
+    """
+    bad = _fixture_bad_steps(spool, jobname, fx_map, spool_errors)
+    if not bad:
+        return None
+    tests = sorted({fx_map[step][0] for step, _rc, _st in bad})
+    details = []
+    run, run_st = [], None      # consecutive steps without a verdict
+
+    def flush():
+        if not run:
+            return
+        span = run[0] if len(run) == 1 else f"{run[0]}-{run[-1]}"
+        dds = "/".join(sorted({fx_map[s][1] for s in run}))
+        details.append(f"{span} {dds}: {len(run)} member(s) not loaded "
+                       f"({run_st})")
+        run.clear()
+
+    x37 = False
+    for step, rc, st in bad:
+        test, dd, member, pds = fx_map[step]
+        if rc is None:
+            if run and run_st != st:
+                flush()
+            run_st = st
+            run.append(step)
+            continue
+        flush()
+        verdict = st if rc == 9999 else f"CC {rc}"
+        details.append(f"{step} {dd}({member}) into {pds}: {verdict}")
+        x37 = x37 or (rc == 9999 and re.search(r"\bS[0-9A-F]37\b", st))
+    flush()
+    if x37:
+        details.append("an x37 ABEND is the fixture PDS out of space")
+    details.append("the test results of " + ", ".join(tests)
+                   + " are not about the tests")
+    return (f"fixture load failed for {', '.join(tests)}", details)
+
+
+def _matrix(rows: dict, spool_errors: list = None,
+            fx_failed: set = None) -> tuple:
     """Render the per-test matrix. Return (lines, failed, unread).
 
     A step with no verdict in a spool that was read in full really is wrong,
@@ -413,6 +520,9 @@ def _matrix(rows: dict, spool_errors: list = None) -> tuple:
     nor fail, just unknown -- and counting it as failed is the same
     mistranslation as #87, one step down: a green test reported as broken
     because a REST call 500'd.  Those cells print `??` and are tallied apart.
+
+    fx_failed: tests whose fixture did not load in full; their row is marked,
+    since its verdicts were not measured against what the test declared.
     """
     unknown = _verdicts_at_risk(spool_errors)
     lines = [f"  {'TEST':<10} {'BATCH':<14} {'TSO':<14}",
@@ -431,7 +541,10 @@ def _matrix(rows: dict, spool_errors: list = None) -> tuple:
                 failed += 1
             cells.append(("ok " if ok else "FAIL ")
                          + (st if rc in (None, 9999) else f"CC {rc}"))
-        lines.append(f"  {test:<10} {cells[0]:<14} {cells[1]:<14}")
+        row = f"  {test:<10} {cells[0]:<14} {cells[1]:<14}"
+        if fx_failed and test in fx_failed:
+            row += " fixture not loaded"
+        lines.append(row)
     return (lines, failed, unread)
 
 
@@ -556,10 +669,12 @@ def main() -> int:
                 pds = fx["pds"]
                 if client.dataset_exists(pds):
                     client.delete_dataset(pds)
+                space = _fixture_space(fx["members"])
                 client.create_dataset(pds, "PO", "FB", 80, 3120,
-                                      ["TRK", 2, 1, 5], "SYSDA")
+                                      space, "SYSDA")
                 _log(f"Fixture {pds} ({len(fx['members'])} member(s) "
-                     f"for {tn} {fx['dd']})")
+                     f"for {tn} {fx['dd']}, TRK({space[1]},{space[2]},"
+                     f"{space[3]}))")
         except MvsMFError as e:
             _log_error(f"fixture alloc failed for {tn}: {e}")
             return EXIT_MAINFRAME
@@ -567,10 +682,12 @@ def main() -> int:
     # -- generate + submit the runner --
     jc = jobcard("MBTTEST", config.jes_jobclass, config.jes_msgclass, "MBT TEST")
     parms = _resolve_parms(project, tests)
-    jcl, step_map = _gen_runner(jc, tests, testlib, linklib, fixtures, parms)
+    jcl, step_map, fx_map = _gen_runner(jc, tests, testlib, linklib,
+                                        fixtures, parms)
     runner_path = builddir / "test-runner.jcl"
     runner_path.write_text(jcl)
-    _log(f"Runner JCL -> {runner_path} ({len(step_map)} step(s))")
+    _log(f"Runner JCL -> {runner_path} "
+         f"({len(step_map) + len(fx_map)} step(s))")
 
     # The default 120 s poll is too short for large runners (a full-suite job
     # has 110 steps and runs for several minutes; the poll then gives up with
@@ -579,7 +696,7 @@ def main() -> int:
     # reports the expired poll rather than a matrix of failed tests.
     timeout = int(os.environ.get("MBT_TEST_TIMEOUT", "0") or "0")
     if timeout <= 0:
-        timeout = max(120, 10 * len(step_map))
+        timeout = max(120, 10 * (len(step_map) + len(fx_map)))
     try:
         result = client.submit_jcl(jcl, timeout=timeout)
     except MvsMFError as e:
@@ -616,12 +733,23 @@ def main() -> int:
     n_pass = len(_PASS.findall(spool))
     n_fail = len(_FAIL.findall(spool))
 
-    lines, failed, unread = _matrix(rows, spool_errors)
+    fx_failed = _fixture_failed_tests(spool, jobname, fx_map, spool_errors)
+    lines, failed, unread = _matrix(rows, spool_errors, fx_failed)
     print()
     for line in lines:
         print(line)
     print(f"\n  job {jobname} {result.jobid}  | assertions (batch+tso): "
           f"{n_pass} PASS, {n_fail} FAIL")
+
+    # After the matrix it qualifies, like the readback note below: the rows
+    # of these tests ran against a fixture that is short of members (#122).
+    fx_failure = _fixture_failures(spool, jobname, fx_map, spool_errors)
+    if fx_failure:
+        headline, details = fx_failure
+        _log_error(headline)
+        for line in details:
+            _log_cont(line)
+        _log_cont(f"the full spool is in {spool_path}")
 
     # Print this last, after the matrix it qualifies: part of the spool is
     # missing, so both the ?? cells and the assertion tally are short of the
@@ -638,6 +766,10 @@ def main() -> int:
         for line in spool_errors[:MAX_SPOOL_ERRORS]:
             _log_cont(line)
 
+    # A short fixture outranks the test verdicts: they were not measured
+    # against what the tests declared.
+    if fx_failure:
+        return EXIT_DATASET
     if failed:
         _log(f"{failed} step(s) FAILED")
         return EXIT_TESTS_FAILED

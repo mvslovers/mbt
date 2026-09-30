@@ -259,6 +259,30 @@ once per test -- list all its members in one block. Earlier releases put all of
 a test's DDs on one shared `{HLQ}.{PROJECT}.FIX.{TEST}`; the runner deletes that
 dataset when it finds it.
 
+Each PDS is sized to what it will hold: a block of 3120 per 39 lines of each
+member (a member starts its own block), four blocks to a track, doubled, with
+half of that again as secondary; one directory block per six members plus one.
+The log shows the result, e.g. `TRK(84,42,15)` for 81 members of 75 lines.
+Nothing gets less than the `TRK(2,1,5)` every fixture had before, which held 64
+small members and failed on the 65th (#122).
+
+The load steps run first and have no `COND=EVEN`, so a load that fails skips
+every load after it, and the tests then run against a PDS that is missing
+members. That is reported as the load failing, not as the tests:
+
+```
+  TSTSPEC    FAIL CC 1      FAIL CC 1      fixture not loaded
+
+[mbt] ERROR: fixture load failed for TSTSPEC
+[mbt]        FX065 SYSEXEC(SPEC065) into IBMUSER.REXX370.FIX.TSTSPEC.SYSEXEC: ABEND SE37
+[mbt]        FX066-FX081 SYSEXEC: 16 member(s) not loaded (NOT EXECUTED)
+[mbt]        an x37 ABEND is the fixture PDS out of space
+[mbt]        the test results of TSTSPEC are not about the tests
+```
+
+The exit code is then 5 (dataset error), ahead of 1 (tests failed): the matrix
+still prints, but those rows were not measured against what the test declared.
+
 ### Per-leg arguments (environment-dependent tests)
 
 A test whose correct result depends on the run environment can't know it a

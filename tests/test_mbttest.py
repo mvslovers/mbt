@@ -20,7 +20,7 @@ LINKLIB = "IBMUSER.REXX370.V1R0M0D.LINKLIB"
 
 class GenRunnerTest(unittest.TestCase):
     def setUp(self):
-        self.jcl, self.smap = mbttest._gen_runner(
+        self.jcl, self.smap, _ = mbttest._gen_runner(
             JC, ["TSTTOKN", "TSTFIND"], TESTLIB, LINKLIB)
 
     def test_batch_and_tso_step_per_test(self):
@@ -46,7 +46,7 @@ class GenRunnerTest(unittest.TestCase):
     def test_steplib_testlib_only_when_no_linklib(self):
         # linklib=None (nothing deployed yet) -> STEPLIB is TESTLIB alone,
         # no dangling concatenation DD.
-        jcl, _ = mbttest._gen_runner(JC, ["TSTTOKN"], TESTLIB, None)
+        jcl, _, _ = mbttest._gen_runner(JC, ["TSTTOKN"], TESTLIB, None)
         self.assertIn(f"//STEPLIB  DD DSN={TESTLIB},DISP=SHR", jcl)
         self.assertNotIn(",DISP=SHR\n//         DD DSN=", jcl)
 
@@ -69,7 +69,7 @@ class FixtureRunnerTest(unittest.TestCase):
                  "members": [("PROCONLY", "say 'proc'\n")]},
             ]
         }
-        self.jcl, self.smap = mbttest._gen_runner(
+        self.jcl, self.smap, self.fxmap = mbttest._gen_runner(
             JC, ["TSTLOAD", "TSTTOKN"], TESTLIB, LINKLIB, self.fix)
 
     def test_iebgener_load_step_per_member(self):
@@ -101,6 +101,17 @@ class FixtureRunnerTest(unittest.TestCase):
             body = self.jcl.split(step)[1].split("\n//B02")[0].split("\n//T02")[0]
             self.assertIn(f"//SYSEXEC  DD DSN={FIX}.SYSEXEC,DISP=SHR", body)
             self.assertIn(f"//SYSPROC  DD DSN={FIX}.SYSPROC,DISP=SHR", body)
+
+    def test_fx_map_one_step_per_member_in_generation_order(self):
+        # #122: the runner reads these steps back to report a failed load
+        self.assertEqual(self.fxmap, {
+            "FX001": ("TSTLOAD", "SYSEXEC", "HELLO", f"{FIX}.SYSEXEC"),
+            "FX002": ("TSTLOAD", "SYSEXEC", "EMPTY", f"{FIX}.SYSEXEC"),
+            "FX003": ("TSTLOAD", "SYSPROC", "PROCONLY", f"{FIX}.SYSPROC"),
+        })
+        for step in self.fxmap:
+            self.assertIn(f"//{step}  EXEC PGM=IEBGENER", self.jcl)
+        self.assertFalse(set(self.fxmap) & set(self.smap))
 
     def test_non_fixture_test_gets_no_fixture_dd(self):
         # TSTTOKN has no fixture -> no FIX.TSTLOAD DD leaks into its step
@@ -180,7 +191,7 @@ class ResolveFixturesTest(unittest.TestCase):
 class PerLegParmTest(unittest.TestCase):
     def setUp(self):
         self.parms = {"TISTSO": {"batch": "0", "tso": "1"}}
-        self.jcl, _ = mbttest._gen_runner(
+        self.jcl, _, _ = mbttest._gen_runner(
             JC, ["TISTSO", "TSTTOKN"], TESTLIB, LINKLIB, None, self.parms)
 
     def test_batch_parm_on_exec(self):
@@ -543,6 +554,122 @@ class PartialReadbackMatrixTest(unittest.TestCase):
         lines, failed, unread = mbttest._matrix(rows, [])
         self.assertEqual((failed, unread), (0, 0))
         self.assertEqual(lines[2].rstrip(), "  TSTA       ok CC 0        ok CC 0")
+
+
+# -- Fixture PDS space (issue #122) ------------------------------------------
+#
+# A fixed TRK(2,1,5) held 64 of rexx370's 81 SYSEXEC members; member 65 ended
+# in SE37 (mvsdev JOB01411).  The same PDS as TRK(20,10) with 20 directory
+# blocks took all 81 (JOB01412).
+
+def _member(lines: int) -> str:
+    return "".join(f"say 'line {i}'\n" for i in range(lines))
+
+
+class FixtureSpaceTest(unittest.TestCase):
+    def test_never_less_than_the_old_fixed_size(self):
+        for members in ([], [("A", "")], [("A", "x\n"), ("B", "")]):
+            unit, prim, sec, dirb = mbttest._fixture_space(members)
+            self.assertEqual(unit, "TRK")
+            self.assertGreaterEqual(prim, 2)
+            self.assertGreaterEqual(sec, 1)
+            self.assertGreaterEqual(dirb, 5)
+
+    def test_rexx370_spec_suite_fits_in_the_primary(self):
+        # 81 members of up to 6 KB -- say 75 records each, two 3120 blocks.
+        members = [(f"M{i:03d}", _member(75)) for i in range(81)]
+        unit, prim, sec, dirb = mbttest._fixture_space(members)
+        self.assertEqual(unit, "TRK")
+        # 162 blocks at 4 per track is 41 tracks; the old primary was 2
+        self.assertGreaterEqual(prim, 41)
+        self.assertGreater(sec, 0)
+        # ~6 entries per directory block
+        self.assertGreaterEqual(dirb, 14)
+
+    def test_each_member_starts_its_own_block(self):
+        # 40 one-line members are 40 blocks, not the one block their
+        # 3200 bytes would make together
+        one_liners = [(f"M{i:03d}", "x\n") for i in range(40)]
+        _u, prim, _s, _d = mbttest._fixture_space(one_liners)
+        self.assertGreaterEqual(prim, 10)
+
+    def test_more_than_39_records_takes_a_second_block(self):
+        a = mbttest._fixture_space([("A", _member(39))] * 30)
+        b = mbttest._fixture_space([("A", _member(40))] * 30)
+        self.assertGreater(b[1], a[1])
+
+
+# -- Fixture load failure (issue #122) ----------------------------------------
+#
+# The load steps run before the tests without COND=EVEN, so one ABEND skips
+# the rest of them while the tests still run and fail on "member not found".
+# That has to be reported as the load failing, not as the tests.
+
+FXPDS = "IBMUSER.REXX370.FIX.TSTSPEC.SYSEXEC"
+
+
+def _fx_map(n):
+    return {f"FX{i:03d}": ("TSTSPEC", "SYSEXEC", f"SPEC{i:03d}", FXPDS)
+            for i in range(1, n + 1)}
+
+
+def _fx_spool(ok, abend_at=None, skipped=()):
+    out = [f" IEF142I MBTTEST FX{i:03d} - STEP WAS EXECUTED - COND CODE 0000"
+           for i in ok]
+    if abend_at:
+        out.append(" IEC032I E37-04,IFG0554T,MBTTEST,FX065,SYSUT2,251,WORK00,")
+        out.append(f" IEC032I {FXPDS}")
+        out.append(f" IEF450I MBTTEST FX{abend_at:03d} - ABEND SE37 U0000")
+    out += [f" IEF272I MBTTEST FX{i:03d} - STEP WAS NOT EXECUTED."
+            for i in skipped]
+    return "\n".join(out) + "\n"
+
+
+class FixtureFailureTest(unittest.TestCase):
+    def test_all_loaded_is_quiet(self):
+        spool = _fx_spool(range(1, 82))
+        self.assertIsNone(
+            mbttest._fixture_failures(spool, "MBTTEST", _fx_map(81)))
+
+    def test_jobjob01411_names_the_abend_and_counts_the_skipped(self):
+        spool = _fx_spool(range(1, 65), abend_at=65, skipped=range(66, 82))
+        headline, details = mbttest._fixture_failures(
+            spool, "MBTTEST", _fx_map(81))
+        self.assertIn("TSTSPEC", headline)
+        text = "\n".join(details)
+        self.assertIn("FX065", text)
+        self.assertIn("SYSEXEC(SPEC065)", text)
+        self.assertIn("ABEND SE37", text)
+        self.assertIn("FX066-FX081", text)
+        self.assertIn("16 member(s)", text)
+        # x37 is out of space, and the report should say so
+        self.assertIn("out of space", text)
+        # one line per failure, not one per skipped step
+        self.assertLess(len(details), 8)
+
+    def test_failed_tests_are_returned(self):
+        spool = _fx_spool(range(1, 65), abend_at=65, skipped=range(66, 82))
+        self.assertEqual(
+            mbttest._fixture_failed_tests(spool, "MBTTEST", _fx_map(81)),
+            {"TSTSPEC"})
+
+    def test_nonzero_cc_is_a_failure(self):
+        spool = " IEF142I MBTTEST FX001 - STEP WAS EXECUTED - COND CODE 0012\n"
+        headline, details = mbttest._fixture_failures(
+            spool, "MBTTEST", _fx_map(1))
+        self.assertIn("CC 12", "\n".join(details))
+
+    def test_matrix_marks_the_row_of_a_short_fixture(self):
+        rows = {"TSTSPEC": {"batch": (1, "CC"), "tso": (1, "CC")},
+                "TSTTOKN": {"batch": (0, "CC"), "tso": (0, "CC")}}
+        lines, _f, _u = mbttest._matrix(rows, [], {"TSTSPEC"})
+        spec = [ln for ln in lines if "TSTSPEC" in ln][0]
+        tokn = [ln for ln in lines if "TSTTOKN" in ln][0]
+        self.assertIn("fixture not loaded", spec)
+        self.assertNotIn("fixture", tokn)
+
+    def test_no_fixtures_is_quiet(self):
+        self.assertIsNone(mbttest._fixture_failures("", "MBTTEST", {}))
 
 
 if __name__ == "__main__":
