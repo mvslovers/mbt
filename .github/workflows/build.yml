@@ -22,6 +22,18 @@
 # bumped the version. release.yml is the one that pins, so a published artifact
 # stays reproducible (issue #67).
 #
+# The cc370_ref / libc370_ref inputs are the exception, for a temporary hold
+# only: a consumer that cannot follow a breaking toolchain change yet sets
+#
+#   jobs:
+#     build:
+#       uses: mvslovers/mbt/.github/workflows/build.yml@main
+#       with:
+#         libc370_ref: v1.0.8
+#
+# and removes the line again in the PR that migrates it (issue #121). The
+# default stays main.
+#
 # Legacy (v1, mvsMF/JCL) projects use build-legacy.yml instead.
 
 name: Build
@@ -30,7 +42,11 @@ on:
   workflow_call:
     inputs:
       cc370_ref:
-        description: "cc370 git ref (branch or tag) to build the toolchain from"
+        description: "cc370 git ref (branch, tag or SHA) to build the toolchain from"
+        type: string
+        default: "main"
+      libc370_ref:
+        description: "libc370 git ref (branch, tag or SHA) to build the sysroot from"
         type: string
         default: "main"
 
@@ -50,11 +66,25 @@ jobs:
           python-version: "3.12"
 
       - name: Clone toolchain (cc370 + libc370)
+        env:
+          CC370_REF: ${{ inputs.cc370_ref }}
+          LIBC370_REF: ${{ inputs.libc370_ref }}
         run: |
-          git clone --depth 1 --branch "${{ inputs.cc370_ref }}" \
-            https://github.com/mvslovers/cc370.git /tmp/cc370
-          git clone --depth 1 \
-            https://github.com/mvslovers/libc370.git /tmp/libc370
+          echo "[mbt] cc370   @ $CC370_REF"
+          echo "[mbt] libc370 @ $LIBC370_REF"
+          # fetch-by-ref rather than `clone --branch`, which cannot take a
+          # commit SHA. Same helper as release.yml.
+          fetch_at() {   # $1 repo, $2 ref, $3 target dir
+            git init -q "$3"
+            git -C "$3" remote add origin "https://github.com/mvslovers/$1.git"
+            if ! git -C "$3" fetch -q --depth 1 origin "$2"; then
+              echo "[mbt] ERROR: $1: no such ref '$2'" >&2
+              exit 1
+            fi
+            git -C "$3" checkout -q --detach FETCH_HEAD
+          }
+          fetch_at cc370   "$CC370_REF"   /tmp/cc370
+          fetch_at libc370 "$LIBC370_REF" /tmp/libc370
           echo "TC_KEY=$(git -C /tmp/cc370 rev-parse HEAD)-$(git -C /tmp/libc370 rev-parse HEAD)" >> "$GITHUB_ENV"
 
       - name: Cache toolchain (cc370 compiler + libc370 sysroot)
