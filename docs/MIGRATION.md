@@ -492,8 +492,13 @@ artifact: `project.toml` holds the *range* (`>=…`), the lock holds the
 *resolved* version and the exact content hash. Keeping `.mbt/` ignored
 is correct; the lock sits at the root next to `project.toml`, so `make
 clean`/`distclean` never disturb it. On the next `make deps` the locked
-version is used as-is and its SHA is re-verified. How a drifted SHA is
-handled depends on the resolved version:
+version is used and its SHA is re-verified — as long as it still fits
+the range in `project.toml`. Change a constraint so the pin no longer
+satisfies it (`>=4.0.0-dev` → `>=4.1.0`), and that one entry is
+re-resolved with a **WARNING** while every other pin stays as it is. A
+prerelease pin also stops fitting once the range names no prerelease,
+because the resolver would never pick it. How a drifted SHA is handled
+depends on the resolved version:
 
 - **stable** (`X.Y.Z`) — the asset is immutable, so a changed SHA is a
   hard error (`make deps` fails); re-pin deliberately with `--update`.
@@ -511,6 +516,12 @@ This encodes the resolver's intent: **`-dev` is rolling, stable is
 pinned.** It also keeps a whole ecosystem of rolling `-dev` prereleases
 building green without a lock-churn commit every time an upstream
 re-pushes (see issue #52).
+
+A prerelease that has been deleted on GitHub can still resolve from the
+local download cache (`~/.mbt/cache`). `make deps` then warns that the
+release no longer exists: the build succeeds on that machine and fails
+wherever the cache is absent, CI included. Being offline falls back to
+the cache without a warning.
 
 A range that names a prerelease bound (`>=1.0.0-dev`) opts that
 dependency into prereleases; a plain range (`>=1.0.0`) ignores them.

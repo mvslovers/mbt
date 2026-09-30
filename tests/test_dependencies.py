@@ -308,5 +308,58 @@ class TestDownloadDependencyCache(unittest.TestCase):
             self.assertEqual(result, cache_dir)
 
 
+# --- download_dependency (upstream gone, cache fallback; issue #29) ---
+
+class TestDownloadDependencyFallback(unittest.TestCase):
+
+    def _populated_cache(self, tmp: str) -> Path:
+        cache_dir = Path(tmp) / "mvslovers" / "httpd" / "4.0.0-dev"
+        cache_dir.mkdir(parents=True)
+        (cache_dir / "httpd-4.0.0-dev-lib.tar.gz").write_bytes(b"x")
+        return cache_dir
+
+    def _fetch(self, tmp: str, error: Exception) -> tuple[Path, list[str]]:
+        warnings: list[str] = []
+        with patch("mbt.dependencies.CACHE_DIR", Path(tmp)):
+            with patch("urllib.request.urlopen", side_effect=error):
+                result = download_dependency(
+                    "mvslovers", "httpd", "4.0.0-dev",
+                    force=True, warn=warnings.append,
+                )
+        return result, warnings
+
+    def test_release_gone_warns_and_uses_cache(self):
+        import urllib.error
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = self._populated_cache(tmp)
+            err = urllib.error.HTTPError(
+                "https://api.github.com/x", 404, "Not Found", {}, None)
+            result, warnings = self._fetch(tmp, err)
+        self.assertEqual(result, cache_dir)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("v4.0.0-dev no longer exists", warnings[0])
+        self.assertIn("mvslovers/httpd", warnings[0])
+
+    def test_offline_uses_cache_silently(self):
+        import urllib.error
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = self._populated_cache(tmp)
+            result, warnings = self._fetch(
+                tmp, urllib.error.URLError("no route to host"))
+        self.assertEqual(result, cache_dir)
+        self.assertEqual(warnings, [])
+
+    def test_release_gone_without_cache_fails(self):
+        import urllib.error
+        with tempfile.TemporaryDirectory() as tmp:
+            err = urllib.error.HTTPError(
+                "https://api.github.com/x", 404, "Not Found", {}, None)
+            with patch("mbt.dependencies.CACHE_DIR", Path(tmp)):
+                with patch("urllib.request.urlopen", side_effect=err):
+                    with self.assertRaises(DependencyError):
+                        download_dependency(
+                            "mvslovers", "httpd", "4.0.0-dev", force=True)
+
+
 if __name__ == "__main__":
     unittest.main()
