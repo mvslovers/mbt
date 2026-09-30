@@ -10,6 +10,11 @@ The host build then compiles against .mbt/deps/*/include and links
                              otherwise resolve the ranges; download + stage
   make deps ARGS=--update    re-resolve the ranges and rewrite the lock
 
+A locked version is only kept while the resolver could still pick it for
+the declared range: when project.toml changes the constraint so that the
+pin no longer fits it, that entry alone is re-resolved (with a
+WARNING) and the other pins stay untouched (issue #29).
+
 The SHA256 in the lock is the real pin, but strictness depends on the
 resolved version:
 
@@ -36,7 +41,9 @@ except ModuleNotFoundError:
     import tomli as tomllib
 
 from mbt import EXIT_SUCCESS, EXIT_CONFIG, EXIT_DEPENDENCY
-from mbt.dependencies import _resolve_one, download_dependency, DependencyError
+from mbt.dependencies import (
+    _resolve_one, download_dependency, version_allowed, DependencyError,
+)
 from mbt.version import Version
 
 DEPS_DIR = Path(".mbt/deps")                   # staged artifacts (gitignored)
@@ -81,6 +88,23 @@ def _sha_drift_action(locked, sha: str, is_pre: bool, update: bool) -> str:
     if not drift:
         return "ok"
     return "warn" if is_pre else "error"
+
+
+def _lock_matches(locked, constraint: str) -> bool:
+    """Decide whether a lock entry may still be used for its constraint.
+
+    True only if the locked version is one the resolver could pick for the
+    declared range today -- it satisfies the constraint, and it is not a
+    prerelease under a constraint that names none.  Anything else (no
+    entry, no version, an unparsable one) means: re-resolve this entry
+    (issue #29).
+    """
+    if not locked or not locked.get("version"):
+        return False
+    try:
+        return version_allowed(locked["version"], constraint)
+    except ValueError:
+        return False
 
 
 def _stage_lib(tarball: Path, dest: Path) -> None:
@@ -193,8 +217,15 @@ def main() -> int:
                 new_lock[dep_key] = locked          # keep the committed pin
             continue
 
-        # version: from lock (default) or freshly resolved (--update / no lock)
-        if locked and not args.update:
+        # version: from lock (default) or freshly resolved (--update / no
+        # lock / the lock no longer satisfies the constraint, issue #29)
+        keep = not args.update and _lock_matches(locked, constraint)
+        if locked and not keep and not args.update:
+            _log_warn(
+                f"{dep_key}: locked {locked.get('version')!r} no longer fits "
+                f"{constraint!r}; re-resolving this entry"
+            )
+        if keep:
             version = locked["version"]
         else:
             try:
@@ -207,7 +238,8 @@ def main() -> int:
 
         # download (force for prereleases -- the tag may have moved)
         try:
-            cache = download_dependency(owner, repo, version, force=is_pre)
+            cache = download_dependency(owner, repo, version,
+                                        force=is_pre, warn=_log_warn)
         except DependencyError as e:
             _log_error(str(e))
             return EXIT_DEPENDENCY
@@ -221,7 +253,9 @@ def main() -> int:
             return EXIT_DEPENDENCY
 
         sha = _sha256(lib)
-        action = _sha_drift_action(locked, sha, is_pre, args.update)
+        # a freshly resolved version has no prior SHA to drift from
+        action = _sha_drift_action(locked if keep else None, sha, is_pre,
+                                   args.update)
         if action == "error":
             # Stable release: the immutable asset changed under us -> hard fail
             # to keep the build reproducible; re-pin with 'make deps --update'.

@@ -106,6 +106,22 @@ def _constraint_allows_prerelease(constraint: str) -> bool:
     return False
 
 
+def version_allowed(version_str: str, constraint: str) -> bool:
+    """Return True if the resolver may pick version_str for constraint.
+
+    Stricter than satisfies(): a prerelease is only eligible when the
+    constraint itself names one (see _constraint_allows_prerelease), so
+    '1.5.0-dev' satisfies '>=1.0.0' but is not allowed by it.
+
+    Raises:
+        ValueError: If version_str or the constraint cannot be parsed
+    """
+    if (Version.parse(version_str).pre is not None
+            and not _constraint_allows_prerelease(constraint)):
+        return False
+    return satisfies(version_str, constraint)
+
+
 def _resolve_from_cache(owner: str, repo: str,
                         constraint: str) -> str | None:
     """Check local cache for a version matching the constraint.
@@ -117,20 +133,16 @@ def _resolve_from_cache(owner: str, repo: str,
     if not cache_base.is_dir():
         return None
 
-    allow_prerelease = _constraint_allows_prerelease(constraint)
     candidates = []
     for entry in cache_base.iterdir():
         if not entry.is_dir():
             continue
         ver_str = entry.name
         try:
-            ver = Version.parse(ver_str)
+            if version_allowed(ver_str, constraint):
+                candidates.append(Version.parse(ver_str))
         except ValueError:
             continue
-        if ver.pre is not None and not allow_prerelease:
-            continue
-        if satisfies(ver_str, constraint):
-            candidates.append(ver)
 
     if not candidates:
         return None
@@ -201,7 +213,8 @@ def _resolve_one(owner: str, repo: str,
 
 def download_dependency(owner: str, repo: str,
                         version: str,
-                        force: bool = False) -> Path:
+                        force: bool = False,
+                        warn=None) -> Path:
     """Download dependency assets to cache.
 
     Cache structure:
@@ -212,6 +225,11 @@ def download_dependency(owner: str, repo: str,
 
     Skips download if cache is already populated, unless force=True.
     Pass force=True for prerelease versions whose tag may be re-pushed.
+
+    If the release is gone upstream (HTTP 404) but the cache still holds
+    it, the cache is used and warn(message) is called when given: the
+    build succeeds here and fails wherever that cache is absent (CI).
+    An unreachable GitHub (offline) falls back to the cache silently.
 
     Returns:
         Path to cache directory
@@ -237,7 +255,19 @@ def download_dependency(owner: str, repo: str,
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             release = json.loads(resp.read())
-    except (urllib.error.HTTPError, urllib.error.URLError):
+    except urllib.error.HTTPError as e:
+        if cache_populated:
+            if e.code == 404 and warn is not None:
+                warn(f"{owner}/{repo} {version}: release {tag} no longer "
+                     f"exists on GitHub; using the local cache "
+                     f"({cache_dir}). A build without that cache (CI) "
+                     f"will fail.")
+            return cache_dir
+        raise DependencyError(
+            f"Cannot find release {tag} for {owner}/{repo} "
+            f"and no local cache available"
+        )
+    except urllib.error.URLError:
         if cache_populated:
             return cache_dir
         raise DependencyError(
