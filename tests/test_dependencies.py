@@ -56,6 +56,15 @@ def _mock_urlopen(releases: list[dict]):
 
 class TestResolveDependenciesWithLockfile(unittest.TestCase):
 
+    def setUp(self):
+        # Never read the developer's real ~/.mbt/cache (issue #125).
+        self._tmp_cache = tempfile.TemporaryDirectory()
+        patcher = patch("mbt.dependencies.CACHE_DIR",
+                        Path(self._tmp_cache.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self._tmp_cache.cleanup)
+
     def test_uses_lockfile_when_no_update(self):
         lockfile = Lockfile(
             generated="2026-03-04T10:00:00Z",
@@ -103,6 +112,15 @@ class TestResolveDependenciesWithLockfile(unittest.TestCase):
 # --- _resolve_one ---
 
 class TestResolveOne(unittest.TestCase):
+
+    def setUp(self):
+        # Never read the developer's real ~/.mbt/cache (issue #125).
+        self._tmp_cache = tempfile.TemporaryDirectory()
+        patcher = patch("mbt.dependencies.CACHE_DIR",
+                        Path(self._tmp_cache.name))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self._tmp_cache.cleanup)
 
     def test_selects_highest_matching(self):
         releases = [
@@ -185,6 +203,99 @@ class TestResolveOne(unittest.TestCase):
             mock_open.return_value = _mock_urlopen(releases)
             result = _resolve_one("mvslovers", "crent370", "=1.2.3")
         self.assertEqual(result, "1.2.3")
+
+    def test_asks_for_a_full_page(self):
+        # GitHub pages at 30 by default; past that, old releases vanish.
+        with patch("urllib.request.urlopen") as mock_open:
+            mock_open.return_value = _mock_urlopen([_make_release("v1.0.0")])
+            _resolve_one("mvslovers", "crent370", ">=1.0.0")
+        self.assertIn("per_page=100", mock_open.call_args[0][0].full_url)
+
+
+# --- _resolve_one: GitHub first, cache only as fallback (issue #125) ---
+
+class TestResolveOneGithubFirst(unittest.TestCase):
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.cache = Path(self._tmp.name)
+        patcher = patch("mbt.dependencies.CACHE_DIR", self.cache)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _cached(self, *versions):
+        for v in versions:
+            d = self.cache / "mvslovers" / "httpd" / v
+            d.mkdir(parents=True)
+            (d / f"httpd-{v}-lib.tar.gz").write_bytes(b"x")
+
+    def _resolve(self, urlopen_kwargs, constraint=">=4.1.0"):
+        warnings: list[str] = []
+        with patch("urllib.request.urlopen", **urlopen_kwargs):
+            result = _resolve_one("mvslovers", "httpd", constraint,
+                                  warn=warnings.append)
+        return result, warnings
+
+    @staticmethod
+    def _http_error(code):
+        import urllib.error
+        return urllib.error.HTTPError(
+            "https://api.github.com/x", code, "err", {}, None)
+
+    def test_github_beats_the_cache(self):
+        self._cached("4.1.0")
+        releases = [_make_release("v4.2.0"), _make_release("v4.1.0")]
+        result, warnings = self._resolve(
+            {"return_value": _mock_urlopen(releases)})
+        self.assertEqual(result, "4.2.0")
+        self.assertEqual(warnings, [])
+
+    def test_cache_only_release_is_not_picked(self):
+        # A release deleted upstream but still cached must not win.
+        self._cached("4.3.0")
+        result, _ = self._resolve(
+            {"return_value": _mock_urlopen([_make_release("v4.1.0")])})
+        self.assertEqual(result, "4.1.0")
+
+    def test_offline_falls_back_to_cache_with_warning(self):
+        import urllib.error
+        self._cached("4.1.0", "4.0.0-dev")
+        result, warnings = self._resolve(
+            {"side_effect": urllib.error.URLError("no route to host")})
+        self.assertEqual(result, "4.1.0")
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("Cannot reach GitHub API", warnings[0])
+        self.assertIn("-> 4.1.0 from the local cache", warnings[0])
+
+    def test_offline_without_cache_fails(self):
+        import urllib.error
+        with self.assertRaises(DependencyError) as cm:
+            self._resolve(
+                {"side_effect": urllib.error.URLError("no route to host")})
+        self.assertIn("no cached version satisfies", str(cm.exception))
+
+    def test_rate_limit_falls_back_to_cache(self):
+        self._cached("4.1.0")
+        for code in (403, 429):
+            result, warnings = self._resolve(
+                {"side_effect": self._http_error(code)})
+            self.assertEqual(result, "4.1.0")
+            self.assertIn(f"HTTP {code}", warnings[0])
+
+    def test_server_error_falls_back_to_cache(self):
+        self._cached("4.1.0")
+        result, warnings = self._resolve(
+            {"side_effect": self._http_error(502)})
+        self.assertEqual(result, "4.1.0")
+        self.assertEqual(len(warnings), 1)
+
+    def test_unknown_repo_does_not_fall_back(self):
+        # 404: a typo in owner/repo -- the cache must not paper over it.
+        self._cached("4.1.0")
+        with self.assertRaises(DependencyError) as cm:
+            self._resolve({"side_effect": self._http_error(404)})
+        self.assertIn("HTTP 404", str(cm.exception))
 
 
 # --- extract_headers ---
