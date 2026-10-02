@@ -35,6 +35,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .datasets import mvs_qualifier
+
 
 class DistributionError(Exception):
     """A `[distribution]` block is malformed or would generate invalid MCS."""
@@ -768,6 +770,18 @@ def render_cleanup_step(dist: Distribution, after_step: str) -> str:
         "/*",
         "//",
     ])
+
+
+def job_name(product: str, suffix: str) -> str:
+    """The job name of an operator job: product base plus a 3-char suffix.
+
+    The base is the product name as a qualifier (mvs_qualifier) cut to 5
+    characters, so the suffix always survives the 8-character limit: a
+    brexx370 package gets BREXXALC and BREXXINS, not two jobs both named
+    BREXX370 that cannot be told apart in the spool (#130).  Names of 5
+    characters or fewer are unchanged (UFSDALC, MVSMFINS).
+    """
+    return mvs_qualifier(product)[:8 - len(suffix)] + suffix.upper()
 
 
 def jobcard(jobname: str, programmer: str, msgclass: str = "H") -> str:

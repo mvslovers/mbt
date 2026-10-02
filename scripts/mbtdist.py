@@ -209,7 +209,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     plan = D.receive_plan(dist, xmit_files)
 
     alloc_jcl = render_template("smpalloc.jcl.tpl", {
-        "JOBCARD": D.jobcard(f"{name}ALC", f"{name.upper()[:12]} ALLOC"),
+        "JOBCARD": D.jobcard(D.job_name(name, "ALC"), f"{name.upper()[:12]} ALLOC"),
         "PRODUCT": name,
         "VERSION": version,
         "FMID": dist.smp.fmid,
@@ -251,7 +251,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     cleanup_step = D.render_cleanup_step(dist, last_smp_step)
 
     inst_jcl = render_template("smpinst.jcl.tpl", {
-        "JOBCARD": D.jobcard(f"{name}INS", f"{name.upper()[:12]} INSTALL"),
+        "JOBCARD": D.jobcard(D.job_name(name, "INS"), f"{name.upper()[:12]} INSTALL"),
         "PRODUCT": name,
         "VERSION": version,
         "FMID": dist.smp.fmid,
