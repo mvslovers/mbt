@@ -141,6 +141,26 @@ class TrapTest(unittest.TestCase):
         self.assertIn("REGION=4096K", D.jobcard("UFSDINS", "UFSD INSTALL"))
 
 
+class JobNameTest(unittest.TestCase):
+    """#130: the ALC/INS suffix must survive the 8-character job name."""
+
+    def test_short_names_are_unchanged(self):
+        self.assertEqual(D.job_name("ufsd", "ALC"), "UFSDALC")
+        self.assertEqual(D.job_name("mvsmf", "INS"), "MVSMFINS")
+
+    def test_long_name_keeps_both_jobs_apart(self):
+        alc = D.job_name("brexx370", "ALC")
+        ins = D.job_name("brexx370", "INS")
+        self.assertEqual((alc, ins), ("BREXXALC", "BREXXINS"))
+
+    def test_six_characters_no_longer_cut_the_suffix(self):
+        self.assertEqual(D.job_name("rexx370", "ALC"), "REXX3ALC")
+        self.assertEqual(D.job_name("nsf370", "INS"), "NSF37INS")
+
+    def test_invalid_characters_are_dropped(self):
+        self.assertEqual(D.job_name("my-prod", "INS"), "MYPROINS")
+
+
 class CardTextTest(unittest.TestCase):
     def test_the_generated_limit_is_column_71(self):
         # We emit JCL as well as MCS, and a JCL statement stops at 71 (72 is
