@@ -672,5 +672,47 @@ class FixtureFailureTest(unittest.TestCase):
         self.assertIsNone(mbttest._fixture_failures("", "MBTTEST", {}))
 
 
+class ProjectQualifierTest(unittest.TestCase):
+    """A project name over 8 characters is cut to a valid qualifier (#127).
+
+    crypto370 used to produce IBMUSER.CRYPTO370.V1R0M0D.TESTLIB, which the
+    RECEIVE rejects with IKJ56709I INVALID DATA SET NAME.
+    """
+
+    def _config(self, name):
+        import types
+        return types.SimpleNamespace(
+            hlq="IBMUSER",
+            project=types.SimpleNamespace(name=name, version="1.0.0-dev"))
+
+    def test_testlib_long_name(self):
+        self.assertEqual(
+            mbttest._resolve_testlib(self._config("crypto370"), {}),
+            "IBMUSER.CRYPTO37.V1R0M0D.TESTLIB")
+
+    def test_testlib_invalid_characters_dropped(self):
+        self.assertEqual(
+            mbttest._resolve_testlib(self._config("my-proj"), {}),
+            "IBMUSER.MYPROJ.V1R0M0D.TESTLIB")
+
+    def test_testlib_explicit_target_untouched(self):
+        project = {"test_deploy": {"target": "X.Y.TESTLIB"}}
+        self.assertEqual(
+            mbttest._resolve_testlib(self._config("crypto370"), project),
+            "X.Y.TESTLIB")
+
+    def test_fixture_pds_long_name(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            member = Path(d) / "hello"
+            member.write_text("x\n")
+            project = {"test": [{"name": "TSTLOAD", "fixture": [
+                {"dd": "SYSEXEC", "members": [str(member)]}]}]}
+            fx = mbttest._resolve_fixtures(
+                project, ["TSTLOAD"], self._config("lstring370"))
+        self.assertEqual(fx["TSTLOAD"][0]["pds"],
+                         "IBMUSER.LSTRING3.FIX.TSTLOAD.SYSEXEC")
+
+
 if __name__ == "__main__":
     unittest.main()

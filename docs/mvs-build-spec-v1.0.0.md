@@ -481,11 +481,17 @@ env:
 | Component   | Source                           | Example         |
 |-------------|----------------------------------|-----------------|
 | `HLQ`       | Config: mvs.hlq                  | `IBMUSER`       |
-| `PROJECT`   | project.name (uppercased)        | `HTTPD`         |
+| `PROJECT`   | project.name as a qualifier (below) | `HTTPD`      |
 | `VRM`       | version → VRM conversion         | `V3R3M1`        |
 | `SUFFIX`    | dataset suffix from project.toml | `NCALIB`        |
 
 Result: `IBMUSER.HTTPD.V3R3M1.NCALIB`
+
+`PROJECT` is derived from `project.name` by uppercasing it, dropping every
+character outside `A-Z 0-9 @ # $`, and cutting the result to 8 characters:
+`crypto370` → `CRYPTO37`. Every data set name built from the project name
+(build, TESTLIB, test fixtures, default deploy target) MUST use this same
+qualifier. Names that agree in their first 8 valid characters share it.
 
 ### 5.2 VRM Conversion
 

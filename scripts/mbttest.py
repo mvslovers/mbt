@@ -41,6 +41,7 @@ except ModuleNotFoundError:
 
 from mbt import EXIT_SUCCESS, EXIT_CONFIG, EXIT_MAINFRAME, EXIT_DATASET
 from mbt.config import MbtConfig
+from mbt.datasets import mvs_qualifier
 from mbt.mvsmf import JES_DDNAMES, MvsMFError
 from mbt.jcl import jobcard
 from mbt.project import ProjectError
@@ -93,7 +94,7 @@ def _resolve_testlib(config: MbtConfig, project: dict) -> str:
     test = project.get("test_deploy", {})
     if test.get("target"):
         return test["target"]
-    name = config.project.name.upper()
+    name = mvs_qualifier(config.project.name)
     vrm = Version.parse(config.project.version).to_vrm()
     return f"{config.hlq}.{name}.{vrm}.TESTLIB"
 
@@ -114,7 +115,7 @@ def _resolve_fixtures(project: dict, tests: list, config: MbtConfig) -> dict:
     file cannot be read.
     """
     want = {t.upper() for t in tests}
-    name = config.project.name.upper()
+    name = mvs_qualifier(config.project.name)
     out = {}
     for t in project.get("test", []):
         tn = t.get("name", "")
@@ -655,7 +656,7 @@ def main() -> int:
 
     # -- prepare the fixture PDSes, one per [[test.fixture]] block (allocate
     #    empty; the runner's IEBGENER steps load the members). --
-    name = config.project.name.upper()
+    name = mvs_qualifier(config.project.name)
     for tn, blocks in fixtures.items():
         # The single per-test PDS of earlier releases (#109).  Removed so it
         # does not linger, and so no catalog has to hold FIX.{TEST} as a
