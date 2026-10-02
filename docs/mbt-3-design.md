@@ -9,6 +9,12 @@ gradle or maven. It collects what we think is settled, what we propose, and
 what is still open. Section 16 lists the open questions — that is where the
 discussion should start.
 
+**Focus:** the core is today's host path — cc370, as370 and ld370. mbt 3
+has to do that path completely and well first. Everything else in this
+document (other languages, native backends, other toolchains, the MCP
+server, workspaces, …) is a bonus that builds on it, and none of it may hold
+the core back.
+
 Each topic is marked:
 
 - **Decided** — the direction is set; comments on the details are welcome.
@@ -554,7 +560,10 @@ Non-compiled artifacts become first-class as well: copybooks, macros, JCL,
 PROCs, REXX execs, CLISTs. They land as FB80 members in a PDS and travel in the
 SMP package as `++MAC` / `++SRC`.
 
-## 11. Backends: cross and native — **Open**
+## 11. Backends: cross and native — **Open** (bonus)
+
+The default and the focus stay the cc370/as370/ld370 host path. This section
+is about what could come on top of it.
 
 Today `[project] type` says **what** a project produces: `library`, `module`
 or `application`. **How** it is built is fixed:
@@ -787,8 +796,9 @@ on in its project file instead of copying workflow YAML.
    else builds on it, and it depends on others.
 2. Settle the project file (format and schema 3) and the launcher — the two
    decisions that are hardest to undo.
-3. Go core: build engine, dependencies, package/dist, deploy, tests, targets.
+3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
+   package/dist, deploy, tests, targets.
    Accepted by the differential comparison.
 4. Toolchain management, `mbt migrate`, then migrate the projects one by one.
-5. Extensions, MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
+5. Bonus, once the core stands: extensions, MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
    native backends and foreign build systems.
