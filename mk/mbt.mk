@@ -78,6 +78,17 @@ CRTM := $(SYSROOT)/lib/crtm.o
 # be passed explicitly for -lc (libc370) to resolve.
 LDLIBDIR := -L$(SYSROOT)/lib
 
+# The compiler runtime: the helpers cc370 emits calls to (64-bit multiply and
+# divide, float <-> long long, popcount/clz/ctz, -ftrapv).  From cc370 1.1.0
+# they live in <sysroot>/lib/libcc370rt.a instead of libc.a (cc370#687), and
+# libc370 2.1 drops its copies (libc370#313).  The cc370 driver adds the
+# library itself, but these rules call ld370 directly, so they must name it.
+# Before -lc: resolution does not depend on the order (ld370 autocall is
+# iterative), but a name defined twice resolves from the first archive, and
+# while an older libc370 still carries copies that should be the compiler's.
+# Only when the file exists, so a cc370 1.0.x sysroot keeps linking as before.
+CC370RT := $(if $(wildcard $(SYSROOT)/lib/libcc370rt.a),-lcc370rt)
+
 # -- Read project.toml -> .mbt/config.mk --------------------------
 $(shell mkdir -p .mbt $(BUILDDIR))
 $(shell python3 $(MBT_SCRIPTS)/mbtconfig.py \
@@ -173,22 +184,22 @@ $(BUILDDIR)/%.o: %.s
 
 define LINK_CRT0
 	$(E) "[ld370] $(2) (entry=$(1), crt0)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRT1
 	$(E) "[ld370] $(2) (entry=$(1), crt1)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
 	$(E) "[ld370] $(2) (entry=$(1), crtm)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
 	$(E) "[ld370] $(2) (entry=$(1), no crt)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),--norent ,)$(if $(6),--noreus ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
