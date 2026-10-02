@@ -6,7 +6,7 @@
 This document proposes replacing today's mbt — a git submodule plus a Make
 include — with a standalone, installable build tool in the spirit of cargo,
 gradle or maven. It collects what we think is settled, what we propose, and
-what is still open. Section 16 lists the open questions — that is where the
+what is still open. Section 17 lists the open questions — that is where the
 discussion should start.
 
 **Focus:** the core is today's host path — cc370, as370 and ld370. mbt 3
@@ -93,7 +93,7 @@ A project contains its project file, `mbt.lock`, and the usual `src/`,
   and a Lua implementation (section 9).
 
 Today's mbt is ~7,000 lines of Python with ~5,500 lines of tests. A rewrite is
-a project of its own; section 15 describes how we keep it honest.
+a project of its own; section 16 describes how we keep it honest.
 
 ## 5. Distribution and version pinning — **Proposed**
 
@@ -376,7 +376,7 @@ smp { prefix = "THTP" }
 | Repetition (CGI modules, rexx370's 64 tests) | conventions only | loops and helper functions |
 | mbt can **rewrite** the file (`migrate`, version bump, FMID) | yes, if the TOML library keeps comments — or by targeted line edits | not reliably: the file is a program, not data |
 | What a reader sees is what mbt gets | yes | only after evaluation |
-| Editor/tooling support | schema validation, highlighting everywhere | highlighting; validation only by running it |
+| Editor support for the project file | a published JSON schema gives completion and validation through Taplo, the TOML language server (section 14) | type annotations for lua-language-server — possible, but ours to write and maintain |
 | One language for config **and** extensions | no — TOML + Lua | yes |
 | Risk | — | evaluating a project file runs code; needs a sandbox (no `os`, no `io`) and determinism |
 
@@ -681,7 +681,7 @@ Read-only by default; write and submit are enabled per target (`write = true`).
 
 ## 13. More tooling — **Proposed**
 
-- **Workspaces** (**Open**, see section 16). A workspace file (for example in
+- **Workspaces** (**Open**, see section 17). A workspace file (for example in
   the directory that holds all project checkouts) lets libc370, crypto370,
   ufsd, httpd and mvsmf build together against their local states, replacing
   `.mbt/deps.local.toml`. Unlike cargo, our members live in separate
@@ -713,7 +713,59 @@ Read-only by default; write and submit are enabled per target (`write = true`).
 - **Pinned MVS/CE image** per target, so the test system is reproducible too.
 - `mbt outdated`, `mbt tree`, `mbt self update`, shell completion.
 
-## 14. CI and code quality — **Proposed**
+## 14. IDE integration — **Proposed** (core)
+
+The editors in use are nvim and VS Code, both with clangd, and JetBrains CLion.
+All three have to load a project cleanly and build it.
+
+### 14.1 What exists
+
+The common denominator is `compile_commands.json`: clangd reads it directly,
+and CLion opens it as a *compilation database project*. mbt already writes one
+(`make compiledb`), deliberately as a **clang** database rather than a cc370
+one:
+
+- `--target=powerpc-unknown-eabi` gives clang cc370's data model — ILP32,
+  big-endian, unsigned `char`, `size_t` as `unsigned long` (#119);
+- `arguments[0]` is `clang`, because CLion actually runs it to query
+  built-in macros, and cc370 rejects the clang flags (#118).
+
+### 14.2 What is missing
+
+1. **The database goes stale.** Today it is a separate step; a new `.c` file
+   is unknown to clangd until someone runs `make compiledb` again. mbt 3
+   writes it on every `mbt build`, the way CMake does with
+   `CMAKE_EXPORT_COMPILE_COMMANDS`.
+2. **Building from the IDE.** With the database the project is *loaded*, not
+   yet *buildable*:
+   - **nvim:** `makeprg=mbt build`, errors in the quickfix list. mbt reports
+     errors as `file:line: error: …`; cc370 is GCC 3.4.6 and prints no
+     column, so the `errorformat` has to match that.
+   - **VS Code:** `.vscode/tasks.json` with `mbt build`, `mbt test` and
+     `mbt deploy` as tasks, plus a problem matcher for the same format.
+   - **CLion:** a compilation database project supports *custom build
+     targets*; build and clean are `mbt build` and `mbt clean`. They live
+     under `.idea/` — the exact files are still to be checked.
+
+   `mbt ide nvim|vscode|clion` writes these files once, and a `.clangd` where
+   wanted. Today mvsmf and brexx370 carry hand-written `.clangd` files that
+   differ from each other.
+3. **Debugging host tests.** MVS load modules cannot be debugged in any of
+   the three IDEs, but host tests (`mbt test`, today `make test-host`) are
+   native programs. mbt can generate run/debug configurations for them
+   (`launch.json`, a CLion run configuration). One catch: host tests are
+   compiled with different flags, and clangd reads one database — the editor
+   view stays that of the cross build.
+
+### 14.3 The project file in the editor
+
+No IDE knows `mbt.toml` by itself. mbt publishes a **JSON schema** for it;
+Taplo, the TOML language server, uses it for completion and validation in
+nvim and VS Code. How CLion's TOML support handles schemas is still to be
+checked. For a Lua project file the equivalent would be type annotations for
+lua-language-server (section 6.3).
+
+## 15. CI and code quality — **Proposed**
 
 The reusable workflows stay, and get simpler: checkout, install the launcher,
 `mbt deps && mbt package`. Their `uses:` tag matches `[toolchain] mbt`
@@ -746,7 +798,7 @@ Generalised: the reusable workflows get named, opt-in **quality steps**
 (Sonar, lint, size budget, MVS tests on a container) that a project switches
 on in its project file instead of copying workflow YAML.
 
-## 15. Migration and acceptance — **Proposed**
+## 16. Migration and acceptance — **Proposed**
 
 - **Differential acceptance.** Old and new mbt build every active project;
   object decks, load modules, rendered JCL and SMP packages must be identical
@@ -764,7 +816,7 @@ on in its project file instead of copying workflow YAML.
   (sections 1, 2, 13 and the CI flows). mbt 3 gets a new spec rather than a
   patched one.
 
-## 16. Open questions
+## 17. Open questions
 
 1. **Project file format:** TOML (B), Lua (C), or TOML plus optional `mbt.lua`?
 2. **Lua version for extensions:** 5.1 (gopher-lua) or 5.4 (cgo or pure Go)?
@@ -790,14 +842,14 @@ on in its project file instead of copying workflow YAML.
 10. **Foreign build systems:** what is the contract — inputs, and whether
     mbt gets object decks or finished load modules back?
 
-## 17. Phasing
+## 18. Phasing
 
 1. Agree on toolchain versioning with the cc370 and libc370 teams — everything
    else builds on it, and it depends on others.
 2. Settle the project file (format and schema 3) and the launcher — the two
    decisions that are hardest to undo.
 3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
-   package/dist, deploy, tests, targets.
+   package/dist, deploy, tests, targets, IDE integration.
    Accepted by the differential comparison.
 4. Toolchain management, `mbt migrate`, then migrate the projects one by one.
 5. Bonus, once the core stands: extensions, MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
