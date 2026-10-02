@@ -438,7 +438,7 @@ target = "mvsdev"
 - Every MVS-facing output names the **target and the job id**, which is what
   our own rule "name the stands, with job numbers, every time" asks for.
 
-## 8. Toolchain and sysroot — **Open** (needs the cc370 and libc370 teams)
+## 8. Toolchain and sysroot — **Open** (needs a decision on cc370/libc370 versioning)
 
 Goal: the toolchain is pinned per project and identical locally and in CI.
 
@@ -454,7 +454,7 @@ source on every run.
 **Why this is open:** cc370 and libc370 depend on each other (the compiler's
 startup objects and runtime conventions on one side, the library built by that
 compiler on the other). Whether they can be pinned independently, or only as a
-matched pair, is for the two teams to decide. Questions for them:
+matched pair, has to be decided for both projects together. The questions:
 
 1. Can cc370 publish binary releases (linux/darwin × amd64/arm64) with semver?
 2. Can cc370 take an explicit sysroot (`--sysroot=DIR`, or reliable
@@ -821,7 +821,7 @@ on in its project file instead of copying workflow YAML.
 1. **Project file format:** TOML (B), Lua (C), or TOML plus optional `mbt.lua`?
 2. **Lua version for extensions:** 5.1 (gopher-lua) or 5.4 (cgo or pure Go)?
 3. **Toolchain pinning:** cc370 and libc370 separately, or as a matched pair?
-   Versioning and release format — with the cc370 and libc370 teams.
+   Versioning and release format of cc370 and libc370.
 4. **Workspaces:**
    - Where does the workspace file live — loose in the checkout directory, or
      in its own repository everyone clones?
@@ -844,8 +844,8 @@ on in its project file instead of copying workflow YAML.
 
 ## 18. Phasing
 
-1. Agree on toolchain versioning with the cc370 and libc370 teams — everything
-   else builds on it, and it depends on others.
+1. Decide cc370/libc370 versioning and release format — everything else
+   builds on it.
 2. Settle the project file (format and schema 3) and the launcher — the two
    decisions that are hardest to undo.
 3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
