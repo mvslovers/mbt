@@ -49,6 +49,8 @@ costs something every day.
 - One short, declarative project file; conventions instead of enumeration.
 - Named MVS targets, credentials kept out of project directories.
 - A pinned, per-project toolchain (cc370 + libc370) — locally and in CI.
+- Prebuilt dependencies that say what built them and what they need, so
+  transitive dependencies resolve and a toolchain mismatch is caught.
 - An extension mechanism for what mbt does not do (yet).
 - Room for more than C and assembler (COBOL via cobc370 is the first candidate).
 - An MCP server for mvsMF, so other tools can work with MVS safely.
@@ -438,37 +440,150 @@ target = "mvsdev"
 - Every MVS-facing output names the **target and the job id**, which is what
   our own rule "name the stands, with job numbers, every time" asks for.
 
-## 8. Toolchain and sysroot — **Open** (needs a decision on cc370/libc370 versioning)
+## 8. Toolchain, sysroot and artifact metadata — **Proposed**
 
-Goal: the toolchain is pinned per project and identical locally and in CI.
+Goal: the toolchain is pinned per project and identical locally and in CI,
+and every prebuilt artifact says what it was built with.
+
+### 8.1 Today
+
+- **cc370** has no tags and no releases. The version is fixed in the Makefile
+  (`VERSION ?= 1.0.0`) and `cc370 --version` prints a build date, not a
+  version (mvslovers/cc370#523). Every consumer builds it from `main`.
+- **libc370** has SemVer, tags and GitHub releases since its decision D6, but
+  no release assets. It is built with whatever cc370 is on `PATH` and installs
+  into cc370's sysroot (`<prefix>/cc370/{include,lib,macros}`) — including
+  the assembler macros (`sysmac/` = SYS1.MACLIB, plus libc370's own), which
+  as370 finds through `<exedir>/../macros`.
+- **The two are coupled for a specific reason:** the compiler emits calls to
+  runtime helper routines (`@@FXUNSF` and others), and those routines live in
+  libc370. When the compiler renamed them (libc370#190), libc370 1.0.7 needed
+  cc370 at `f3f7e21` or later.
+- **Prebuilt dependency archives carry no provenance.**
+  `ufsd-1.4.0-dev-lib.tar.gz` holds `lib/libufs.a` and two headers — nothing
+  says which cc370 or libc370 built it.
+
+### 8.2 How others do it
+
+| Model | Who | How |
+|---|---|---|
+| Separate projects, the sysroot as interface | GCC + glibc | own versions and release cycles; the compiler finds the libc through `--sysroot`; glibc names a minimum GCC; distributions, crosstool-NG, Buildroot or Yocto assemble matching sets |
+| One bundle, one version | ARM GNU Toolchain, Android NDK, rustup | compiler, tools and libc/std ship together; Rust accepts only the std built by that exact rustc |
+| Compiler and SDK separate, with a compatible range | clang + Apple SDKs | clang is a cross compiler by design (`--target`); the libc comes as a versioned SDK (a sysroot), and one compiler supports a range of SDKs |
+| libc built from source on demand, cached | `zig cc` | ships libc sources and builds the libc for a target on first use |
+
+The difference that matters most: in GCC and clang, the helper routines the
+compiler itself calls **belong to the compiler** — libgcc (`__udivdi3` and
+friends) and compiler-rt ship with it. The libc only provides the C library.
+So a compiler can change its helpers without a libc release.
+
+For prebuilt dependencies there are two common answers: cargo always builds
+dependencies from source with the consumer's compiler, so binary mismatches
+cannot occur; Conan, the C/C++ package manager, tags every binary package with
+the compiler, its version, the libc and other settings, and builds from source
+when no binary matches.
+
+### 8.3 Proposal
+
+1. **Move the compiler's helper routines from libc370 into cc370** — a
+   compiler runtime library in the role of libgcc. This removes the coupling
+   at its cause instead of managing it. First step: an inventory of exactly
+   which symbols the compiler emits calls to. The startup objects (`crt0`,
+   `crt1`, `crtm`) stay in libc370, as `crt1.o` does in glibc.
+2. **cc370 releases** as proposed in mvslovers/cc370#523: SemVer, one version
+   for all tools, binaries for linux/darwin × amd64/arm64. The installation is
+   already relocatable — cc370 finds everything relative to its own binary.
+3. **libc370 ships a sysroot tarball** per release (headers, `libc.a`,
+   `crt*.o`, macros), built with a named cc370 and declaring the cc370 range
+   it needs, e.g. `cc370 >=1.2 <2`. That is the clang + SDK model; after
+   step 1 the range is wide and rarely moves.
+4. **mbt pins both separately and checks the range.** As a fallback, in the
+   spirit of zig, mbt builds libc370 itself at the pinned tag with the pinned
+   cc370 and caches the result, keyed by both versions. `sdk/mklibc.py` says
+   regenerating all 712 assembler files takes about 7 seconds; the full build
+   is not measured yet. If it stays that small, the tarball is an
+   acceleration, not a requirement.
+5. **Every published artifact carries metadata** (8.4), and the resolver uses
+   it: it only picks releases built against a compatible toolchain, and can
+   fall back to building a dependency from its tag.
 
 ```
 ~/.mbt/toolchains/cc370/<version>/
-~/.mbt/sysroots/libc370/<version>/
+~/.mbt/sysroots/libc370/<version>+cc370-<version>/
 ```
 
-A project declares what it builds with; `mbt.lock` records the SHA-256 of what
-was used. CI downloads binaries instead of building cc370 and libc370 from
-source on every run.
+### 8.4 Artifact metadata
 
-**Why this is open:** cc370 and libc370 depend on each other (the compiler's
-startup objects and runtime conventions on one side, the library built by that
-compiler on the other). Whether they can be pinned independently, or only as a
-matched pair, has to be decided for both projects together. The questions:
+mbt v1 had this: a `package.toml` published next to every release
+(`docs/mvs-build-spec-v1.0.0.md`, §7), with the mbt version, the package's
+own dependencies, its artifacts, the datasets it provides and its link
+exports. It was dropped when v1 became legacy, and two things went with it:
 
-1. Can cc370 publish binary releases (linux/darwin × amd64/arm64) with semver?
-2. Can cc370 take an explicit sysroot (`--sysroot=DIR`, or reliable
-   `-nostdinc`/`-isystem`/`-L`), so the compiler no longer finds libc370
-   relative to its own binary?
-3. Can libc370 publish a self-contained sysroot tarball per release
-   (headers, `libc.a`, `crt*.o`, macros)?
-4. How is compatibility expressed — a cc370 range declared by libc370, a
-   matched-pair "toolchain release", or something else?
-5. Is a nightly channel feasible? Today's PR builds deliberately float on
-   `main` as an early warning; `mbt build --toolchain nightly` in CI would
-   keep that while releases stay pinned.
-6. For the toolchain developers themselves: `mbt toolchain link dev <path>`
-   to build projects against a local cc370/libc370 checkout.
+- **No provenance** — nothing says which toolchain built an archive.
+- **No transitive dependencies.** mvsmf needs httpd, and httpd needs ufsd and
+  crypto370 — yet mvsmf has to list all three itself, because no artifact
+  says what it depends on.
+
+**Proposed format** — JSON, because only mbt writes and reads it:
+
+```json
+{
+  "schema": 1,
+  "name": "ufsd",
+  "version": "1.4.0",
+  "commit": "abc1234",
+  "built_with": { "mbt": "3.0.0", "cc370": "1.2.0", "libc370": "2.0.0" },
+  "dependencies": { "mvslovers/crypto370": "1.0.1" },
+  "provides": {
+    "headers": ["include/libufs.h", "include/ufsdrc.h"],
+    "libs": ["lib/libufs.a"],
+    "modules": ["UFSD", "UFSDSSIR", "UFSDCLNP", "UFSFMT"]
+  },
+  "files": { "lib/libufs.a": "sha256:…", "include/libufs.h": "sha256:…" }
+}
+```
+
+(ufsd has no dependencies today; the entry only shows the shape.)
+
+**Where it lives** — the same content twice:
+
+- **Inside the archive:** `.mbt/metadata.json`. `.mbt/` is a namespace
+  reserved for mbt, with room for what may come later (an SBOM, signatures,
+  licence data, build flags). It travels with the bits, and the SHA-256 in
+  the consumer's `mbt.lock` covers it.
+- **As a release asset:** `<project>-<version>-metadata.json`, e.g.
+  `ufsd-1.4.0-metadata.json`. The resolver reads candidates' metadata from
+  here without downloading their archives.
+
+**What the resolver does with it:**
+
+- **Transitive resolution:** mvsmf declares httpd; ufsd and crypto370 follow
+  from httpd's metadata.
+- **Toolchain compatibility:** a dependency must have been built against the
+  same libc370 major version as the consumer. Example: httprexx pins libc370
+  1.0.8 and requires `ufsd >= 1.2.2`. Today the resolver takes the highest
+  matching release — once ufsd 1.4.0 (built against libc370 2.0) is out, that
+  is what httprexx would link, and nothing would notice. With metadata, mbt
+  skips 1.4.0 and takes the highest compatible release, or fails with
+  "ufsd >= 1.2.2: no release built against libc370 1.x" — or builds ufsd from
+  its tag with httprexx's own toolchain (step 4). Cargo's resolver works the
+  same way when it skips versions that need a newer Rust than the project
+  declares.
+- **Releases without metadata** are treated as "unknown": accepted with a
+  warning, so nothing breaks during the transition.
+
+### 8.5 Still open
+
+- Does the GCC 3.4.6 driver behind cc370 support `--sysroot`, or does mbt
+  pass `-nostdinc`/`-isystem`/`-L` itself? as370 needs a switch for its macro
+  directory instead of `<exedir>/../macros`.
+- A nightly channel: today's PR builds float on `main` as an early warning;
+  `mbt build --toolchain nightly` in CI would keep that while releases stay
+  pinned.
+- `mbt toolchain link dev <path>` to build projects against a local
+  cc370/libc370 checkout.
+- The compatibility rule in detail: same libc370 major is the minimum; does
+  cc370's major have to match as well once the helpers live in cc370?
 
 ## 9. Extensions — **Decided: Lua** (version: **Open**)
 
@@ -820,8 +935,9 @@ on in its project file instead of copying workflow YAML.
 
 1. **Project file format:** TOML (B), Lua (C), or TOML plus optional `mbt.lua`?
 2. **Lua version for extensions:** 5.1 (gopher-lua) or 5.4 (cgo or pure Go)?
-3. **Toolchain pinning:** cc370 and libc370 separately, or as a matched pair?
-   Versioning and release format of cc370 and libc370.
+3. **Toolchain and artifacts** (section 8.5): sysroot switch in cc370, a
+   nightly channel, and the exact compatibility rule for prebuilt
+   dependencies.
 4. **Workspaces:**
    - Where does the workspace file live — loose in the checkout directory, or
      in its own repository everyone clones?
@@ -844,8 +960,9 @@ on in its project file instead of copying workflow YAML.
 
 ## 18. Phasing
 
-1. Decide cc370/libc370 versioning and release format — everything else
-   builds on it.
+1. Toolchain groundwork: move the compiler's helper routines into cc370,
+   cc370 releases, the libc370 sysroot tarball, artifact metadata (section 8)
+   — everything else builds on it.
 2. Settle the project file (format and schema 3) and the launcher — the two
    decisions that are hardest to undo.
 3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
