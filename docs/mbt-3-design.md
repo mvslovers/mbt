@@ -33,7 +33,7 @@ costs something every day.
 | Today | Consequence |
 |---|---|
 | mbt is a git submodule in every project | Every mbt fix needs a submodule bump in every consumer. On `main` today, 8 of these 11 projects pin the current mbt; httprexx is 5 commits behind, httplua and lua370 are 32 behind. |
-| mbt has never been tagged | There is no version a project could ask for — only a commit SHA. |
+| mbt had never been tagged (until v2.0.0 on 2026-10-03) | There was no version a project could ask for — only a commit SHA. |
 | Reusable workflows are called `@main`, the scripts come from the submodule | Workflow logic and the scripts it drives come from different mbt revisions. `release.yml` already carries an error message for exactly that case ("submodule predates the resolver"). |
 | One `.env` per project, one MVS system per `.env` | Working against a second system (mvsdev, drnmig3a, MVSCE-LAB, …) means editing files or juggling environment variables; credentials sit in plain text in many places. |
 | libc370 installs into the cc370 sysroot | One libc370 per machine. A project builds against whatever was installed last. CI rebuilds cc370 and libc370 from source on every run. |
@@ -117,7 +117,10 @@ known mbt — and drops everything else. A project that is not ready for a new
 mbt simply does not bump its pin.
 
 Prerequisite: **mbt starts releasing itself** (tags, release artifacts per
-platform) through the same release pipeline it offers everyone else.
+platform) through the same release pipeline it offers everyone else. Begun
+with [v2.0.0](https://github.com/mvslovers/mbt/releases/tag/v2.0.0)
+(2026-10-03): a tag and a release, no artifacts yet; consumers can already pin
+the reusable workflows to it.
 
 The reusable workflows move with it: a consumer pins `uses:` to the same tag
 as `[toolchain] mbt`, so workflow and tool can no longer drift apart.
@@ -440,12 +443,31 @@ target = "mvsdev"
 - Every MVS-facing output names the **target and the job id**, which is what
   our own rule "name the stands, with job numbers, every time" asks for.
 
-## 8. Toolchain, sysroot and artifact metadata — **Proposed**
+## 8. Toolchain, sysroot and artifact metadata — **largely done** (toolchain side)
 
 Goal: the toolchain is pinned per project and identical locally and in CI,
 and every prebuilt artifact says what it was built with.
 
-### 8.1 Today
+### 8.0 Status (2026-10-03)
+
+The toolchain half of this section has been carried out in cc370 and libc370;
+what is left is mbt's own half.
+
+| Item | State |
+|---|---|
+| cc370 releases with SemVer, one version for all tools | **done** — v1.0.0, v1.1.0, v1.1.1; `cc370 --version` prints `cc370 <v> (<sha>), based on GCC 3.4.6` (cc370#523, #700) |
+| `__CC370__` numeric version | **done** — cc370#704, from 1.1.0 |
+| Compiler helpers out of libc370 (`libcc370rt.a`), prologue macros to cc370 | **done** — cc370#687, #688 (1.1.0), libc370#313 (2.1.0); verified on MVS (cc370#687: JOB01185; brexx370 126/126 with the helpers from `libcc370rt.a`) |
+| libc370 sysroot tarball + `metadata.json` with the cc370 range | **done** — libc370 2.1.0 (libc370#326); every header checks `__CC370__` (libc370#315) |
+| Packages and channels | **done** — tarballs, `.deb`/`.rpm`, `install.sh`, Homebrew tap (cc370#699), a CI pair test of both packages (libc370 `pair.yml`) |
+| The rules between the two | **done** — cc370 `docs/releasing.md`, libc370 `doc/releasing.md` |
+| A second sysroot (libc370 outside cc370's own files) | **done** in cc370 `main` (cc370#726, for 1.2.0): cc370 also searches `cc370/libc370/{include,lib,macros}` |
+| mbt links the runtime | **done** — mbt#137 (`-lcc370rt` before `-lc`), in v2.0.0 |
+| `[toolchain] cc370 = …` resolvable | **possible** — cc370 has tags; mbt v2 resolves them for release builds |
+| Artifact metadata for *project* archives, transitive dependencies | **open** — mbt's part (8.4); libc370's `metadata.json` is the template |
+| libc370 at `-Os` | **done** on libc370 `main` (libc370#344), not yet released |
+
+### 8.1 Before (as of 2026-10-02)
 
 - **cc370** has no tags and no releases. The version is fixed in the Makefile
   (`VERSION ?= 1.0.0`) and `cc370 --version` prints a build date, not a
@@ -574,16 +596,21 @@ exports. It was dropped when v1 became legacy, and two things went with it:
 
 ### 8.5 Still open
 
-- Does the GCC 3.4.6 driver behind cc370 support `--sysroot`, or does mbt
-  pass `-nostdinc`/`-isystem`/`-L` itself? as370 needs a switch for its macro
-  directory instead of `<exedir>/../macros`.
+- ~~Does the driver support `--sysroot`?~~ Answered differently: cc370#726
+  adds a fixed second sysroot, `cc370/libc370/`, searched after cc370's own
+  tree (headers, `crt0.o` and `-lc`, macros). **Open for mbt:** that still
+  ties a libc370 to one cc370 installation. Pinning libc370 per project with
+  a shared cc370 needs either one cc370 tree per (cc370, libc370) pair under
+  `~/.mbt/toolchains/`, or an explicit sysroot option in the driver.
 - A nightly channel: today's PR builds float on `main` as an early warning;
   `mbt build --toolchain nightly` in CI would keep that while releases stay
   pinned.
 - `mbt toolchain link dev <path>` to build projects against a local
   cc370/libc370 checkout.
-- The compatibility rule in detail: same libc370 major is the minimum; does
-  cc370's major have to match as well once the helpers live in cc370?
+- ~~The compatibility rule in detail.~~ Decided and documented in both
+  `releasing.md` files: libc370 declares its cc370 range; a cc370 major is an
+  incompatible change to generated code or the ABI. Prebuilt *project*
+  archives still need mbt's metadata (8.4) to be checked against it.
 
 ## 9. Extensions — **Decided: Lua** (version: **Open**)
 
@@ -935,9 +962,9 @@ on in its project file instead of copying workflow YAML.
 
 1. **Project file format:** TOML (B), Lua (C), or TOML plus optional `mbt.lua`?
 2. **Lua version for extensions:** 5.1 (gopher-lua) or 5.4 (cgo or pure Go)?
-3. **Toolchain and artifacts** (section 8.5): sysroot switch in cc370, a
-   nightly channel, and the exact compatibility rule for prebuilt
-   dependencies.
+3. **Toolchain and artifacts** (section 8.5): per-project libc370 pinning
+   with a shared cc370 (one tree per pair, or a driver option), and a nightly
+   channel. The sysroot and the compatibility rule are settled (8.0).
 4. **Workspaces:**
    - Where does the workspace file live — loose in the checkout directory, or
      in its own repository everyone clones?
@@ -960,9 +987,8 @@ on in its project file instead of copying workflow YAML.
 
 ## 18. Phasing
 
-1. Toolchain groundwork: move the compiler's helper routines into cc370,
-   cc370 releases, the libc370 sysroot tarball, artifact metadata (section 8)
-   — everything else builds on it.
+1. ~~Toolchain groundwork~~ — **done on the toolchain side** (2026-10-03,
+   section 8.0); mbt's artifact metadata moves into step 3.
 2. Settle the project file (format and schema 3) and the launcher — the two
    decisions that are hardest to undo.
 3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
@@ -971,3 +997,52 @@ on in its project file instead of copying workflow YAML.
 4. Toolchain management, `mbt migrate`, then migrate the projects one by one.
 5. Bonus, once the core stands: extensions, MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
    native backends and foreign build systems.
+
+## Appendix A — open mbt v2 issues, sorted (2026-10-03)
+
+Most open issues of mbt v2 are not loose bugs but **requirements** a new
+implementation has to meet from the start. Sorted, so the tracker becomes the
+checklist for mbt 3. "Fix in v2" marks the ones worth fixing now, because
+they hurt today and the fix is small.
+
+**Every input of a build step is a tracked prerequisite** — the build engine
+(section 16 lists the behaviours to carry over):
+
+| Issue | Input that is not tracked | Fix in v2 |
+|---|---|---|
+| #65 | compile flags | — |
+| #103 | the libraries a module links (libc370, dependency archives) | yes — libc370 changes now happen |
+| #117 | the object list (a source removed from `sources`) | — |
+| #92, #66 | `deploy` neither builds first nor stamps the current commit | — |
+| #134 | a failed compile leaves an unescaped `.d`, every later `make` fails | yes — blocks all work until the file is deleted |
+
+**The mvsMF client** reports what happened, and speaks TLS: #56 (TLS), #61
+(`doctor` passes on 4xx/5xx), #89 (unreachable server read as a long job), #90
+(unreadable spool read as empty), #108 (read timeout escapes as a bare
+exception — fix in v2: a crash in the middle of a run).
+
+**Deploy without deleting the target library** — merge members instead (also
+named in the ecosystem's root context): #105, #57.
+
+**SMP/distribution** — the logic is ported, and these are fixed where it
+lives: #84 (uninstall job), #93 (`make ptf`), #96 (alloc job run twice), #99
+(re-run skips APPLY CHECK), #100 (DELETE across renamed libraries), #102
+(`UNIT=SYSDA` vs. the APF volser), #104 (the FMID does not move — section 6.1
+derives it), #115 (dropped aliases), #132 (per-library RECFM/LRECL).
+
+**Tests on MVS:** #95 (an EXEC card past column 71 — what `mbt lint`, section
+13, checks), #111 (an empty fixture line is dropped).
+
+**Features that already have a place in this proposal:** #131 (a load map per
+module → `mbt size`, section 13), #91 (the AC(1) module-data check → lint /
+attribute checks, section 13), #62 (startup resolution → also libc370#159),
+#133 (`-Wall -Wextra -Werror` by default — fix in v2: the ecosystem rule is
+already strict).
+
+**Changed by the toolchain work:** #54 (a prebuilt toolchain container for CI)
+— cc370 and libc370 now ship binaries and packages, so CI can install them
+instead of building from source; what remains is the nightly question (8.5)
+for the PR builds that deliberately float on `main`.
+
+**Housekeeping, fix in v2:** #60 (docs still list the removed `runtime` type),
+#85 (`prerelease` deletes a tag without checking it belongs to the project).
