@@ -223,8 +223,18 @@ endef
 # $(1) is the make-safe key; the real member name is MODULE_$(1)_NAME (may
 # contain national chars like '#').  The '#' only ever reaches a target/recipe
 # via variable expansion -- after comment stripping -- so it stays literal.
+# Everything a link reads from outside the project is a prerequisite too, so a
+# newer libc370, compiler runtime, startup object or dependency archive relinks
+# (#103).  Without it a sysroot upgrade or a 'make deps' changed no file make
+# looked at, and 'make' reported the module built while linking nothing -- the
+# old module then went out with 'make deploy'.  All three startup objects are
+# listed for every module, which costs at most an extra relink when one of the
+# other two changes.  $(wildcard) keeps a file that is absent (no
+# libcc370rt.a before cc370 1.1.0) from becoming a target make cannot build.
+LINK_INPUTS := $(wildcard $(SYSROOT)/lib/libc.a $(SYSROOT)/lib/libcc370rt.a $(CRT0) $(CRT1) $(CRTM)) $(DEP_LIBS)
+
 define _MODULE_RULE
-$(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy: $$(MODULE_$(1)_OBJS) $(INTERNAL_ARCHIVE)
+$(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy: $$(MODULE_$(1)_OBJS) $(INTERNAL_ARCHIVE) $(LINK_INPUTS)
 	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$$(MODULE_$(1)_NAME),$$(MODULE_$(1)_OBJS),$$(MODULE_$(1)_AC),$$(MODULE_$(1)_NORENT),$$(MODULE_$(1)_NOREUS),$$(MODULE_$(1)_ALIASES))
 
 .PHONY: $$(MODULE_$(1)_ALIAS)
