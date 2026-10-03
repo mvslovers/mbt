@@ -203,6 +203,40 @@ def _do_release(project, version_files: list[str],
     return EXIT_SUCCESS
 
 
+def _tag_owner_error(project_path: str) -> str | None:
+    """Say why this project may not move tags, or None if it may (#85).
+
+    prerelease deletes and recreates v<version> on origin.  With two mbt
+    projects in one repository at the same version, the second one deleted the
+    first one's tag and moved it to another commit, exit 0, no warning.  So the
+    tags belong to one project: the manifest at the repository root; without
+    one, the only manifest in the repository.  'git ls-files' does not look into
+    submodules, so a vendored mbt/ does not count.
+    """
+    top = _git("rev-parse", "--show-toplevel")
+    if top.returncode != 0:
+        return "not inside a git repository"
+    root = Path(top.stdout.strip()).resolve()
+    listed = _git("-C", str(root), "ls-files", "--full-name",
+                  "project.toml", "*/project.toml")
+    manifests = sorted(set(l for l in listed.stdout.splitlines()
+                           if Path(l).name == "project.toml"))
+    this = Path(project_path).resolve().relative_to(root).as_posix()
+    if "project.toml" in manifests:
+        owner = "project.toml"
+    elif len(manifests) == 1:
+        owner = manifests[0]
+    else:
+        return (f"this repository holds {len(manifests)} project.toml files "
+                f"and none at its root ({', '.join(manifests)}), so it is not "
+                f"clear whose tags v<version> are. Put the owning project's "
+                f"manifest at the root.")
+    if this != owner:
+        return (f"the tags of this repository belong to the project in "
+                f"{owner}; {this} may not delete or move them")
+    return None
+
+
 def _do_prerelease(project) -> int:
     """Publish a prerelease tag for the current dev version.
 
@@ -264,6 +298,10 @@ def main() -> int:
         return EXIT_CONFIG
 
     if args.prerelease:
+        err = _tag_owner_error(args.project)
+        if err:
+            _log_error(f"prerelease refused: {err}")
+            return EXIT_CONFIG
         return _do_prerelease(project)
 
     # release: --version required
