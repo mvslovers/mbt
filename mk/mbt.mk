@@ -37,7 +37,12 @@ FILE370 ?= file370
 # ':=' (not '?=') so a host CFLAGS/ASFLAGS/LDFLAGS in the environment does
 # NOT leak into the cross-build (e.g. a Homebrew LDFLAGS=-L.../libiconv).
 # A 'make CFLAGS=...' on the command line still overrides these.
-CFLAGS  := -O1
+# -Wall -Wextra -Werror by default (#133): the ecosystem rule is that warnings
+# are resolved, never ignored, and without them a missing prototype went
+# through green -- an int function called through an implicit declaration
+# assembles to the same code, so neither the build nor as370 shows it.  A
+# project's [build] cflags are added after these.
+CFLAGS  := -O1 -Wall -Wextra -Werror
 ASFLAGS :=
 LDFLAGS :=
 
