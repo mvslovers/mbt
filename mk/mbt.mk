@@ -145,10 +145,19 @@ DEPFLAGS := -MMD -MP
 # the deck that is missing the statement.
 .DELETE_ON_ERROR:
 
+# One shell, and the .d is escaped whatever the compile returned: cc370 writes
+# it before the assembler runs, so a compile that fails in as370 used to stop the
+# recipe before the sed, leave the '#' unescaped, and every later make died
+# reading the .d ("missing separator") -- even after the source was fixed (#134).
+# The sed first unescapes, so a .d an earlier run already escaped (and this run
+# did not rewrite, failing earlier) stays a single '\#'.  The compile's own
+# status is what the recipe returns.
 $(BUILDDIR)/%.o: %.c
 	$(E) "[cc370] $<"
-	$(Q)$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@
-	$(Q)d="$@"; d="$${d%.o}.d"; sed 's/#/\\#/g' "$$d" > "$$d.e" && mv "$$d.e" "$$d"
+	$(Q)$(CC) $(CFLAGS) $(DEPFLAGS) -c $< -o $@; rc=$$?; \
+	  d="$@"; d="$${d%.o}.d"; \
+	  if [ -f "$$d" ]; then sed 's/\\#/#/g; s/#/\\#/g' "$$d" > "$$d.e" && mv "$$d.e" "$$d"; fi; \
+	  exit $$rc
 
 # as370 returns IFOX00's severity as its exit status -- 0 clean, 4 warning,
 # 8 error, 12 severe, 16 terminal -- and a warned assembly still punches its
