@@ -289,7 +289,7 @@ endif
 # Bare `make` builds the project's PRIMARY deliverable; `make all` builds
 # everything it declares.  Driven by [project] type:
 #   library             -> primary = the static archive (no load modules)
-#   application/runtime -> primary = the load modules; `all` adds [lib]
+#   application/module  -> primary = the load modules; `all` adds [lib]
 # Set the default goal explicitly here -- the per-module rules above are
 # generated via $(eval) inside a foreach, so the first one (e.g.
 # build/UFSD.iebcopy) would otherwise become the default goal.

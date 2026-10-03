@@ -364,7 +364,7 @@ class ProjectConfig:
     # [project]
     name: str
     version: str
-    type: str          # "runtime", "library", "module", "application"
+    type: str          # "library", "module", "application"
 
     # [build]
     cflags: list[str] = field(default_factory=list)
@@ -2156,7 +2156,7 @@ raise ProjectError("Invalid type")
 # Good:
 raise ProjectError(
     f"Invalid project type '{value}'. "
-    f"Must be one of: runtime, library, module, application"
+    f"Must be one of: library, module, application"
 )
 ```
 

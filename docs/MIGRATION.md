@@ -54,7 +54,7 @@ A complete example (ufsd):
 [project]
 name    = "ufsd"
 version = "1.0.0-dev"
-type    = "application"          # application | library | runtime
+type    = "application"          # application | library | module
 
 [build]
 cflags  = ["-I", "include"]      # extra cc370 flags (appended to -O1)
@@ -116,7 +116,7 @@ version_files = ["VERSION"]
 |-----|----------|---------|
 | `name` | yes | Project name; lowercase, used in default DSNs. |
 | `version` | yes | SemVer; encoded to MVS VRM for DSNs (`1.0.0-dev` → `V1R0M0D`). |
-| `type` | no | `application` (default), `library`, or `runtime`. |
+| `type` | no | `application` (default), `library`, or `module`. `runtime` was removed (#21) and is rejected. |
 
 ### `[build]`
 

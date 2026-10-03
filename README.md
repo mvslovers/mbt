@@ -246,7 +246,6 @@ Configuration is resolved in priority order:
 
 | Type | Description | NCAL Link | Final Link | Artifacts |
 |------|-------------|-----------|------------|-----------|
-| `runtime` | C runtime library (e.g. crent370) | yes | no | ncalib, maclib |
 | `library` | Reusable library (e.g. ufs370) | yes | no | ncalib, maclib |
 | `module` | Loadable module | yes | yes | syslmod |
 | `application` | Standalone program (e.g. httpd) | yes | yes | syslmod |
