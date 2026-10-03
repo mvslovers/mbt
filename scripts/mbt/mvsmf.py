@@ -142,6 +142,23 @@ class MvsMFClient:
             raise MvsMFError(
                 f"Connection failed to {url}: {e.reason}"
             )
+        # urlopen wraps only connect-time failures in URLError.  Once the
+        # request is out, a server too slow to answer raises a bare
+        # TimeoutError and one that drops the connection raises
+        # http.client.RemoteDisconnected (an OSError); both got past every
+        # 'except MvsMFError' and ended the run with a traceback although the
+        # job on MVS had finished (#108).  URLError and HTTPError are OSErrors
+        # too, so these clauses come after them.
+        except TimeoutError:
+            raise MvsMFError(
+                f"No response to {method} {path} within {timeout}s "
+                f"(read timeout)"
+            )
+        except (http.client.HTTPException, OSError) as e:
+            raise MvsMFError(
+                f"Connection lost during {method} {path}: "
+                f"{type(e).__name__}: {e}"
+            )
 
     def _json_request(self, method: str, path: str,
                       body: dict | None = None) -> dict:
