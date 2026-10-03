@@ -62,14 +62,21 @@ CLANGD_FLAGS = [
 
 
 def _sysroot_include() -> Path | None:
-    """The cc370 sysroot include dir (carries clibecb.h, stdio.h, ...)."""
+    """The libc370 include dir (carries clibecb.h, stdio.h, ...).
+
+    In cc370's own tree, or from cc370 1.2.0 in its second sysroot
+    <sysroot>/libc370 (cc370#726, #144) -- the same lookup as mk/mbt.mk.
+    """
+    roots = []
     cc = shutil.which("cc370")
     if cc:
-        cand = Path(cc).resolve().parent.parent / "cc370" / "include"
-        if cand.is_dir():
-            return cand
-    fb = Path.home() / ".local" / "cc370" / "include"
-    return fb if fb.is_dir() else None
+        roots.append(Path(cc).resolve().parent.parent / "cc370")
+    roots.append(Path.home() / ".local" / "cc370")
+    for root in roots:
+        for cand in (root / "include", root / "libc370" / "include"):
+            if (cand / "stdio.h").is_file():
+                return cand
+    return None
 
 
 def _dep_includes(project_dir: Path) -> list:

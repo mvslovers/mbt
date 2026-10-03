@@ -62,26 +62,38 @@ endif
 
 # -- Sysroot (libc370 headers/libs/macros) -------------------------
 # cc370 locates its own headers/libs relative to its binary
-# (<bindir>/../cc370), so derive the sysroot the same way.  Note:
-# 'cc370 -print-search-dirs' reports the configure-time install prefix,
+# (<bindir>/../cc370), so derive the sysroot the same way -- following
+# symlinks, as the driver does: a Homebrew bin/cc370 is a link into the Cellar.
+# Note: 'cc370 -print-search-dirs' reports the configure-time install prefix,
 # which is wrong for a relocated toolchain -- don't rely on it.
 CC_BIN := $(shell command -v $(CC) 2>/dev/null)
 ifneq ($(CC_BIN),)
-  SYSROOT := $(abspath $(dir $(CC_BIN))/../cc370)
+  SYSROOT := $(abspath $(dir $(realpath $(CC_BIN)))/../cc370)
 endif
-# Fall back to the default install location if the derived sysroot does
-# not actually contain the crt objects.
-ifeq ($(wildcard $(SYSROOT)/lib/crt0.o),)
+
+# libc370 sits in cc370's own tree (<sysroot>/lib), or from cc370 1.2.0 in its
+# second sysroot <sysroot>/libc370/lib, searched after the first -- the
+# Homebrew layout links a separately installed libc370 there (cc370#726, #144).
+# LIBCDIR is where crt*.o and libc.a are; the compiler runtime stays in
+# <sysroot>/lib.
+LIBCDIR := $(firstword $(foreach d,$(SYSROOT)/lib $(SYSROOT)/libc370/lib,$(if $(wildcard $(d)/crt0.o),$(d))))
+# Neither: fall back to the default install location -- and say so, because
+# it is a different libc370 than the cc370 on PATH would use.
+ifeq ($(LIBCDIR),)
+  ifneq ($(CC_BIN),)
+    $(info [mbt] WARNING: no libc370 beside $(CC_BIN) (looked in $(SYSROOT)/lib and $(SYSROOT)/libc370/lib); falling back to $(HOME)/.local/cc370)
+  endif
   SYSROOT := $(HOME)/.local/cc370
+  LIBCDIR := $(SYSROOT)/lib
 endif
 
-CRT0 := $(SYSROOT)/lib/crt0.o
-CRT1 := $(SYSROOT)/lib/crt1.o
-CRTM := $(SYSROOT)/lib/crtm.o
+CRT0 := $(LIBCDIR)/crt0.o
+CRT1 := $(LIBCDIR)/crt1.o
+CRTM := $(LIBCDIR)/crtm.o
 
-# ld370 has no built-in library search path, so the sysroot lib dir must
-# be passed explicitly for -lc (libc370) to resolve.
-LDLIBDIR := -L$(SYSROOT)/lib
+# ld370 has no built-in library search path, so the sysroot lib dirs must
+# be passed explicitly: cc370's own (libcc370rt.a) and libc370's (-lc).
+LDLIBDIR := -L$(SYSROOT)/lib $(if $(filter-out $(SYSROOT)/lib,$(LIBCDIR)),-L$(LIBCDIR))
 
 # The compiler runtime: the helpers cc370 emits calls to (64-bit multiply and
 # divide, float <-> long long, popcount/clz/ctz, -ftrapv).  From cc370 1.1.0
@@ -236,7 +248,7 @@ endef
 # listed for every module, which costs at most an extra relink when one of the
 # other two changes.  $(wildcard) keeps a file that is absent (no
 # libcc370rt.a before cc370 1.1.0) from becoming a target make cannot build.
-LINK_INPUTS := $(wildcard $(SYSROOT)/lib/libc.a $(SYSROOT)/lib/libcc370rt.a $(CRT0) $(CRT1) $(CRTM)) $(DEP_LIBS)
+LINK_INPUTS := $(wildcard $(LIBCDIR)/libc.a $(SYSROOT)/lib/libcc370rt.a $(CRT0) $(CRT1) $(CRTM)) $(DEP_LIBS)
 
 define _MODULE_RULE
 $(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy: $$(MODULE_$(1)_OBJS) $(INTERNAL_ARCHIVE) $(LINK_INPUTS)
@@ -275,7 +287,7 @@ $(TEST_IMGS): LIBC_FIRST := -lc
 # which build no objects.  A project with no [toolchain] gets no check at all.
 LIBC_STAMP := .mbt/libc370-checked
 
-$(LIBC_STAMP): $(SYSROOT)/lib/libc.a project.toml
+$(LIBC_STAMP): $(LIBCDIR)/libc.a project.toml
 	$(Q)python3 $(MBT_SCRIPTS)/mbttoolchain.py --check \
 	    --project project.toml --sysroot $(SYSROOT)
 	$(Q)touch $@
