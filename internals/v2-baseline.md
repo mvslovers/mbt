@@ -21,7 +21,7 @@ with mbt `37b889b` instead of their pinned `f87bf0c` gave the identical outputs
 
 | Input | Value |
 |---|---|
-| Projects | the commits in `docs/baseline/v2-manifest.tsv` (column 2) |
+| Projects | the commits in `internals/baseline/v2-manifest.tsv` (column 2) |
 | mbt | each project's pinned submodule (`f87bf0c` or `37b889b`; identical output, see above) |
 | Toolchain | cc370 1.1.1 (`98d9ab0`), libc370 2.1.0, from the releases |
 | Dependencies | as pinned in each project's `mbt.lock` |
@@ -43,7 +43,7 @@ C objects carry no timestamp: all of them were identical without any pinning.
 
 ## The manifest
 
-`docs/baseline/v2-manifest.tsv`: project, commit, file, SHA-256 — one line per
+`internals/baseline/v2-manifest.tsv`: project, commit, file, SHA-256 — one line per
 output under `build/` and `dist/` (`.o`, `.iebcopy`, `.a`, `.xmit`, `.jcl`), and
 one line per member of each `dist/` archive (`archive!member`). 703 entries.
 Exception: the `httpd-webroot.img` member hash is from one build and does not

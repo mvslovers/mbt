@@ -28,8 +28,8 @@ Read these before making any changes:
 
 | Document | Location | Purpose |
 |----------|----------|---------|
-| **Specification** | `docs/mvs-build-spec-v1.0.0.md` | Normative. Defines what mbt does. All behavior must conform. |
-| **Implementation Guide** | `docs/mbt-implementation-guide.md` | Blueprint. Defines how and in what order to implement. |
+| **Specification** | `internals/mvs-build-spec-v1.0.0.md` | Normative. Defines what mbt does. All behavior must conform. |
+| **Implementation Guide** | `internals/mbt-implementation-guide.md` | Blueprint. Defines how and in what order to implement. |
 
 **The spec is authoritative.** If this file and the spec disagree, the spec wins.
 

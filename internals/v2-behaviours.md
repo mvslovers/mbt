@@ -2,7 +2,7 @@
 
 *Compiled 2026-10-04 from the 46 closed mbt issues and the reasoning in
 `mk/mbt.mk` and `scripts/`. Together with the output baseline
-(`docs/v2-baseline.md`) this is the specification for the rewrite: the
+(`internals/v2-baseline.md`) this is the specification for the rewrite: the
 baseline says **what** v2 produces, this page says **how it has to behave**,
 and why — usually because the opposite happened once.*
 
