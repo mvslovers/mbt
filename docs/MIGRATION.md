@@ -210,6 +210,9 @@ default, or `ac = 1` (key-0 storage when fetched authorized), it is a warning.
 The scan sees each file as cc370 compiles it for MVS: `make` runs it through
 `cc370 -E` with the project's `CFLAGS` first, so a host-only branch (`#ifndef
 __MVS__`) is not counted. A `static const struct { ... } tbl[]` is read as const.
+Run it on its own with `make module-data`; `make module-data
+MODDATA_ARGS=--all` lists every warning instead of three per module. Called by
+hand without the `CFLAGS`, the script scans the raw text and says so.
 
 `startup` selects how the module is linked:
 
