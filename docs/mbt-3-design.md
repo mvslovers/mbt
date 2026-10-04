@@ -97,6 +97,22 @@ A project contains its project file, `mbt.lock`, and the usual `src/`,
 Today's mbt is ~7,000 lines of Python with ~5,500 lines of tests. A rewrite is
 a project of its own; section 16 describes how we keep it honest.
 
+**Why Go, and what it rules out** (asked in the discussion of this proposal):
+
+| Option | For | Against |
+|---|---|---|
+| Python (today) | the code exists | an interpreter on every host; no single binary to pin and download; slow start per call |
+| C | could be compiled by cc370 and, in principle, run on MVS or CMS | HTTP, TLS, JSON, TOML, tar/gzip/zip, SHA-256 and process handling all written or vendored by hand |
+| Rust | single binary, strong types | slower to write for a one-person project; the ecosystem has no Rust experience |
+| **Go** | single static binary, cross-compiles trivially, the standard library covers the work | no MVS or CMS port |
+
+**mbt running on MVS or CMS is not a goal** (maintainer, 2026-10-04): mbt is a
+tool for *cross*-development — it builds on a modern host and talks to MVS
+through mvsMF. Native backends (section 11) run tools *on* MVS through JCL;
+mbt itself never runs there. Choosing Go closes that door on purpose. Should an
+MVS- or CMS-side component ever be wanted, it would be a small separate program
+(C or REXX) behind a defined interface, not a port of mbt.
+
 ## 5. Distribution and version pinning — **Proposed**
 
 The tool installs as a small **launcher**, the way the gradle wrapper or
@@ -150,6 +166,12 @@ as `[toolchain] mbt`, so workflow and tool can no longer drift apart.
   documented trap.
 - **The version lives in one place**, not in both `VERSION` and the project
   file.
+- **Load module attributes are declared, never inherited.** `rent`, `reus`,
+  `refr` per module, and a module without a declaration is an error in schema
+  3. v2.1.0 introduced the keys (cc370#100): ld370's default had made 25 of 27
+  ecosystem modules RENT without anyone deciding it, and a RENT C module with a
+  writable static is one copy shared by concurrent tasks (measured, CDUSE=3 in
+  httpd). `rent = true` is checked: no writable data in the module.
 - **`mbt migrate`** rewrites a v2 `project.toml` into the new schema. With
   eleven projects to convert this is not optional.
 
@@ -546,7 +568,20 @@ exports. It was dropped when v1 became legacy, and two things went with it:
   crypto370 — yet mvsmf has to list all three itself, because no artifact
   says what it depends on.
 
-**Proposed format** — JSON, because only mbt writes and reads it:
+**An interchange format, not a storage format.** Whatever is written gets
+readers: `install.sh` already reads libc370's `metadata.json`, and package
+tooling, scanners or a Homebrew automation will follow. So:
+
+- the schema is **documented** (a schema file in the mbt repository) and
+  **versioned** (`"schema"`), with a compatibility promise: fields are added,
+  never renamed or repurposed within a schema version;
+- it carries nothing mbt-internal — only what describes the artifact;
+- for the provenance and content parts, existing standards are checked before
+  we invent our own: SPDX or CycloneDX (bill of materials), SLSA / in-toto
+  (build provenance). Adopting one in full is not required, but not adopting
+  one is a decision to write down.
+
+**Proposed format** — JSON:
 
 ```json
 {
@@ -627,7 +662,7 @@ mbt.task {
   outputs = { "build/webroot/httpd-webroot.img" },
   before  = { "package", "dist" },
   run = function(ctx)
-    local ufs = ctx.tool("mvslovers/ufsd-utils", "1.0.1")   -- fetched and cached
+    local ufs = ctx.tool("ufsd-utils")        -- declared in [tools], pinned in mbt.lock
     ctx.exec { ufs, "create", ctx.out[1], "--size", "1M", "--blksize", "4096" }
     ctx.exec { ufs, "cp", "-r", "static/", ctx.out[1] .. ":/" }
   end,
@@ -636,8 +671,19 @@ mbt.task {
 
 - `ctx.exec` takes an argv list, no shell — the class of bug where zsh does
   not word-split `$VAR` cannot happen.
-- `ctx.tool` fetches a pinned tool; `ctx.mvs` reaches mvsMF with the same
-  per-target permissions as everything else; `ctx.project` is read-only.
+- `ctx.tool(name)` resolves a tool **declared in the project file**, never a
+  repository and version written into the script:
+
+  ```toml
+  [tools]
+  ufsd-utils = { repo = "mvslovers/ufsd-utils", version = "1.0.1" }
+  ```
+
+  One place for every dependency — libraries, toolchain, tools — all pinned
+  with their SHA-256 in `mbt.lock`, all reported by `mbt outdated` (suggested
+  in the discussion of this proposal).
+- `ctx.mvs` reaches mvsMF with the same per-target permissions as everything
+  else; `ctx.project` is read-only.
 - `mbt.hook("pre-release", fn)` hooks into existing phases;
   `mbt.command("deploy-desktop", fn)` becomes `mbt run deploy-desktop`.
 - Extensions can be packages: `[plugins] "mvslovers/mbt-ufs" = "^1"`, resolved
@@ -672,6 +718,31 @@ bar.asm  ──as370────────────────────
 
 A language is: file extensions, a pinned tool, what it emits (`.asm` or `.o`),
 how dependencies are discovered, and flags. C and assembler are built in.
+
+**Rules are data, and a project can override or extend them** — the lesson of
+the original Unix `make`, raised in the discussion of this proposal. The
+built-in rules are defaults: `*.c` → cc370 → `.o`, `*.asm` → as370 → `.o`.
+
+```toml
+# replace a built-in rule for one pattern
+[rule."*.asm"]
+backend = "ifox00"                 # native, section 11
+
+# an exception for one file
+[rule."src/hot#loop.c"]
+cflags = ["-O2"]
+
+# a new rule: a generated source, then the ordinary C rule
+[rule."*.msg"]
+run    = ["tools/msgc", "{in}", "-o", "{out}"]
+output = "{stem}.c"
+```
+
+- The most specific match wins: a file, then a pattern, then the built-in.
+- A rule's tool and flags are inputs of every file it builds: changing them
+  rebuilds exactly those files (the v2 gap mbt#65).
+- A rule that needs logic is a Lua extension (section 9) registering a rule,
+  through the same context and the same input/output tracking.
 **COBOL via [cobc370](https://github.com/brazilofmux/cobc370)** — a COBOL-74
 compiler that also builds as a host cross-compiler and emits S/370 assembler
 with a self-contained runtime — is the first candidate. Further languages
@@ -742,7 +813,24 @@ A backend declares what it emits — assembler source (an assembler backend
 follows), object decks, or load modules — so the build graph stays the same
 whichever backend is chosen.
 
-### 11.2 Toolchain profiles
+### 11.2 One interface, one implementation per target system
+
+The CMS port of GCC has a lesson for a later VM/CMS target (raised in the
+discussion of this proposal): the interface between generated code and the
+runtime is defined **at the macro level** — the prologue/epilogue macros and
+the named helper routines — and implemented separately for PDPCLIB (MVS) and
+GCCLIB (CMS). It does not cover every case: the compiler calls the stack
+manager directly, but by name, through a V-constant.
+
+cc370 has taken the first steps (cc370#687: the helpers by name in
+`libcc370rt.a`; cc370#688: the prologue macros belong to the compiler;
+cc370#689: public macros for hand-written assembler). A CMS target then means a
+second implementation of the same macros and helper names, chosen by the
+target — not a second compiler. For mbt that is a **toolchain profile** (next
+section) per target system. The design work belongs to cc370's plan
+(`docs/runtime-and-release-plan.md`, Phase 3).
+
+### 11.3 Toolchain profiles
 
 The freedom has one hard limit: **the runtime**. Objects from JCC and from
 cc370 cannot be mixed at will, because each compiler brings its own C library.
@@ -757,7 +845,7 @@ profile = "cc370"          # or "jcc", "gccmvs" — fixes runtime and default ba
 backend = "ifox00"         # this project assembles natively
 ```
 
-### 11.3 What it buys
+### 11.4 What it buys
 
 - **Users of the established toolchains** (JCC, GCC/MVS, IFOX00, IKFCBL00)
   get everything mbt does around the compiler — dependencies, lockfile, tests
@@ -768,7 +856,7 @@ backend = "ifox00"         # this project assembles natively
   whether as370 produces what IFOX00 produces — exactly the measurement
   section 10 asks for cobc370. The same works for cobc370 against IKFCBL00.
 
-### 11.4 Bring your own build system
+### 11.5 Bring your own build system
 
 A separate category: mbt calls a foreign build system — Make, a Lua
 extension, the `build/*` scripts of BREXX 2.5.3 — and takes over from there.
@@ -789,7 +877,7 @@ external = { run = ["make", "-C", "build"], produces = "objects", outputs = ["bu
 "make" would be just a preset; Lua is the general vehicle, because an
 extension can declare what it returns.
 
-### 11.5 What it costs
+### 11.6 What it costs
 
 - Native backends need a target with write permission, and builds get much
   slower. In CI that means MVS/CE in a container, as `build-legacy.yml` did.
@@ -984,6 +1072,8 @@ on in its project file instead of copying workflow YAML.
    still exist)?
 10. **Foreign build systems:** what is the contract — inputs, and whether
     mbt gets object decks or finished load modules back?
+11. **Artifact metadata standards** (section 8.4): adopt SPDX/CycloneDX or
+   SLSA/in-toto for the provenance and content parts, or document why not.
 
 ## 18. Phasing
 
@@ -1034,8 +1124,8 @@ derives it), #115 (dropped aliases), #132 (per-library RECFM/LRECL).
 13, checks), #111 (an empty fixture line is dropped).
 
 **Features that already have a place in this proposal:** #131 (a load map per
-module → `mbt size`, section 13), #91 (the AC(1) module-data check → lint /
-attribute checks, section 13), #62 (startup resolution → also libc370#159),
+module → `mbt size`, section 13), #91 (the module-data check — **done in v2.1.0**,
+`mbtmoddata.py`, generalised from AC(1) to RENT), #62 (startup resolution → also libc370#159),
 #133 (`-Wall -Wextra -Werror` by default — fix in v2: the ecosystem rule is
 already strict).
 
