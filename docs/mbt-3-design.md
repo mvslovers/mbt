@@ -720,29 +720,66 @@ A language is: file extensions, a pinned tool, what it emits (`.asm` or `.o`),
 how dependencies are discovered, and flags. C and assembler are built in.
 
 **Rules are data, and a project can override or extend them** — the lesson of
-the original Unix `make`, raised in the discussion of this proposal. The
-built-in rules are defaults: `*.c` → cc370 → `.o`, `*.asm` → as370 → `.o`.
+the original Unix `make`, raised in the discussion of this proposal. They come
+in two kinds, and the split is what keeps the outcome predictable when patterns
+overlap:
+
+- A **rule** says *how* a file is built: which tool, what it emits. Rules are
+  keyed by extension only, so exactly one rule applies to a file.
+- **File settings** say *with what*: flags and the like. They take paths and
+  globs, more than one may match a file, and they layer.
 
 ```toml
-# replace a built-in rule for one pattern
+# a rule: replace the built-in one for an extension
 [rule."*.asm"]
 backend = "ifox00"                 # native, section 11
 
-# an exception for one file
-[rule."src/hot#loop.c"]
-cflags = ["-O2"]
-
-# a new rule: a generated source, then the ordinary C rule
+# a rule: a new extension -- a generated source, then the ordinary C rule
 [rule."*.msg"]
 run    = ["tools/msgc", "{in}", "-o", "{out}"]
 output = "{stem}.c"
+
+# file settings: a directory, then one file
+[files."src/vsam/*.c"]
+cflags = ["-O1", "-DVSAM_TRACE"]
+
+[files."src/vsam/hot#loop.c"]
+cflags = ["-O2"]
 ```
 
-- The most specific match wins: a file, then a pattern, then the built-in.
-- A rule's tool and flags are inputs of every file it builds: changing them
-  rebuilds exactly those files (the v2 gap mbt#65).
+**Rules cannot overlap by construction.** A rule key is `*.` followed by an
+extension and nothing else; `[rule."src/*.asm"]` is a configuration error. The
+built-in rules — `*.c` → cc370 → `.o`, `*.asm` → as370 → `.o` — are defaults a
+project rule of the same extension replaces. Where extensions nest, the longest
+one wins (`*.tar.gz` before `*.gz`): a fixed order, not a judgement. A file
+that needs a different tool than its extension's is renamed, or built by a Lua
+extension (section 9) — the place for logic.
+
+**File settings may overlap, and resolve in a fixed order.** For each key, from
+lowest to highest:
+
+1. the rule's defaults,
+2. the project (`[build]`),
+3. the module (`[module.X]`),
+4. every `[files."<glob>"]` that matches,
+5. a `[files."<path>"]` naming the file exactly.
+
+A higher layer replaces a key; it does not append to it. **Two globs that match
+the same file and set the same key are an error** (exit 2) naming both entries
+and the file — mbt does not guess which one was meant, and declaration order is
+deliberately not a tie-breaker, since TOML does not promise one. Globs that
+match the same file but set different keys combine without conflict.
+
+**`mbt explain <file>`** prints the result for one file: the rule that builds
+it, every setting with the layer it came from, and the resulting command line.
+`compile_commands.json` (section 14) is written from the same resolution, so
+the editor sees the flags the build uses.
+
+- A file's rule and its resolved settings are inputs of that file: changing them
+  rebuilds exactly the files they reach (the v2 gap mbt#65).
 - A rule that needs logic is a Lua extension (section 9) registering a rule,
   through the same context and the same input/output tracking.
+
 **COBOL via [cobc370](https://github.com/brazilofmux/cobc370)** — a COBOL-74
 compiler that also builds as a host cross-compiler and emits S/370 assembler
 with a self-contained runtime — is the first candidate. Further languages
