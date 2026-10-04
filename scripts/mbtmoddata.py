@@ -43,6 +43,7 @@ import argparse
 import glob
 import os
 import re
+import subprocess
 import sys
 
 import tomllib
@@ -93,7 +94,10 @@ def declarations(src):
     are dropped.
     """
     depth, init, buf, line, start = 0, 0, '', 1, 1
-    heads, typetail = [], False
+    heads, typetail, tailhead = [], False, ''
+    # The declarator after a struct/union/enum body inherits the words before
+    # the body: `static const struct { ... } tbl[] = {...};` declares a const
+    # table, and without its head the tail `tbl[] = ...` looked writable.
     for ch in src:
         if ch == '\n':
             line += 1
@@ -112,15 +116,20 @@ def declarations(src):
                 buf += ' '
                 continue
             depth = max(0, depth - 1)
-            typetail = bool(re.search(r'\btypedef\b',
-                                      heads.pop() if heads else ''))
+            popped = heads.pop() if heads else ''
+            typetail = bool(re.search(r'\btypedef\b', popped))
+            # only a TYPE head -- one that ends in struct/union/enum [tag] --
+            # passes its words on; a function head with a struct parameter
+            # ends in ')' and must not
+            tailhead = popped if re.search(
+                r'\b(struct|union|enum)(\s+\w+)?\s*$', popped) else ''
             buf, start = '', line
             continue
         if ch == ';' and not init:
             head = ' '.join(buf.split())
             if head and not typetail:
-                yield start, head, depth
-            typetail = False
+                yield start, (tailhead + ' ' + head).strip(), depth
+            typetail, tailhead = False, ''
             buf, start = '', line
             continue
         if not buf.strip():
@@ -160,9 +169,74 @@ def _c_sources(entry: dict) -> list[str]:
 _EXEMPT = re.compile(r'\b__stklen\b')
 
 
-def _findings(path: str) -> list[tuple[int, str]]:
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        text = strip_noise(fh.read())
+_MARKER = re.compile(r'^#\s*(\d+)\s+"([^"]*)"')
+
+
+def _map_lines(out: str, path: str) -> str | None:
+    """Keep the lines of `cc370 -E` output that come from `path`, each at its
+    own line number (from the line markers)."""
+    lines: dict[int, str] = {}
+    cur, num = None, 0
+    for raw in out.split("\n"):
+        m = _MARKER.match(raw)
+        if m:
+            num, cur = int(m.group(1)), m.group(2)
+            continue
+        if cur == path:
+            lines[num] = raw
+        num += 1
+    if not lines:
+        return None
+    return "\n".join(lines.get(n, "") for n in range(1, max(lines) + 1))
+
+
+_PP_CACHE: dict[tuple, str | None] = {}
+
+
+def _key(path: str, cflags: list[str]) -> tuple:
+    return (os.path.abspath(path), tuple(cflags))
+
+
+def preprocess_all(paths: list[str], cflags: list[str], jobs: int = 8) -> None:
+    """Run `cc370 -E` over every path once, `jobs` at a time, into the cache.
+
+    A file is usually linked into several modules; preprocessing it once, and
+    the files in parallel, keeps the check from adding seconds to every make.
+    (subprocess.Popen, no threads -- the stdlib set mbt allows.)"""
+    todo = [p for p in dict.fromkeys(paths) if _key(p, cflags) not in _PP_CACHE]
+    while todo:
+        batch, todo = todo[:jobs], todo[jobs:]
+        procs = []
+        for path in batch:
+            try:
+                procs.append((path, subprocess.Popen(
+                    ["cc370", "-E", *cflags, path], stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL, text=True, errors="replace")))
+            except OSError:
+                _PP_CACHE[_key(path, cflags)] = None
+        for path, proc in procs:
+            out, _ = proc.communicate()
+            _PP_CACHE[_key(path, cflags)] = (_map_lines(out, path)
+                                             if proc.returncode == 0 else None)
+
+
+def _preprocessed(path: str, cflags: list[str]) -> str | None:
+    """The file as cc370 compiles it for MVS: `cc370 -E` with the project's
+    flags, only the lines that come from the file itself, each at its own line
+    number (from the line markers).  A branch the preprocessor drops -- a host
+    simulation under `#ifndef __MVS__` -- is not scanned.  None if cc370 is not
+    there or fails; the caller then scans the raw text."""
+    if _key(path, cflags) not in _PP_CACHE:
+        preprocess_all([path], cflags)
+    return _PP_CACHE[_key(path, cflags)]
+
+
+def _findings(path: str, cflags: list[str] | None = None) -> list[tuple[int, str]]:
+    text = _preprocessed(path, cflags) if cflags is not None else None
+    if text is None:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    text = strip_noise(text)
     return [(line, head) for line, head, depth in declarations(text)
             if mutable(head, depth) and not _EXEMPT.search(head)]
 
@@ -176,11 +250,14 @@ def _rent(entry: dict):
     return None
 
 
-def check(project: dict) -> tuple[list, list]:
+def check(project: dict, cflags: list[str] | None = None) -> tuple[list, list]:
     """Return (errors, warnings), each a list of (kind, name, path, line, text)."""
     errors, warnings = [], []
     entries = ([("module", m) for m in project.get("module", [])]
                + [("test", t) for t in project.get("test", [])])
+    if cflags is not None:
+        preprocess_all([p for _, e in entries for p in _c_sources(e)]
+                       + _c_sources(project.get("internal", {})), cflags)
     for kind, entry in entries:
         name = entry.get("name", "?")
         rent = _rent(entry)
@@ -196,13 +273,13 @@ def check(project: dict) -> tuple[list, list]:
         else:
             why, fatal = "RENT by ld370's default", False
         for path in _c_sources(entry):
-            for line, head in _findings(path):
+            for line, head in _findings(path, cflags):
                 (errors if fatal else warnings).append(
                     (why, name, path, line, head))
     internal = project.get("internal", {})
     if internal and any(e for e in errors + warnings):
         for path in _c_sources(internal):
-            for line, head in _findings(path):
+            for line, head in _findings(path, cflags):
                 warnings.append(("[internal], linked by autocall if referenced",
                                  "-", path, line, head))
     return errors, warnings
@@ -211,6 +288,10 @@ def check(project: dict) -> tuple[list, list]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--project", default="project.toml")
+    ap.add_argument("cflags", nargs="*",
+                    help="the project's CFLAGS, after '--': files are then "
+                         "preprocessed with cc370 -E and only the MVS branch "
+                         "is scanned")
     ap.add_argument("--all", action="store_true",
                     help="list every warning, not the first three per module")
     args = ap.parse_args()
@@ -220,7 +301,7 @@ def main() -> int:
     except (OSError, tomllib.TOMLDecodeError) as e:
         print(f"[mbt] ERROR: {args.project}: {e}", file=sys.stderr)
         return 2
-    errors, warnings = check(project)
+    errors, warnings = check(project, args.cflags if args.cflags else None)
     # Warnings are grouped per module and capped, so a project that keeps
     # state in a non-RENT module on purpose does not drown every build log;
     # --all lists them.  Errors are always listed in full.

@@ -270,7 +270,7 @@ $(foreach t,$(TESTS),$(eval $(call _MODULE_RULE,$(t))))
 # of the C sources -- quick, so it runs on every make that links.
 .PHONY: module-data
 module-data:
-	$(Q)python3 $(MBT_SCRIPTS)/mbtmoddata.py --project project.toml
+	$(Q)python3 $(MBT_SCRIPTS)/mbtmoddata.py --project project.toml -- $(CFLAGS)
 
 # -- Per-module IEBCOPY unload lists -------------------------------
 MODULE_IMGS := $(foreach m,$(MODULES),$(BUILDDIR)/$(MODULE_$(m)_NAME).iebcopy)
