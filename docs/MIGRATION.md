@@ -195,8 +195,8 @@ Changing `aliases` does not by itself relink the module -- `make clean` first.
 `rent`, `reus` and `refr` set the load module's attributes (cc370#100). **Declare
 them.** A declared attribute is passed to ld370 in both directions (`rent =
 true` → `--rent`, `rent = false` → `--norent`), so the module does not depend on
-ld370's default -- which is RENT+REUS up to now and becomes *neither*, IEWL's
-default, in a later cc370 release. `norent = true` / `noreus = true` are the old
+ld370's default -- *neither* RENT nor REUS, IEWL's default, since cc370 1.2.0
+(RENT+REUS before). `norent = true` / `noreus = true` are the old
 spelling: still accepted, with a warning.
 
 `rent = true` is a promise that the module holds **no writable data**. cc370
@@ -223,9 +223,9 @@ hand without the `CFLAGS`, the script scans the raw text and says so.
 
 | `startup` | Linker macro | crt object | typical use |
 |-----------|--------------|-----------|-------------|
-| `crt0` | `LINK_CRT0` | `crt0.o` | normal C program |
-| `crt1` | `LINK_CRT1` | `crt1.o` | C program needing threading runtime |
-| `crtm` | `LINK_CRTM` | `crtm.o` | minimal runtime |
+| `crt0` | `LINK_CRT0` | `crt0.o` | C program that creates threads (`cthread_create*`) |
+| `crt1` | `LINK_CRT1` | `crt1.o` | C program that creates no threads (the common case) |
+| `crtm` | `LINK_CRTM` | `crtm.o` | C module entered from a running C program on the same TCB (LINK/XCTL/LOAD); reuses the caller's runtime, never the top-level startup |
 | `false` | `LINK_NOCRT` | — | self-contained module (e.g. an SSI router); still linked with `-lc` to resolve runtime routines |
 
 ### `[[test]]` (repeatable)
