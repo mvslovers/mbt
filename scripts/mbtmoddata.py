@@ -138,14 +138,38 @@ def declarations(src):
         buf += ch
 
 
-IS_FUNC = re.compile(r'\([^)]*\)\s*$')
-IS_FUNC_PTR = re.compile(r'\(\s*\*')
+# A head ending in ')' is a function, unless an initializer `= f(1)` ends it.
+# The parameter list may nest: `void f(void (*cb)(int))`.
+IS_FUNC = re.compile(r'^[^=]*\)\s*$')
+# Only the FIRST parenthesis decides: `int (*fp)(int)` is a pointer, while
+# `void f(void (*cb)(int))` is a prototype with a pointer parameter.
+IS_FUNC_PTR = re.compile(r'^[^(]*\(\s*\*')
 SKIPPABLE = re.compile(r'\b(typedef|extern)\b')
 IS_CONST = re.compile(r'\bconst\b')
 IS_TAG_ONLY = re.compile(r'^(struct|union|enum)\s+\w+$')
 
 
+def strip_attributes(head):
+    """Drop GNU `__attribute__((...))`, whose parentheses nest.
+
+    `struct tag { ... } __attribute__((aligned(4)));` defines a type and no
+    data, but with the attribute left in it no longer looked like a bare tag.
+    """
+    out, i = '', 0
+    while True:
+        m = re.search(r'\b__attribute__\s*\(', head[i:])
+        if not m:
+            return ' '.join((out + head[i:]).split())
+        out += head[i:i + m.start()]
+        j, level = i + m.end(), 1
+        while j < len(head) and level:
+            level += {'(': 1, ')': -1}.get(head[j], 0)
+            j += 1
+        i = j
+
+
 def mutable(head, depth):
+    head = strip_attributes(head)
     if SKIPPABLE.search(head) or IS_CONST.search(head):
         return False
     if depth and not head.startswith('static'):
@@ -170,28 +194,33 @@ def _c_sources(entry: dict) -> list[str]:
 _EXEMPT = re.compile(r'\b__stklen\b')
 
 
-_MARKER = re.compile(r'^#\s*(\d+)\s+"([^"]*)"')
+_MARKER = re.compile(r'^#\s*(\d+)\s+"([^"]*)"(.*)$')
 
 
-def _map_lines(out: str, path: str) -> str | None:
-    """Keep the lines of `cc370 -E` output that come from `path`, each at its
-    own line number (from the line markers)."""
-    lines: dict[int, str] = {}
-    cur, num = None, 0
+def _map_lines(out: str, path: str) -> dict[str, str] | None:
+    """Split `cc370 -E` output back into the files it came from, each line at
+    its own line number (from the line markers): the source itself and every
+    header the project or mbt supplies.  A header can define data too --
+    mbt's own mbtcheck.h has `static int mbt_run`, which 2.1.1 missed.  System headers (marker flag 3: the libc370 sysroot) and the
+    `<built-in>`/`<command line>` pseudo-files are left out."""
+    files: dict[str, dict[int, str]] = {}
+    cur, num, skip = None, 0, True
     for raw in out.split("\n"):
         m = _MARKER.match(raw)
         if m:
             num, cur = int(m.group(1)), m.group(2)
+            skip = cur.startswith("<") or "3" in m.group(3).split()
             continue
-        if cur == path:
-            lines[num] = raw
+        if not skip:
+            files.setdefault(cur, {})[num] = raw
         num += 1
-    if not lines:
+    if path not in files:
         return None
-    return "\n".join(lines.get(n, "") for n in range(1, max(lines) + 1))
+    return {f: "\n".join(lines.get(n, "") for n in range(1, max(lines) + 1))
+            for f, lines in files.items()}
 
 
-_PP_CACHE: dict[tuple, str | None] = {}
+_PP_CACHE: dict[tuple, dict[str, str] | None] = {}
 
 
 def _key(path: str, cflags: list[str]) -> tuple:
@@ -221,10 +250,10 @@ def preprocess_all(paths: list[str], cflags: list[str], jobs: int = 8) -> None:
                                              if proc.returncode == 0 else None)
 
 
-def _preprocessed(path: str, cflags: list[str]) -> str | None:
+def _preprocessed(path: str, cflags: list[str]) -> dict[str, str] | None:
     """The file as cc370 compiles it for MVS: `cc370 -E` with the project's
-    flags, only the lines that come from the file itself, each at its own line
-    number (from the line markers).  A branch the preprocessor drops -- a host
+    flags, split back into the source and the non-system headers it includes
+    (see _map_lines).  A branch the preprocessor drops -- a host
     simulation under `#ifndef __MVS__` -- is not scanned.  None if cc370 is not
     there or fails; the caller then scans the raw text."""
     if _key(path, cflags) not in _PP_CACHE:
@@ -232,14 +261,20 @@ def _preprocessed(path: str, cflags: list[str]) -> str | None:
     return _PP_CACHE[_key(path, cflags)]
 
 
-def _findings(path: str, cflags: list[str] | None = None) -> list[tuple[int, str]]:
-    text = _preprocessed(path, cflags) if cflags is not None else None
-    if text is None:
+def _findings(path: str, cflags: list[str] | None = None) -> list[tuple[str, int, str]]:
+    """(file, line, declaration) for every writable definition the source
+    brings into the module -- in the source itself and, preprocessed, in the
+    project's and mbt's headers it includes."""
+    texts = _preprocessed(path, cflags) if cflags is not None else None
+    if texts is None:
         with open(path, encoding="utf-8", errors="replace") as fh:
-            text = fh.read()
-    text = strip_noise(text)
-    return [(line, head) for line, head, depth in declarations(text)
-            if mutable(head, depth) and not _EXEMPT.search(head)]
+            texts = {path: fh.read()}
+    out = []
+    for f, text in texts.items():
+        for line, head, depth in declarations(strip_noise(text)):
+            if mutable(head, depth) and not _EXEMPT.search(head):
+                out.append((f, line, head))
+    return out
 
 
 def _rent(entry: dict):
@@ -273,16 +308,30 @@ def check(project: dict, cflags: list[str] | None = None) -> tuple[list, list]:
             continue        # tests are not LINKed concurrently; only declared ones
         else:
             why, fatal = "RENT by ld370's default", False
+        seen = set()
         for path in _c_sources(entry):
-            for line, head in _findings(path, cflags):
+            for f, line, head in _findings(path, cflags):
+                if (f, line) in seen:
+                    continue        # a header included by several sources
+                seen.add((f, line))
                 (errors if fatal else warnings).append(
-                    (why, name, path, line, head))
+                    (why, name, f, line, head))
+    # [internal] objects reach a module by autocall, only when referenced --
+    # which this scan cannot see before the link.  So they are reported
+    # whenever some module may be RENT, not only when another finding exists
+    # (2.1.1 was silent for httpd, whose HTTPD links nine of them).  Which
+    # module really links which object is a load-map question (mbt#152).
     internal = project.get("internal", {})
-    if internal and any(e for e in errors + warnings):
+    maybe_rent = any(_rent(e) is not False for _, e in entries
+                     if _ == "module")
+    if internal and maybe_rent:
+        seen = set()
         for path in _c_sources(internal):
-            for line, head in _findings(path, cflags):
-                warnings.append(("[internal], linked by autocall if referenced",
-                                 "-", path, line, head))
+            for f, line, head in _findings(path, cflags):
+                if (f, line) not in seen:
+                    seen.add((f, line))
+                    warnings.append(("[internal], linked by autocall if "
+                                     "referenced", "-", f, line, head))
     return errors, warnings
 
 
