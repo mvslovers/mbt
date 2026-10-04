@@ -172,6 +172,10 @@ that would differ on every run and recompile the including TU forever.
 | `entry` | `@@CRT0` | Entry point symbol. |
 | `startup` | `crt0` | C runtime: `crt0`, `crt1`, `crtm`, or `false` (none). |
 | `aliases` | `[]` | Alias names for the module (IEWL `ALIAS`), e.g. `["REXX", "RX"]`. |
+| `ac` | `0` | APF authorization code (`SETCODE AC(n)`). |
+| `rent` | — | `true`: the module is reentrant (RENT); `false`: it is not. Undeclared: whatever ld370 defaults to. |
+| `reus` | — | `true` / `false`: serially reusable (REUS). Undeclared: ld370's default. |
+| `refr` | `false` | `true`: refreshable (REFR). |
 
 `aliases` gives the load module extra directory entries that point at the same
 member, passed to ld370 as `--alias`. Each is a member name (1–8 chars, same
@@ -187,6 +191,22 @@ release that *drops* an alias is not measured -- in the target library it would
 most likely survive, pointing at the deleted module -- so check #115 before
 removing one.
 Changing `aliases` does not by itself relink the module -- `make clean` first.
+
+`rent`, `reus` and `refr` set the load module's attributes (cc370#100). **Declare
+them.** A declared attribute is passed to ld370 in both directions (`rent =
+true` → `--rent`, `rent = false` → `--norent`), so the module does not depend on
+ld370's default -- which is RENT+REUS up to now and becomes *neither*, IEWL's
+default, in a later cc370 release. `norent = true` / `noreus = true` are the old
+spelling: still accepted, with a warning.
+
+`rent = true` is a promise that the module holds **no writable data**. cc370
+keeps a C static or a non-const global in the module itself, and a RENT module
+is one copy for every task that LINKs it -- measured on mvsdev with three of
+httpd's workers in one copy of a CGI module (cc370#100). Before linking, `make`
+scans the C sources of every module (`mbtmoddata.py`): writable data in a
+`rent = true` module stops the build; in a module that is RENT only by ld370's
+default, or `ac = 1` (key-0 storage when fetched authorized), it is a warning.
+`__stklen` is exempt -- libc370's startup reads it, nothing writes it.
 
 `startup` selects how the module is linked:
 

@@ -12,6 +12,8 @@ import sys
 import shutil
 import subprocess
 import tempfile
+import contextlib
+import io
 import unittest
 from pathlib import Path
 
@@ -71,8 +73,12 @@ class MakeParsesGeneratedConfigTest(unittest.TestCase):
                              f"make failed to parse generated config.mk:\n{r.stderr}")
 
 
-class NorentNoreusTest(unittest.TestCase):
-    """norent / noreus module options -> MODULE_<key>_NORENT / _NOREUS flags."""
+class LinkAttributesTest(unittest.TestCase):
+    """rent / reus / refr on [[module]] and [[test]] -> MODULE_<key>_ATTRS, the
+    ld370 flags (cc370#100).  Every declared attribute is passed explicitly in
+    both directions, so the result does not depend on ld370's default -- which
+    is RENT+REUS today and becomes 'neither' (IEWL's) later.  An undeclared
+    attribute passes nothing.  norent / noreus still work, with a warning."""
 
     def _emit(self, **extra):
         lines = []
@@ -81,16 +87,49 @@ class NorentNoreusTest(unittest.TestCase):
         mbtconfig._emit_module(lines, mod, "build", set(), set(), "MODULES")
         return "\n".join(lines)
 
-    def test_default_emits_neither(self):
-        out = self._emit()
-        self.assertNotIn("_NORENT", out)
-        self.assertNotIn("_NOREUS", out)
+    def _attrs(self, **extra):
+        for line in self._emit(**extra).splitlines():
+            if line.startswith("MODULE_IRXANCHR_ATTRS := "):
+                return line.split(" := ", 1)[1]
+        return None
 
-    def test_norent(self):
-        self.assertIn("MODULE_IRXANCHR_NORENT := 1", self._emit(norent=True))
+    def test_default_emits_nothing(self):
+        self.assertIsNone(self._attrs())
 
-    def test_noreus(self):
-        self.assertIn("MODULE_IRXANCHR_NOREUS := 1", self._emit(noreus=True))
+    def test_positive(self):
+        self.assertEqual(self._attrs(rent=True, reus=True, refr=True),
+                         "--rent --reus --refr")
+
+    def test_negative_is_explicit(self):
+        self.assertEqual(self._attrs(rent=False, reus=False),
+                         "--norent --noreus")
+
+    def test_mixed(self):
+        # the IRXANCHR shape: serially reusable, not reentrant
+        self.assertEqual(self._attrs(rent=False, reus=True), "--norent --reus")
+
+    def test_refr_false_passes_nothing(self):
+        # ld370 has no --norefr; REFR is off unless asked for
+        self.assertIsNone(self._attrs(refr=False))
+
+    def test_legacy_norent_noreus_map_with_a_warning(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            attrs = self._attrs(norent=True, noreus=True)
+        self.assertEqual(attrs, "--norent --noreus")
+        self.assertIn("'norent' is deprecated", err.getvalue())
+        self.assertIn("'noreus' is deprecated", err.getvalue())
+
+    def test_legacy_false_is_ignored(self):
+        self.assertIsNone(self._attrs(norent=False))
+
+    def test_both_spellings_conflict(self):
+        with self.assertRaises(mbtconfig.ConfigError):
+            self._attrs(rent=True, norent=True)
+
+    def test_non_bool_is_an_error(self):
+        with self.assertRaises(mbtconfig.ConfigError):
+            self._attrs(rent="yes")
 
 
 class AliasesTest(unittest.TestCase):
