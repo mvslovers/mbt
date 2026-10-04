@@ -147,6 +147,35 @@ class TestParser(unittest.TestCase):
                "static int g(int x);\nint h(void){ return 1; }\n")
         self.assertEqual(self.run_one(src), ([], []))
 
+    def test_attributed_struct_definition_is_not_data(self):
+        """`} __attribute__((aligned(n)));` closes a type, not an instance
+        (mvsMF router.h)."""
+        src = ("struct route { int m; } __attribute__((aligned(4)));\n"
+               "void f(void) __attribute__((noreturn));\n")
+        self.assertEqual(self.run_one(src), ([], []))
+
+    def test_prototype_with_function_pointer_parameter_is_not_data(self):
+        """brexx370 hashmap.h / rexx.h."""
+        src = ("void hashMapFree(void *h, void (*freeData)(void *));\n"
+               "int RxReFn( char *name, void ( *func)(int), int opt );\n")
+        self.assertEqual(self.run_one(src), ([], []))
+
+    def test_function_pointer_variables_are_writable(self):
+        src = "static int (*fp)(int);\nstatic void (*tbl[4])(void);\n"
+        errors, _ = self.run_one(src)
+        self.assertEqual(len(errors), 2)
+
+    def test_initializer_ending_in_a_parenthesis_is_data(self):
+        """brexx370 date.c: the table was taken for a function head."""
+        src = 'static char *days[] = { ("Mon"), ("Tue") };\nstatic int n = f(1);\n'
+        errors, _ = self.run_one(src)
+        self.assertEqual(len(errors), 2)
+
+    def test_attributed_instance_is_still_writable(self):
+        src = "static int buf[8] __attribute__((aligned(8)));\n"
+        errors, _ = self.run_one(src)
+        self.assertEqual(len(errors), 1)
+
     def test_raw_scan_sees_the_host_branch(self):
         """Without cflags the text is scanned as is -- the old behaviour."""
         errors, _ = self.run_one(HOST_ONLY)
@@ -163,6 +192,67 @@ class TestParser(unittest.TestCase):
                                  "static int y;\nint f(void){ return ++y; }\n",
                                  cflags=["-O1"])
         self.assertEqual([(e[2], e[3]) for e in errors], [("src/a.c", 5)])
+
+
+class TestHeaders(unittest.TestCase):
+    """Data defined in a header the source includes is in the module too --
+    mbt's own mbtcheck.h has `static int mbt_run` which 2.1.1 missed."""
+
+    def _check(self, files, project, cflags):
+        p = _Proj(files, project)
+        try:
+            cwd = os.getcwd()
+            os.chdir(p.root)
+            try:
+                return M.check(p.project, cflags)
+            finally:
+                os.chdir(cwd)
+        finally:
+            p.close()
+
+    @unittest.skipUnless(shutil.which("cc370"), "needs cc370 on PATH")
+    def test_static_in_a_project_header_is_found(self):
+        errors, _ = self._check(
+            {"include/state.h": "static int counter;\n",
+             "src/a.c": "#include \"state.h\"\nint f(void){ return ++counter; }\n"},
+            {"module": [_mod("MOD", "src/a.c", rent=True)]}, ["-I", "include"])
+        self.assertEqual([(e[2], e[3]) for e in errors], [("include/state.h", 1)])
+
+    @unittest.skipUnless(shutil.which("cc370"), "needs cc370 on PATH")
+    def test_mbtcheck_counters_fail_a_rent_test(self):
+        """ftpd's TSTPRM was declared rent = true and built green on 2.1.1."""
+        mbt_include = str(Path(__file__).parent.parent / "include")
+        errors, _ = self._check(
+            {"test/t.c": "#include <mbtcheck.h>\nint main(void){ return 0; }\n"},
+            {"test": [_mod("TST", "test/t.c", rent=True)]}, ["-I", mbt_include])
+        names = {e[4].split("=")[0].split()[-1] for e in errors}
+        self.assertTrue({"mbt_run", "mbt_passed", "mbt_failed"} <= names, names)
+
+    @unittest.skipUnless(shutil.which("cc370"), "needs cc370 on PATH")
+    def test_a_header_included_twice_is_reported_once(self):
+        errors, _ = self._check(
+            {"include/state.h": "static int counter;\n",
+             "src/a.c": "#include \"state.h\"\nint f(void){ return ++counter; }\n",
+             "src/b.c": "#include \"state.h\"\nint g(void){ return counter; }\n"},
+            {"module": [{"name": "MOD", "sources": ["src/*.c"], "rent": True}]},
+            ["-I", "include"])
+        self.assertEqual(len(errors), 1)
+
+    @unittest.skipUnless(shutil.which("cc370"), "needs cc370 on PATH")
+    def test_system_headers_are_not_scanned(self):
+        self.assertEqual(self._check(
+            {"src/a.c": "#include <stdio.h>\n#include <ctype.h>\nint f(void){ return 0; }\n"},
+            {"module": [_mod("MOD", "src/a.c", rent=True)]}, ["-O1"]), ([], []))
+
+    def test_internal_is_reported_without_other_findings(self):
+        """httpd went silent on 2.1.1 once its own modules were clean."""
+        errors, warnings = self._check(
+            {"src/a.c": CLEAN, "src/lib.c": STATIC},
+            {"module": [_mod("MOD", "src/a.c", rent=True)],
+             "internal": {"sources": ["src/lib.c"]}}, None)
+        self.assertEqual(errors, [])
+        self.assertEqual(len(warnings), 1)
+        self.assertTrue(warnings[0][0].startswith("[internal]"))
 
 
 if __name__ == "__main__":

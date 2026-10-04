@@ -210,6 +210,11 @@ default, or `ac = 1` (key-0 storage when fetched authorized), it is a warning.
 The scan sees each file as cc370 compiles it for MVS: `make` runs it through
 `cc370 -E` with the project's `CFLAGS` first, so a host-only branch (`#ifndef
 __MVS__`) is not counted. A `static const struct { ... } tbl[]` is read as const.
+Headers count: a static defined in a project header -- `mbtcheck.h`'s test
+counters among them -- is reported against the header, once per module however
+many sources include it; system headers are not scanned. Data in the
+`[internal]` sources is reported whenever any module may be RENT, because which
+modules autocall pulls it into is not yet known (#152).
 Run it on its own with `make module-data`; `make module-data
 MODDATA_ARGS=--all` lists every warning instead of three per module. Called by
 hand without the `CFLAGS`, the script scans the raw text and says so.
