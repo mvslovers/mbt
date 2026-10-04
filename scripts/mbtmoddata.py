@@ -36,7 +36,8 @@ register loaded from `=A(@Vn)`.  Scanner from ufsd/ftpd tools/check-module-data.
 Exit: 0 clean (warnings allowed), 1 writable data in a rent = true module,
 2 configuration error.
 
-Usage: mbtmoddata.py [--project project.toml] [--all]
+Usage: make module-data [MODDATA_ARGS=--all]
+       mbtmoddata.py [--project project.toml] [--all] -- <CFLAGS>
 """
 
 import argparse
@@ -301,6 +302,12 @@ def main() -> int:
     except (OSError, tomllib.TOMLDecodeError) as e:
         print(f"[mbt] ERROR: {args.project}: {e}", file=sys.stderr)
         return 2
+    if not args.cflags:
+        # Called by hand, without the project's CFLAGS: nothing is
+        # preprocessed, so host-only branches count (rexx370 on 2.1.1).
+        print("[mbt] WARNING: no CFLAGS given -- scanning the raw sources, "
+              "host-only (#ifndef __MVS__) branches included. "
+              "'make module-data' passes them.", file=sys.stderr)
     errors, warnings = check(project, args.cflags if args.cflags else None)
     # Warnings are grouped per module and capped, so a project that keeps
     # state in a non-RENT module on purpose does not drown every build log;
@@ -315,7 +322,8 @@ def main() -> int:
                   f"{path}:{line}: {head[:80]}", file=sys.stderr)
         if len(items) > len(shown):
             print(f"[mbt] WARNING:   ... {len(items) - len(shown)} more in "
-                  f"{name}; mbtmoddata.py --all lists them", file=sys.stderr)
+                  f"{name}; 'make module-data MODDATA_ARGS=--all' lists them",
+                  file=sys.stderr)
     for why, name, path, line, head in errors:
         print(f"[mbt] ERROR: writable data in {name} ({why}): "
               f"{path}:{line}: {head[:80]}", file=sys.stderr)

@@ -268,9 +268,10 @@ $(foreach t,$(TESTS),$(eval $(call _MODULE_RULE,$(t))))
 # storage.  Checked before any module or test is linked; a module that only
 # gets RENT from ld370's default is warned about, not stopped.  A text scan
 # of the C sources -- quick, so it runs on every make that links.
+# 'make module-data MODDATA_ARGS=--all' lists every warning.
 .PHONY: module-data
 module-data:
-	$(Q)python3 $(MBT_SCRIPTS)/mbtmoddata.py --project project.toml -- $(CFLAGS)
+	$(Q)python3 $(MBT_SCRIPTS)/mbtmoddata.py --project project.toml $(MODDATA_ARGS) -- $(CFLAGS)
 
 # -- Per-module IEBCOPY unload lists -------------------------------
 MODULE_IMGS := $(foreach m,$(MODULES),$(BUILDDIR)/$(MODULE_$(m)_NAME).iebcopy)
