@@ -207,6 +207,9 @@ scans the C sources of every module (`mbtmoddata.py`): writable data in a
 `rent = true` module stops the build; in a module that is RENT only by ld370's
 default, or `ac = 1` (key-0 storage when fetched authorized), it is a warning.
 `__stklen` is exempt -- libc370's startup reads it, nothing writes it.
+The scan sees each file as cc370 compiles it for MVS: `make` runs it through
+`cc370 -E` with the project's `CFLAGS` first, so a host-only branch (`#ifndef
+__MVS__`) is not counted. A `static const struct { ... } tbl[]` is read as const.
 
 `startup` selects how the module is linked:
 
