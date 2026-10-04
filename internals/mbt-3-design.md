@@ -559,7 +559,7 @@ when no binary matches.
 ### 8.4 Artifact metadata
 
 mbt v1 had this: a `package.toml` published next to every release
-(`docs/mvs-build-spec-v1.0.0.md`, §7), with the mbt version, the package's
+(`internals/mvs-build-spec-v1.0.0.md`, §7), with the mbt version, the package's
 own dependencies, its artifacts, the datasets it provides and its link
 exports. It was dropped when v1 became legacy, and two things went with it:
 
@@ -1079,7 +1079,7 @@ on in its project file instead of copying workflow YAML.
 - **One project at a time.** A project still on the submodule keeps building
   unchanged; `mbt migrate` converts the project file; the Makefile and the
   submodule are removed in the same PR.
-- **Spec revision.** `docs/mvs-build-spec-v1.0.0.md` describes the submodule
+- **Spec revision.** `internals/mvs-build-spec-v1.0.0.md` describes the submodule
   (sections 1, 2, 13 and the CI flows). mbt 3 gets a new spec rather than a
   patched one.
 
