@@ -18,6 +18,8 @@ import (
 
 	"github.com/mvslovers/mbt/include"
 	"github.com/mvslovers/mbt/internal/build"
+	"github.com/mvslovers/mbt/internal/config"
+	"github.com/mvslovers/mbt/internal/deploy"
 	"github.com/mvslovers/mbt/internal/deps"
 	"github.com/mvslovers/mbt/internal/dist"
 	"github.com/mvslovers/mbt/internal/hosttest"
@@ -51,6 +53,8 @@ commands:
   module-data [--all]                 check for writable data in RENT/AC(1) modules
   package                             build, then write the release artifacts to dist/
   test [--only NAME]... [-v]          build and run the dual tests on the host
+  deploy [--target DSN] [--module M]... [--dry-run] [-v]
+                                      pack the built modules and RECEIVE them on MVS
   version                             print mbt's version
 `)
 }
@@ -71,6 +75,8 @@ func run(args []string) int {
 		return cmdPackage(args[1:])
 	case "test":
 		return cmdTest(args[1:])
+	case "deploy":
+		return cmdDeploy(args[1:])
 	case "version", "--version":
 		fmt.Println("mbt", version)
 		return exitOK
@@ -326,6 +332,37 @@ func cmdTest(args []string) int {
 		return exitBuild
 	}
 	return exitOK
+}
+
+// cmdDeploy: make deploy.  Packs what is built; builds nothing.
+func cmdDeploy(args []string) int {
+	fl := flag.NewFlagSet("deploy", flag.ContinueOnError)
+	target := fl.String("target", "", "override the target LINKLIB")
+	var mods multiFlag
+	fl.Var(&mods, "module", "deploy only this module (repeatable)")
+	dry := fl.Bool("dry-run", false, "pack locally and report, touch no MVS")
+	verbose := fl.Bool("v", false, "echo the ld370/RECEIVE commands")
+	if err := fl.Parse(args); err != nil {
+		return exitConfig
+	}
+	root, _ := os.Getwd()
+	p, err := project.LoadV2(root, "project.toml")
+	if err != nil {
+		return fail(err)
+	}
+	t, err := toolchain.Find()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
+		return exitConfig
+	}
+	var names []string
+	for _, m := range p.Modules {
+		names = append(names, m.Name)
+	}
+	pt, _ := rawTable(p.Raw, "deploy")["target"].(string)
+	return deploy.Run(deploy.Options{Root: root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
+		Modules: names, Target: *target, ProjectTarget: pt, Only: mods, DryRun: *dry, Verbose: *verbose,
+		Out: os.Stdout, Err: os.Stderr, Config: config.Load(root)})
 }
 
 func rawTable(m map[string]any, key string) map[string]any {

@@ -10,6 +10,7 @@ mbt deps [--update] [--locked]
 mbt module-data [--all] [--raw]
 mbt package
 mbt test [--only NAME]... [-v]
+mbt deploy [--target DSN] [--module M]... [--dry-run] [-v]
 ```
 
 Today it reads an mbt 2 `project.toml` and builds object decks, archives and
@@ -27,6 +28,10 @@ package (install and allocation jobs, SYSMOD, source library XMITs).
 `mbt test` builds and runs the dual tests on the host, with mbt 2's table
 and summary.
 
+`mbt deploy` sends the same requests and JCL as `make deploy` (measured
+against a local stand-in for mvsMF; not yet run against a real system).
+Requests go out as HTTP/1.0, as mbt 2 forces them.
+
 Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks),
-`deploy`, `test --mvs`,
+`test --mvs`,
 `mbt.toml` schema 3, the launcher.

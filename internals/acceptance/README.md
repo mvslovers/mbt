@@ -50,6 +50,20 @@ httpd's Makefile adds a step of its own (`make webroot`: a UFS image built
 with a pinned `ufsd-utils`, shipped as `[distribution] extra`). mbt 3 has no
 tasks yet, so the script runs that step before `mbt package` and says so.
 
+## `deploy23.py` — deploy, against a stand-in for mvsMF
+
+```
+python3 internals/acceptance/deploy23.py <mbt3-binary> <built checkout> [spool-file]
+```
+
+`make deploy` and `mbt deploy` each talk to `stub_mvsmf.py` on 127.0.0.1,
+which records every request and answers like a healthy server; no MVS is
+touched, and a checkout with a `.env` is refused. Compared: the request
+sequence (uploaded bytes and JSON bodies included), the submitted JCL and
+the console lines. A spool file with a JCL error exercises the failure path.
+What this cannot show is how the real mvsMF answers; that needs one deploy
+on a real system.
+
 ## `baseline.py` — the recorded manifest
 
 ```
