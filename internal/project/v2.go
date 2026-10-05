@@ -305,3 +305,17 @@ func pyRepr(v any) string {
 	}
 	return fmt.Sprint(v)
 }
+
+// Resolve expands source patterns with the build's rules (sorted per
+// pattern, excludes removed, duplicates dropped).
+func (p *Project) Resolve(patterns, exclude []string) []string {
+	out, _ := resolveSources(p.Root, patterns, exclude)
+	return out
+}
+
+// RawTables returns the tables of an array of tables in the raw file
+// ("module", "test"), host-only tests included.
+func (p *Project) RawTables(key string) []map[string]any { return tables(p.Raw, key) }
+
+// RawStrs reads a string list from a raw table.
+func RawStrs(m map[string]any, key string) []string { return strs(m, key) }

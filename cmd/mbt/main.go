@@ -20,6 +20,7 @@ import (
 	"github.com/mvslovers/mbt/internal/build"
 	"github.com/mvslovers/mbt/internal/deps"
 	"github.com/mvslovers/mbt/internal/dist"
+	"github.com/mvslovers/mbt/internal/hosttest"
 	"github.com/mvslovers/mbt/internal/moddata"
 	"github.com/mvslovers/mbt/internal/pkg"
 	"github.com/mvslovers/mbt/internal/project"
@@ -49,6 +50,7 @@ commands:
   deps [--update] [--locked]          resolve, download and stage dependencies
   module-data [--all]                 check for writable data in RENT/AC(1) modules
   package                             build, then write the release artifacts to dist/
+  test [--only NAME]... [-v]          build and run the dual tests on the host
   version                             print mbt's version
 `)
 }
@@ -67,6 +69,8 @@ func run(args []string) int {
 		return cmdModdata(args[1:])
 	case "package":
 		return cmdPackage(args[1:])
+	case "test":
+		return cmdTest(args[1:])
 	case "version", "--version":
 		fmt.Println("mbt", version)
 		return exitOK
@@ -271,6 +275,62 @@ func cmdModdata(args []string) int {
 		return exitBuild
 	}
 	return exitOK
+}
+
+type multiFlag []string
+
+func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
+func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }
+
+// cmdTest: make test-host.  No MVS; tests with assembler sources or
+// host = false are skipped.
+func cmdTest(args []string) int {
+	fl := flag.NewFlagSet("test", flag.ContinueOnError)
+	var only multiFlag
+	fl.Var(&only, "only", "run only this test (repeatable)")
+	verbose := fl.Bool("v", false, "print the compile commands and errors")
+	if err := fl.Parse(args); err != nil {
+		return exitConfig
+	}
+	root, _ := os.Getwd()
+	p, err := project.LoadV2(root, "project.toml")
+	if err != nil {
+		return fail(err)
+	}
+	stamp.Write(root, p.Name, p.Version)
+	writeHeaders(filepath.Join(root, ".mbt/include"))
+	c := hosttest.Config{CFlags: project.RawStrs(rawTable(p.Raw, "build"), "cflags"), Resolve: p.Resolve, Replace: map[string]string{}}
+	host := rawTable(p.Raw, "host")
+	c.HostCC, _ = host["cc"].(string)
+	c.HostCFlags = project.RawStrs(host, "cflags")
+	c.HostSources = project.RawStrs(host, "sources")
+	if r, ok := host["replace"].(map[string]any); ok {
+		for k, v := range r {
+			if s, ok := v.(string); ok {
+				c.Replace[k] = s
+			}
+		}
+	}
+	for _, t := range p.RawTables("test") {
+		name, _ := t["name"].(string)
+		h, set := t["host"].(bool)
+		c.Tests = append(c.Tests, hosttest.Test{Name: name, Host: !set || h,
+			Sources: project.RawStrs(t, "sources"), Excludes: project.RawStrs(t, "exclude")})
+	}
+	ok, err := hosttest.Run(c, hosttest.Options{Root: root, BuildDir: "build", IncludeDir: ".mbt/include",
+		Only: only, Verbose: *verbose, Out: os.Stdout})
+	if err != nil {
+		return fail(err)
+	}
+	if !ok {
+		return exitBuild
+	}
+	return exitOK
+}
+
+func rawTable(m map[string]any, key string) map[string]any {
+	t, _ := m[key].(map[string]any)
+	return t
 }
 
 func cmdDeps(args []string) int {

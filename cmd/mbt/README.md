@@ -9,6 +9,7 @@ mbt build [--all] [--tests] [-j N] [-v] [NAME...]
 mbt deps [--update] [--locked]
 mbt module-data [--all] [--raw]
 mbt package
+mbt test [--only NAME]... [-v]
 ```
 
 Today it reads an mbt 2 `project.toml` and builds object decks, archives and
@@ -23,6 +24,9 @@ runs the module-data check before it links, as mbt 2 does; their output is
 mbt 2's. `mbt package` writes the same load XMIT, lib tarball and SMP installation
 package (install and allocation jobs, SYSMOD, source library XMITs).
 
+`mbt test` builds and runs the dual tests on the host, with mbt 2's table
+and summary.
+
 Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks),
-`deploy`, `test` (host and MVS),
+`deploy`, `test --mvs`,
 `mbt.toml` schema 3, the launcher.
