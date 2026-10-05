@@ -3,7 +3,7 @@
 Checks (in order):
 1. Python version >= 3.12
 2. cc370 / as370 / ld370 / ar370 on PATH
-3. Sysroot complete (crt0.o, crt1.o, crtm.o, libc.a)
+3. Sysroot complete (libc.a, crtm.o)
 4. Installed libc370 vs. the [toolchain] declaration
 5. make on PATH
 6. MVS host reachable (HTTP GET)          -- needed for `make deploy`
@@ -42,14 +42,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from mbt import EXIT_SUCCESS, EXIT_CONFIG
 from mbt.config import MbtConfig, _ENV_MAP
 from mbt.output import format_doctor
-from mbt.sysroot import derive_sysroot
+from mbt.sysroot import derive_sysroot, libc_dir
 from mbttoolchain import libc370_status
 
 # Toolchain programs the v2 build invokes (see mk/mbt.mk).
 TOOLCHAIN = ["cc370", "as370", "ld370", "ar370"]
 
-# Runtime objects/libraries the linker needs from the sysroot.
-SYSROOT_FILES = ["lib/crt0.o", "lib/crt1.o", "lib/crtm.o", "lib/libc.a"]
+# Runtime files the linker needs from libc370's directory in the sysroot.
+# The CRT is a member of libc.a since libc370 2.3.0 (#158); crtm.o is the
+# one startup object still installed beside it.
+SYSROOT_FILES = ["libc.a", "crtm.o"]
 
 
 def check_python_version() -> bool:
@@ -80,16 +82,17 @@ def check_tool(name: str) -> bool:
 
 
 def check_sysroot() -> bool:
-    """Check the cc370 sysroot provides crt objects and libc."""
+    """Check the cc370 sysroot provides libc370."""
     sysroot = derive_sysroot()
     if sysroot is None:
         print(
             "[mbt] ERROR: cc370 sysroot not found "
-            "(no lib/crt0.o under <cc370>/../cc370 or ~/.local/cc370)",
+            "(no libc.a under <cc370>/../cc370 or ~/.local/cc370)",
             file=sys.stderr,
         )
         return False
-    missing = [f for f in SYSROOT_FILES if not (sysroot / f).exists()]
+    libdir = libc_dir(sysroot) or sysroot / "lib"
+    missing = [f for f in SYSROOT_FILES if not (libdir / f).exists()]
     if missing:
         print(
             f"[mbt] ERROR: sysroot {sysroot} incomplete, missing: "
@@ -97,7 +100,7 @@ def check_sysroot() -> bool:
             file=sys.stderr,
         )
         return False
-    print(f"[mbt] sysroot: {sysroot} (crt0/crt1/crtm + libc.a OK)")
+    print(f"[mbt] sysroot: {sysroot} (libc.a + crtm.o OK)")
     return True
 
 

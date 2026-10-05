@@ -116,3 +116,27 @@ class TestSecondSysroot(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertIsNone(libc_dir(Path(tmp)))
             self.assertIsNone(installed_libc370(Path(tmp)))
+
+class SysrootMarkerTest(unittest.TestCase):
+    """libc.a marks libc370's directory (#158); crt0.o still does, for an old one."""
+
+    def test_libc_a_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "lib").mkdir()
+            (root / "lib" / "libc.a").write_bytes(b"")
+            self.assertEqual(libc_dir(root), root / "lib")
+
+    def test_crt0_alone(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "lib").mkdir()
+            (root / "lib" / "crt0.o").write_bytes(b"")
+            self.assertEqual(libc_dir(root), root / "lib")
+
+    def test_neither(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "lib").mkdir()
+            (root / "lib" / "libcc370rt.a").write_bytes(b"")
+            self.assertIsNone(libc_dir(root))

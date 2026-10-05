@@ -66,8 +66,7 @@ cflags  = ["-I", "include"]      # extra cc370 flags (appended to -O1)
 # A-Z 0-9 @ # $, not starting with a digit.  `make` rejects anything else
 # before it builds.  ([lib] name is a host archive, not a member -- no rule.)
 [[module]]
-name    = "UFSD"
-startup = "crt1"                 # crt0 (default) | crt1 | crtm | false
+name    = "UFSD"                 # a C program: the CRT comes out of libc.a
 sources = ["src/ufsd*.c"]        # glob(s), expanded on the host
 exclude = ["src/ufsdclnp.c", "src/ufsd#ssi.c"]
 
@@ -78,7 +77,7 @@ startup = false                  # no C runtime startup (LINK_NOCRT)
 sources = ["src/ufsd#ssi.c", "src/ufsd#buf.c"]
 
 [[module]]
-name    = "UFSDCLNP"             # all defaults: entry=@@CRT0, startup=crt0
+name    = "UFSDCLNP"             # all defaults: entry=@@CRT0
 sources = ["src/ufsdclnp.c"]
 
 # ── Tests (built by `make test`) ─────────────────────────
@@ -170,7 +169,8 @@ that would differ on every run and recompile the including TU forever.
 | `sources` | — | Glob pattern(s), expanded on the host. |
 | `exclude` | `[]` | Glob pattern(s) removed from `sources`. |
 | `entry` | `@@CRT0` | Entry point symbol. |
-| `startup` | `crt0` | C runtime: `crt0`, `crt1`, `crtm`, or `false` (none). |
+| `startup` | — | Normally left out. `false`: no C runtime (own `entry`); `"crtm"`: the nested startup. See below. |
+| `dep_startup` | — | `true`: `@@START` comes from a dependency (a CGI module); `false`: libc370's. Required when a dependency defines `@@START`. See below. |
 | `aliases` | `[]` | Alias names for the module (IEWL `ALIAS`), e.g. `["REXX", "RX"]`. |
 | `ac` | `0` | APF authorization code (`SETCODE AC(n)`). |
 | `rent` | — | `true`: the module is reentrant (RENT); `false`: it is not. Undeclared: whatever ld370 defaults to. |
@@ -219,14 +219,61 @@ Run it on its own with `make module-data`; `make module-data
 MODDATA_ARGS=--all` lists every warning instead of three per module. Called by
 hand without the `CFLAGS`, the script scans the raw text and says so.
 
-`startup` selects how the module is linked:
+#### Which startup a module gets
 
-| `startup` | Linker macro | crt object | typical use |
-|-----------|--------------|-----------|-------------|
-| `crt0` | `LINK_CRT0` | `crt0.o` | C program that creates threads (`cthread_create*`) |
-| `crt1` | `LINK_CRT1` | `crt1.o` | C program that creates no threads (the common case) |
-| `crtm` | `LINK_CRTM` | `crtm.o` | C module entered from a running C program on the same TCB (LINK/XCTL/LOAD); reuses the caller's runtime, never the top-level startup |
-| `false` | `LINK_NOCRT` | — | self-contained module (e.g. an SSI router); still linked with `-lc` to resolve runtime routines |
+**The entry decides.** Since libc370 2.3.0 the C runtime startup (`@@CRT0`)
+is a member of `libc.a`, and since cc370 1.2.0 ld370 pulls an entry nothing
+references out of the archive by its name (cc370#107). So a C program names no
+startfile: `entry` defaults to `@@CRT0`, and that is all it takes (#158).
+
+| Module | `entry` | `startup` | Linked with |
+|--------|---------|-----------|-------------|
+| C program (the common case) | `@@CRT0` (default) | leave it out | the CRT from `libc.a` |
+| self-contained module (an SSI router, an assembler routine) | its own | `false` | no CRT; still `-lc` for runtime routines |
+| C module entered from a running C program on the same TCB (LINK/XCTL/LOAD), reusing the caller's runtime | `@@CRT0` | `"crtm"` | `crtm.o` -- the one startup object still installed beside `libc.a` |
+| own startup | `@@CRT0` | leave it out | an object in `sources` that defines `@@CRT0`: an explicit object beats the archive, so libc's is never pulled |
+
+The thread driver (`CTHREAD`) is a member of its own, linked when the program
+uses the thread API; the CRT then IDENTIFYs it. There is no "with or without
+threads" choice any more.
+
+`startup = "crt0"` and `"crt1"` are still accepted and mean the same as
+leaving the key out -- `make` says so once per project. Any other value is an
+error (it used to fall back to crt0 without a word). On a sysroot whose
+`libc.a` predates libc370 2.3.0 (no `@@CRT0` member), mbt still links that
+sysroot's `crt0.o`/`crt1.o` as before, and says so; cc370 older than 1.2.0
+with a 2.3.0 `libc.a` is an error at link time.
+
+**Drop the key together with a `[toolchain] libc370` pin of 2.3.0 or newer.**
+On an older `libc.a` the two startfiles are not the same: `crt0` IDENTIFYs the
+thread driver at startup and `crt1` does not, and a module without the key
+falls back to `crt0`. A module that said `"crt1"` and loses the key would then
+gain an IDENTIFY it never had -- and a server that issues its own (ftpd,
+httpd) a second one. The pin makes such a sysroot fail before anything is
+built.
+
+#### Which `@@START` a module gets (`dep_startup`)
+
+The CRT calls `@@START`, the C-level startup, and autocall takes it from the
+first archive that defines one. libc370 is searched **ahead of** the
+dependencies, so every module and test gets libc370's `@@START` (#62).
+A CGI module needs its server's instead -- httpd's CGI launcher, shipped in
+httpd's archive -- and says so:
+
+```toml
+[[module]]
+name        = "MVSMF"
+dep_startup = true      # @@START from a dependency (httpd's CGI launcher)
+sources     = ["src/*.c"]
+```
+
+When a dependency archive defines `@@START`, **every** `[[module]]` (except
+`startup = false`) has to set `dep_startup`, `true` or `false`; `make` stops
+with exit 2 otherwise and names the module and the archive. Left alone, the
+module would quietly get libc370's `@@START` and still build green -- a CGI
+module without its HTTP header. Tests are not asked: they take libc370's
+`@@START` unless they set `dep_startup = true`. A module that defines
+`@@START` in its own `sources` gets that one either way.
 
 ### `[[test]]` (repeatable)
 
@@ -272,7 +319,6 @@ sources = ["src/*.c", "credentials/src/*.c"]   # -> build/<project>int.a
 
 [[module]]
 name    = "HTTPJES2"
-startup = "crt1"
 sources = ["src/cgistart.c", "src/httpjes2.c"] # roots only; rest via autocall
 ```
 
@@ -293,7 +339,7 @@ It is tempting to drop the explicit root and let autocall pull *everything*
 from the archive. That does **not** work, and the failure is silent. cc370
 compiles each translation unit to an unnamed **Private Code** section that
 exports only a few `LD` labels; a TU with `main()` exports `@@START`, the C
-entry the CRT (`crt0`/`crt1`) references **strongly**. In a project where
+entry the CRT (`@@CRT0`) references **strongly**. In a project where
 several TUs have `main()` (a server plus N CGI programs, say), the internal
 archive contains **multiple** `@@START` definitions. Autocall then satisfies
 the CRT's `@@START` reference from the *first* archive member that defines it
@@ -347,7 +393,7 @@ Which cc370 / libc370 the project is built with.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `cc370` | `main` | git ref for the compiler + tools. |
-| `libc370` | `main` | git ref for the sysroot (headers, `crt*.o`, `libc.a`). |
+| `libc370` | `main` | git ref for the sysroot (headers, `libc.a`, `crtm.o`). |
 
 A bare semver names a release and resolves to its tag — `libc370 = "1.0.2"`
 checks out `v1.0.2`. Any other value is already a git ref and is used as
@@ -444,7 +490,7 @@ nothing is unaffected either way.
 | `[mvs.build.datasets.*]` (SOURCE/OBJECT/NCALIB/LOAD) | **removed** — no MVS datasets at build time |
 | `[mvs.install.*]` | `[deploy] target` (optional) |
 | `[link] autocall = false` | **removed** — `ld370` links with `-lc` |
-| `[[link.module]] include = ["@@CRT1", ...]` | `[[module]] sources = [...]` + `startup` |
+| `[[link.module]] include = ["@@CRT1", ...]` | `[[module]] sources = [...]` (the CRT comes out of `libc.a`) |
 | `[[link.module]] entry = "@@CRT0"` | `[[module]] entry = "@@CRT0"` (same; default) |
 | `[[link.module]] options = ["RENT", ...]` | **removed** — handled by the toolchain |
 | test as a `[[link.module]]` | `[[test]]` |

@@ -27,7 +27,8 @@ standalone load module:
 ```toml
 [[test]]
 name = "TSTWIDG"                 # MVS member name, <= 8 chars
-startup = "crt0"                # crt0 (default) / crt1 (threaded) / false (asm)
+# startup: leave it out for a C test (the CRT comes out of libc.a);
+# false for an assembler test with its own entry
 sources = ["test/mvs/tstwidg.c", "src/widget.c", "src/util.c"]
 ```
 
@@ -102,7 +103,6 @@ that drives the deployed load modules can't build on the host. Mark it with
 ```toml
 [[test]]
 name = "TREXXVL"
-startup = "crt1"
 host = false          # MVS-only (uses __linkds/LINK); skipped by test-host
 sources = ["test/trexxvl.c"]
 ```

@@ -439,6 +439,133 @@ class MakeSurfacesNameErrorTest(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertIn("BUILT", r.stdout)
 
+class StartupTest(unittest.TestCase):
+    """startup = ... -> LINK_* (#158).  The CRT is a member of libc.a, so a C
+    module names no startfile; crt0/crt1 are accepted for the transition and
+    mean the same as leaving the key out.  MODULE_<key>_STARTFILE is the
+    startfile an old sysroot (no @@CRT0 in libc.a) still links."""
+
+    def _emit(self, **extra):
+        lines = []
+        mod = {"name": "PGM", "sources": [], **extra}
+        mbtconfig._emit_module(lines, mod, "build", set(), set(), "MODULES")
+        return dict(l.split(" := ", 1) for l in lines if " := " in l)
+
+    def test_default_is_a_c_program(self):
+        v = self._emit()
+        self.assertEqual(v["MODULE_PGM_LINK_CMD"], "LINK_C")
+        self.assertEqual(v["MODULE_PGM_ENTRY"], "@@CRT0")
+        self.assertEqual(v["MODULE_PGM_STARTFILE"], "crt0")
+
+    def test_crt0_and_crt1_are_the_same_link(self):
+        for value in ("crt0", "crt1"):
+            v = self._emit(startup=value)
+            self.assertEqual(v["MODULE_PGM_LINK_CMD"], "LINK_C")
+            # what the module linked before, kept for an old sysroot
+            self.assertEqual(v["MODULE_PGM_STARTFILE"], value)
+
+    def test_false_is_no_crt(self):
+        v = self._emit(startup=False, entry="PGM")
+        self.assertEqual(v["MODULE_PGM_LINK_CMD"], "LINK_NOCRT")
+        self.assertNotIn("MODULE_PGM_STARTFILE", v)
+
+    def test_crtm_unchanged(self):
+        self.assertEqual(self._emit(startup="crtm")["MODULE_PGM_LINK_CMD"],
+                         "LINK_CRTM")
+
+    def test_unknown_value_is_an_error(self):
+        # used to fall back to crt0 without a word
+        for bad in ("crt2", "CRT1", True, 1):
+            with self.assertRaises(mbtconfig.ConfigError):
+                self._emit(startup=bad)
+
+    def test_dep_startup(self):
+        self.assertEqual(self._emit(dep_startup=True)["MODULE_PGM_DEP_STARTUP"], "1")
+        self.assertNotIn("MODULE_PGM_DEP_STARTUP", self._emit(dep_startup=False))
+        self.assertNotIn("MODULE_PGM_DEP_STARTUP", self._emit())
+        with self.assertRaises(mbtconfig.ConfigError):
+            self._emit(dep_startup="yes")
+
+
+class LegacyStartupWarningTest(unittest.TestCase):
+    """One warning per project for startup = "crt0"/"crt1", not one per line."""
+
+    def _generate(self, toml_text):
+        with tempfile.TemporaryDirectory() as d:
+            proj = Path(d, "project.toml")
+            proj.write_text(toml_text)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                out = mbtconfig.generate(str(proj), builddir=str(Path(d, "build")))
+            return out, err.getvalue()
+
+    def test_one_warning_for_many(self):
+        mods = "".join(f'[[module]]\nname = "M{i}"\nstartup = "crt1"\n\n'
+                       for i in range(7))
+        out, err = self._generate('[project]\nname = "p"\n\n' + mods
+                                  + '[[test]]\nname = "T1"\nstartup = "crt0"\n')
+        self.assertEqual(err.count("WARNING"), 1)
+        self.assertIn("8 module(s)/test(s)", err)
+        self.assertIn("M0, M1, M2, M3, M4, ...", err)
+        self.assertEqual(out.count("$(info [mbt] WARNING"), 1)
+
+    def test_no_warning_without_the_key(self):
+        out, err = self._generate('[project]\nname = "p"\n\n'
+                                  '[[module]]\nname = "M"\n\n'
+                                  '[[module]]\nname = "A"\nentry = "A"\nstartup = false\n')
+        self.assertNotIn("WARNING", err)
+
+
+class DepStartupCheckTest(unittest.TestCase):
+    """A dependency archive defines @@START and a module does not say whether
+    it wants it: a configuration error, not a green build (#62)."""
+
+    TOML = ('[project]\nname = "p"\n\n'
+            '[[module]]\nname = "CGI"\n\n'
+            '[[module]]\nname = "SAYS"\ndep_startup = true\n\n'
+            '[[module]]\nname = "LIBC"\ndep_startup = false\n\n'
+            '[[module]]\nname = "ASM"\nentry = "ASM"\nstartup = false\n\n'
+            '[[test]]\nname = "TST"\n')
+
+    def _check(self, symbols):
+        saved = mbtconfig.archive_symbols
+        mbtconfig.archive_symbols = lambda ar, a: symbols[a]
+        try:
+            with tempfile.TemporaryDirectory() as d:
+                proj = Path(d, "project.toml")
+                proj.write_text(self.TOML)
+                return mbtconfig.check_dep_startup(str(proj), "ar370",
+                                                   list(symbols))
+        finally:
+            mbtconfig.archive_symbols = saved
+
+    def test_only_the_silent_module_is_named(self):
+        errors = self._check({"httpd.a": {"@@START", "HTTPD"},
+                              "ufs.a": {"UFSOPEN"}})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("[[module]] CGI", errors[0])
+        self.assertIn("httpd.a", errors[0])
+        self.assertNotIn("ufs.a", errors[0])
+
+    def test_nothing_to_say_when_no_dependency_defines_it(self):
+        self.assertEqual(self._check({"ufs.a": {"UFSOPEN"}}), [])
+        self.assertEqual(self._check({}), [])
+
+
+class ArchiveSymbolsTest(unittest.TestCase):
+    """archive_symbols() against a real ar370 archive."""
+
+    @unittest.skipUnless(shutil.which("ar370"), "ar370 not available")
+    def test_libc_defines_its_crt(self):
+        from mbt.sysroot import derive_sysroot, libc_dir
+        root = derive_sysroot()
+        if root is None:
+            self.skipTest("no cc370 sysroot")
+        libc = libc_dir(root) / "libc.a"
+        names = mbtconfig.archive_symbols("ar370", str(libc))
+        self.assertIn("@@START", names)
+        self.assertNotIn("@@start.o", names)   # member names are not symbols
+
 
 if __name__ == "__main__":
     unittest.main()

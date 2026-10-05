@@ -235,16 +235,48 @@ def _src_to_obj(src: str, builddir: str) -> str:
     return os.path.join(builddir, base)
 
 
+# The values `startup` accepts.  None is "not set".  The CRT is a member of
+# libc.a since libc370 2.3.0 (libc370#159), and ld370 pulls it by the entry
+# name since cc370 1.2.0 (cc370#107) -- so a C module names no startfile at
+# all, and `startup` survives only for the two cases the archive does not
+# cover: false (an own entry, no C runtime) and "crtm" (the nested startup,
+# still a separate object).  "crt0" and "crt1" are accepted for the
+# transition and mean the same as leaving the key out (#158).
+_STARTUP_VALUES = (None, False, "crt0", "crt1", "crtm")
+_STARTUP_LEGACY = ("crt0", "crt1")
+
+
 def _startup_to_link_cmd(startup) -> str:
-    """Map startup config value to a LINK_* macro name."""
-    if startup is False or startup is None:
+    """Map a (validated) startup value to a LINK_* macro name.
+
+    LINK_C links no startfile: the CRT comes out of libc.a by the entry name,
+    or -- on a sysroot whose libc.a predates libc370 2.3.0 -- from the startfile
+    named by MODULE_<key>_STARTFILE (see mk/mbt.mk).
+    """
+    if startup is False:
         return "LINK_NOCRT"
-    mapping = {
-        "crt0": "LINK_CRT0",
-        "crt1": "LINK_CRT1",
-        "crtm": "LINK_CRTM",
-    }
-    return mapping.get(str(startup), "LINK_CRT0")
+    if startup == "crtm":
+        return "LINK_CRTM"
+    return "LINK_C"
+
+
+def _check_startup(mod: dict, name: str):
+    """Return the module's startup value; raise on one mbt does not know.
+
+    An unknown value used to fall back to crt0 silently, so a typo linked a
+    different startup than the one asked for.
+    """
+    startup = mod.get("startup")
+    if startup is True or startup not in _STARTUP_VALUES:
+        raise ConfigError(
+            f"[[module]] {name}: startup = {startup!r} is not a valid value "
+            f"(leave it out for a C program; false for an own entry; \"crtm\")")
+    dep = mod.get("dep_startup")
+    if dep is not None and not isinstance(dep, bool):
+        raise ConfigError(
+            f"[[module]] {name}: 'dep_startup' must be true or false, "
+            f"not {dep!r}")
+    return startup
 
 
 def _collect_src_dirs(sources: list) -> set:
@@ -258,8 +290,7 @@ def _collect_src_dirs(sources: list) -> set:
 
 
 # Defaults
-DEFAULT_ENTRY   = "@@CRT0"    # standard C entry point
-DEFAULT_STARTUP = "crt0"      # simple CRT, no threading
+DEFAULT_ENTRY   = "@@CRT0"    # standard C entry point; the CRT in libc.a
 
 
 # Warnings meant for the user.  mk/mbt.mk drops every '[mbt]' line this script
@@ -327,7 +358,7 @@ def _emit_module(lines, mod, builddir, all_src_dirs, all_objs, var_prefix):
     """Emit make variables for a single module or test."""
     mod_name = mod["name"]
     entry = mod.get("entry", DEFAULT_ENTRY)
-    startup = mod.get("startup", DEFAULT_STARTUP)
+    startup = _check_startup(mod, mod_name)
     sources = _resolve_sources(
         mod.get("sources", []),
         mod.get("exclude", []),
@@ -349,6 +380,16 @@ def _emit_module(lines, mod, builddir, all_src_dirs, all_objs, var_prefix):
     lines.append(f"MODULE_{key}_LINK_CMD := {link_cmd}")
     lines.append(f"MODULE_{key}_OBJS := {objs_escaped}")
     lines.append(f"MODULE_{key}_ALIAS := {key.lower()}")
+    if link_cmd == "LINK_C":
+        # Only read on a sysroot whose libc.a has no @@CRT0 (libc370 < 2.3.0):
+        # the startfile such a link still needs.  crt0 unless crt1 was named,
+        # exactly what the module linked before #158.
+        legacy = startup if startup in _STARTUP_LEGACY else "crt0"
+        lines.append(f"MODULE_{key}_STARTFILE := {legacy}")
+    # dep_startup = true: @@START comes from a dependency (an httpd CGI
+    # launcher), so libc370 is not searched ahead of the dependencies (#62).
+    if mod.get("dep_startup") is True:
+        lines.append(f"MODULE_{key}_DEP_STARTUP := 1")
     # APF authorization code (SETCODE AC(n)); only emitted when non-zero so
     # modules without it pass no --ac to ld370 (default AC(0)).
     ac = mod.get("ac", 0)
@@ -436,6 +477,17 @@ def generate(project_file: str = "project.toml", builddir: str = "build") -> str
             print(f"[mbt] SKIP {name} (mvs = false, host-only)", file=sys.stderr)
             continue
         _emit_module(lines, test, builddir, all_src_dirs, all_objs, "TESTS")
+
+    # One warning for the whole project, not one per module: a project names
+    # crt1 on every module and test (rexx370 ~60, nsf370 ~70), and a warning
+    # per line on every make would bury everything else (#158).
+    legacy = [m.get("name", "?") for m in modules + tests
+              if m.get("startup") in _STARTUP_LEGACY and m.get("mvs") is not False]
+    if legacy:
+        shown = ", ".join(legacy[:5]) + (", ..." if len(legacy) > 5 else "")
+        _warn(f"{len(legacy)} module(s)/test(s) name startup = \"crt0\" or "
+              f"\"crt1\" ({shown}); the CRT comes out of libc.a now -- drop "
+              f"the key, with [toolchain] libc370 >= 2.3.0 (#158)")
 
     # -- Library --
     lib = cfg.get("lib", {})
@@ -525,13 +577,75 @@ def generate(project_file: str = "project.toml", builddir: str = "build") -> str
     return "\n".join(lines) + "\n"
 
 
+def archive_symbols(ar: str, archive: str) -> set:
+    """The external names an ar370 archive's symbol table defines.
+
+    `ar370 t` lists each member ("  name.o   1520 bytes") and then each
+    symbol with its definer ("  @@START   httpcgi.o"); the second shape is
+    the one wanted.
+    """
+    import subprocess
+    r = subprocess.run([ar, "t", archive], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise ConfigError(f"cannot list {archive}: {r.stderr.strip()}")
+    names = set()
+    for line in r.stdout.splitlines():
+        f = line.split()
+        if len(f) == 2 and f[1].endswith(".o"):
+            names.add(f[0])
+    return names
+
+
+def check_dep_startup(project_file: str, ar: str, archives: list) -> list:
+    """Modules that must say where their @@START comes from, and do not.
+
+    libc370 is searched ahead of the dependencies, so a module gets libc's
+    @@START unless it sets dep_startup = true (#62).  When a dependency
+    archive defines @@START -- httpd's CGI launcher -- a module that says
+    nothing would quietly lose that startup and still build green: a CGI
+    module with no HTTP header.  So it has to say which it wants.  Tests are
+    not asked: they always took libc's @@START.
+
+    Returns one error line per module; empty when all is well.
+    """
+    defines = [a for a in archives
+               if "@@START" in archive_symbols(ar, a)]
+    if not defines:
+        return []
+    cfg = _parse_toml(project_file)
+    errors = []
+    for mod in cfg.get("module", []):
+        name = mod.get("name", "?")
+        if mod.get("startup") is False or "dep_startup" in mod:
+            continue
+        errors.append(
+            f"[[module]] {name}: {', '.join(defines)} define(s) @@START; set "
+            f"dep_startup = true to use it (CGI module) or dep_startup = false "
+            f"for libc370's (#62)")
+    return errors
+
+
 def main():
     parser = argparse.ArgumentParser(description="mbt v2 config generator")
     parser.add_argument("--project", default="project.toml")
     parser.add_argument("--builddir", default="build")
     parser.add_argument("--output", choices=["shell", "file"], default="shell",
                         help="shell: print to stdout; file: write .mbt/config.mk")
+    parser.add_argument("--check-dep-startup", nargs="*", metavar="ARCHIVE",
+                        help="check that every module says where @@START "
+                             "comes from when one of these archives defines it")
+    parser.add_argument("--ar", default="ar370")
     args = parser.parse_args()
+
+    if args.check_dep_startup is not None:
+        try:
+            errors = check_dep_startup(args.project, args.ar,
+                                       args.check_dep_startup)
+        except ConfigError as e:
+            errors = [str(e)]
+        for e in errors:
+            print(f"[mbt] ERROR: {e}", file=sys.stderr)
+        sys.exit(2 if errors else 0)
 
     if not os.path.exists(args.project):
         print(f"[mbt] ERROR: {args.project} not found", file=sys.stderr)
