@@ -97,6 +97,18 @@ The clock values are the same as before, so none of that comes from the date.
   tarball, one per file with extended attributes (#161); release builds run on
   Linux and are clean. They are left out of the manifest: 28 such members
   appeared in the re-recording, none in the first one.
+- **A moving dependency makes the manifest unreproducible.** A project that
+  depends on a `-dev` prerelease gets a different tarball whenever that
+  prerelease is republished (every push to the dependency's `main`), and the
+  old one is gone. Re-running the 2026-10-05 manifest the same evening: five
+  projects identical; ftpd and httpd identical once `mbt.lock` was restored
+  after `make deps` (v2 rewrites the lock to the new SHA, the tree turns
+  "dirty", and `MBT_COMMIT` in every banner gains `-dirty`); rexx370 still
+  differed in 56 load modules, all linked against a republished
+  `lstring370 1.0.0-dev`. So mbt 3 is accepted against a fresh mbt 2 build on
+  the same staged inputs (`acceptance/diff23.py`), not against this manifest.
+  For mbt 3 itself: a lock whose SHA no longer matches must be an error unless
+  the user asks for an update, and fetched archives are cached by SHA.
 - **Archive timestamps** could honour `SOURCE_DATE_EPOCH` in `make package` /
   `make dist`, which would make the archives themselves byte-reproducible — a
   small v2 change, and a requirement for mbt 3.
