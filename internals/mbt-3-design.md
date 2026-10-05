@@ -58,7 +58,8 @@ costs something every day.
 **Non-goals**
 
 - Changing the target: MVS 3.8j, 24-bit, cc370/as370/ld370 stay as they are.
-- Changing how products install: SMP4 `++FUNCTION`, one FMID per release.
+- Changing the installer: products install through SMP4. *How* releases
+  map onto SYSMODs does change (section 6.4).
 - Building on MVS *by default*. The default build stays on the host; MVS is
   touched by deploy, MVS tests and install verification only. Native
   backends are an option a project can choose (section 11), not the default.
@@ -161,8 +162,9 @@ as `[toolchain] mbt`, so workflow and tool can no longer drift apart.
   library names (`<PROD>.LINKLIB`, `<PROD>.A…`, staging) follow the convention
   unless overridden.
 - **The FMID is derived.** The project declares `prefix = "TUFS"`; mbt computes
-  `TUFS140` from version 1.4.0 and `delete` from the previous release tag. It
-  refuses a release where a version component exceeds 9. An explicit override
+  `TUFS140` from version 1.4.x and `delete` from the previous minor's tag
+  (section 6.4: one FMID per minor, patches are PTFs). It refuses a release
+  where the major or minor component exceeds 9. An explicit override
   stays possible (gaps such as `TUFS131` are legitimate). Today the id is
   hand-maintained, and forgetting to move it after `make release` is a
   documented trap.
@@ -430,6 +432,55 @@ code in its build definition.
   `ON` become booleans, `1.10` becomes the number `1.1`, `0750` is read as
   octal. FMIDs, versions and MVS names would be at risk all the time.
 - **KDL** and similar — pleasant, but too little tooling and familiarity.
+
+### 6.4 Releases on MVS: a function level per minor, a PTF per patch — **Proposed**
+
+mbt v2 emits `++FUNCTION` only: every release, a patch included, spends a new
+FMID that deletes its predecessor (#93). That costs three things. The id space
+is small — no version component may exceed 9, because a 7-character id has
+room for one digit each. Every upgrade leaves a tombstone (`DELBY`) in both
+zones that a removal job has to name. And a one-line fix ships, and installs,
+as a whole new product level.
+
+mbt 3 maps the release kind onto the SYSMOD type:
+
+| Release | SYSMOD | When |
+|---|---|---|
+| major or minor (`x.y.0`) | `++FUNCTION`, a new FMID that deletes the previous minor's | new function; a module, alias or library added, removed or renamed; a changed dataset name or JCLIN |
+| patch (`x.y.z`, z > 0) | `++PTF` against the FMID of `x.y.0` | fixes only: the same modules, aliases and libraries as `x.y.0` |
+
+- **One FMID per minor.** ufsd 1.4.0 to 1.4.9 all live under `TUFS140`; the
+  limit of 9 binds only major and minor. That is the rule the ecosystem
+  already had before patches started spending FMIDs.
+- **PTFs are cumulative.** Each PTF carries every module changed since `x.y.0`
+  and supersedes (`SUP`) the PTFs before it, so an operator applies exactly
+  one PTF and never assembles a `PRE` chain.
+- **A fresh install of a patch level** ships the `++FUNCTION` of `x.y.0` *and*
+  the current PTF in one package and one job. A spent FMID never changes its
+  content, so `x.y.z` cannot be a re-cut function.
+- **mbt decides, the project does not.** `mbt release` knows whether it cuts
+  a patch, and `mbt dist` compares the build with the `x.y.0` release
+  artifacts to find the changed modules — possible because the build is
+  reproducible with the clock pinned (`internals/v2-baseline.md`). A patch
+  whose diff shows an added, removed or renamed module, alias or library is
+  refused: that is a minor release.
+- **Unchanged:** the element-ownership wall, `TALIAS` for aliases
+  (#112–#115), the DDNAME rule of DELETE, and verifying an install by the
+  member list, not the condition codes (all in the ecosystem's root context).
+
+**To be measured before this is built** (on MVS/CE and TK5, with throwaway
+FMIDs *and* throwaway module names, as for `TTST…`):
+
+1. A `++PTF` with `++MOD` replaces a load module that its FMID installed
+   through JCLIN `COPY` — in the target library and, on ACCEPT, the DLIB — and
+   keeps `TALIAS`, `AC` and the attributes.
+2. `SUP` of an earlier PTF behaves as described under SMP4 (APPLY over an
+   applied predecessor, ACCEPT, `LIST` afterwards), and `RESTORE` of a
+   not-accepted PTF puts the function level's module back.
+3. The upgrade from `x.y.z` (function + PTF) to `x.(y+1).0`: does the new
+   FUNCTION's `DELETE` take the PTF along, or does it leave a tombstone a
+   removal job has to name?
+4. Which prefix the PTF ids use (question 12).
 
 ## 7. Targets instead of `.env` — **Proposed**
 
@@ -1121,6 +1172,10 @@ on in its project file instead of copying workflow YAML.
     mbt gets object decks or finished load modules back?
 11. **Artifact metadata standards** (section 8.4): adopt SPDX/CycloneDX or
    SLSA/in-toto for the provenance and content parts, or document why not.
+12. **PTF ids** (section 6.4): #93 planned `UUFS001…`, but `U` is IBM's
+    service prefix. Candidates: `P` + the three product letters + the version
+    (`PUFS141` for ufsd 1.4.1), or a serial. Checked free on MVS/CE and TK5
+    with `LIST`, as for the FMIDs, before the first one is spent.
 
 ## 18. Phasing
 
@@ -1138,6 +1193,9 @@ on in its project file instead of copying workflow YAML.
    `main`, libc370 2.3.0 moved the C startup into `libc.a`, and mbt 2.2.0
    (#158) links it from there.
 4. Toolchain management, `mbt migrate`, then migrate the projects one by one.
+   PTF packaging (section 6.4) comes here, after its measurements: step 3
+   ports v2's `++FUNCTION` path unchanged, because the differential
+   comparison accepts exactly that.
 5. Bonus, once the core stands: extensions, MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
    native backends and foreign build systems.
 
@@ -1168,7 +1226,7 @@ exception — fix in v2: a crash in the middle of a run).
 named in the ecosystem's root context): #105, #57.
 
 **SMP/distribution** — the logic is ported, and these are fixed where it
-lives: #84 (uninstall job), #93 (`make ptf`), #96 (alloc job run twice), #99
+lives: #84 (uninstall job), #93 (`make ptf` — section 6.4), #96 (alloc job run twice), #99
 (re-run skips APPLY CHECK), #100 (DELETE across renamed libraries), #102
 (`UNIT=SYSDA` vs. the APF volser), #104 (the FMID does not move — section 6.1
 derives it), #115 (dropped aliases), #132 (per-library RECFM/LRECL).
