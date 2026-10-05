@@ -54,16 +54,16 @@ type Lib struct {
 
 // Project is the loaded, validated project.
 type Project struct {
-	Root     string
-	File     string
-	Name     string
-	Version  string
-	Type     string // application, library, module
-	CFlags   []string
-	ASFlags  []string
-	Modules  []*Unit
-	Tests    []*Unit
-	Lib      *Lib
+	Root    string
+	File    string
+	Name    string
+	Version string
+	Type    string // application, library, module
+	CFlags  []string
+	ASFlags []string
+	Modules []*Unit
+	Tests   []*Unit
+	Lib     *Lib
 	// HasInternal: the project declares [internal], the private autocall
 	// archive every module and test links against.
 	HasInternal bool

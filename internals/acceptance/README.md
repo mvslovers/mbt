@@ -35,6 +35,16 @@ In checkouts `diff23.py` left behind: `make deps`, then `mbt deps`, each from
 an empty `.mbt/deps`, and compares the staged tree file by file and
 `mbt.lock`.
 
+## `pkg23.py` — release artifacts
+
+```
+python3 internals/acceptance/pkg23.py <mbt3-binary> <workdir> PROJ ...
+```
+
+`make package` against `mbt package`: the load XMIT byte for byte, the lib
+tarball member by member (AppleDouble `._` members from a macOS tar ignored,
+#161). The SMP installation package is not compared yet.
+
 ## `baseline.py` — the recorded manifest
 
 ```

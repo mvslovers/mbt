@@ -7,6 +7,8 @@ It lives beside mbt 2 (`mk/`, `scripts/`) until every project has migrated.
 go build -o mbt ./cmd/mbt
 mbt build [--all] [--tests] [-j N] [-v] [NAME...]
 mbt deps [--update] [--locked]
+mbt module-data [--all] [--raw]
+mbt package
 ```
 
 Today it reads an mbt 2 `project.toml` and builds object decks, archives and
@@ -16,5 +18,9 @@ the output is byte-identical to mbt 2's (`internals/acceptance/`).
 `mbt deps` stages the same files and writes the same `mbt.lock` as mbt 2;
 `--locked` makes any change to the lock an error.
 
-Not yet: `package`, `dist`, `deploy`, `test` (host and MVS), the
-module-data check, the `[toolchain]` libc370 check, `mbt.toml` schema 3.
+`mbt build` checks the installed libc370 against `[toolchain] libc370` and
+runs the module-data check before it links, as mbt 2 does; their output is
+mbt 2's. `mbt package` writes the same load XMIT and lib tarball contents.
+
+Not yet: the SMP package (`dist`), `deploy`, `test` (host and MVS),
+`mbt.toml` schema 3, the launcher.

@@ -13,10 +13,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/mvslovers/mbt/include"
 	"github.com/mvslovers/mbt/internal/build"
 	"github.com/mvslovers/mbt/internal/deps"
+	"github.com/mvslovers/mbt/internal/moddata"
+	"github.com/mvslovers/mbt/internal/pkg"
 	"github.com/mvslovers/mbt/internal/project"
 	"github.com/mvslovers/mbt/internal/stamp"
 	"github.com/mvslovers/mbt/internal/toolchain"
@@ -42,6 +46,8 @@ func usage() {
 commands:
   build [--all] [--tests] [NAME...]   build the primary deliverable, or more
   deps [--update] [--locked]          resolve, download and stage dependencies
+  module-data [--all]                 check for writable data in RENT/AC(1) modules
+  package                             build, then write the release artifacts to dist/
   version                             print mbt's version
 `)
 }
@@ -56,6 +62,10 @@ func run(args []string) int {
 		return cmdBuild(args[1:])
 	case "deps":
 		return cmdDeps(args[1:])
+	case "module-data":
+		return cmdModdata(args[1:])
+	case "package":
+		return cmdPackage(args[1:])
 	case "version", "--version":
 		fmt.Println("mbt", version)
 		return exitOK
@@ -77,11 +87,20 @@ func cmdBuild(args []string) int {
 	if err := fl.Parse(args); err != nil {
 		return exitConfig
 	}
+	_, code := doBuild(*all, *tests, *jobs, *verbose, fl.Args())
+	if code == exitOK {
+		fmt.Println("[mbt] Build complete")
+	}
+	return code
+}
+
+// doBuild loads the project and builds what the flags select.
+func doBuild(all, tests bool, jobs int, verbose bool, only []string) (*project.Project, int) {
 	root, _ := os.Getwd()
 
 	p, err := project.LoadV2(root, "project.toml")
 	if err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	for _, w := range p.Warnings {
 		fmt.Printf("[mbt] WARNING: %s\n", w)
@@ -89,36 +108,76 @@ func cmdBuild(args []string) int {
 	t, err := toolchain.Find()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
-		return exitConfig
+		return nil, exitConfig
 	}
 	for _, w := range t.Warnings {
 		fmt.Printf("[mbt] WARNING: %s\n", w)
 	}
 	if _, err := stamp.Write(root, p.Name, p.Version); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 	incDir := ".mbt/include"
 	if err := writeHeaders(filepath.Join(root, incDir)); err != nil {
-		return fail(err)
+		return nil, fail(err)
 	}
 
-	o := build.Options{IncludeDir: incDir, Jobs: *jobs, Verbose: *verbose, Only: fl.Args()}
+	if code := checkLibc(p, t); code != exitOK {
+		return nil, code
+	}
+	o := build.Options{IncludeDir: incDir, Jobs: jobs, Verbose: verbose, Only: only}
+	o.PreLink = func(cflags []string) error {
+		in := moddata.FromRaw(root, p.Raw)
+		in.CC, in.CFlags, in.Jobs = t.CC, cflags, jobs
+		errs, warns := moddata.Check(in)
+		if moddata.Print(os.Stderr, errs, warns, false, "mbt module-data --all") {
+			return &build.Error{Code: exitBuild, Msg: "writable data in a rent = true module"}
+		}
+		return nil
+	}
 	switch {
 	case len(o.Only) > 0:
 	case p.Type == "library":
 		o.Lib = true
 	default:
 		o.Modules = true
-		o.Lib = *all
 	}
-	if *all {
+	if all {
 		o.Modules, o.Lib = p.Type != "library" || len(p.Modules) > 0, true
 	}
-	o.Tests = *tests
+	o.Tests = tests
 	if err := build.New(p, t, o).Run(); err != nil {
+		return nil, fail(err)
+	}
+	return p, exitOK
+}
+
+// cmdPackage: build the modules and the library, then write dist/ (v2's
+// `make package`).  SOURCE_DATE_EPOCH, when set, stamps the tarball.
+func cmdPackage(args []string) int {
+	fl := flag.NewFlagSet("package", flag.ContinueOnError)
+	jobs := fl.Int("j", 0, "parallel steps")
+	if err := fl.Parse(args); err != nil {
+		return exitConfig
+	}
+	p, code := doBuild(true, false, *jobs, false, nil)
+	if code != exitOK {
+		return code
+	}
+	t, _ := toolchain.Find()
+	o := pkg.Options{BuildDir: "build", DistDir: "dist", LD: t.LD, Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }}
+	if e := os.Getenv("SOURCE_DATE_EPOCH"); e != "" {
+		var sec int64
+		if _, err := fmt.Sscan(e, &sec); err == nil {
+			o.Mtime = time.Unix(sec, 0).UTC()
+		}
+	}
+	if err := pkg.Run(p, o); err != nil {
 		return fail(err)
 	}
-	fmt.Println("[mbt] Build complete")
+	if _, ok := p.Raw["distribution"].(map[string]any); ok {
+		fmt.Fprintln(os.Stderr, "[mbt] WARNING: [distribution]: the SMP installation package is not built by mbt 3 yet")
+	}
+	fmt.Println("[mbt] Package complete -> dist/")
 	return exitOK
 }
 
@@ -142,6 +201,64 @@ func writeHeaders(dir string) error {
 		}
 		return os.WriteFile(dst, data, 0o644)
 	})
+}
+
+// checkLibc compares the installed libc370 with [toolchain] libc370 (v2's
+// mbttoolchain.py --check): older fails the build, an unreadable stamp warns.
+// The "ok" line is printed when it changes, not on every build.
+func checkLibc(p *project.Project, t *toolchain.Toolchain) int {
+	want := ""
+	if tc, ok := p.Raw["toolchain"].(map[string]any); ok {
+		if s, ok := tc["libc370"].(string); ok {
+			want = strings.TrimSpace(s)
+		}
+	}
+	st, msg := t.CheckLibc370(want, false)
+	switch st {
+	case toolchain.CheckFail:
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %s\n", msg)
+		return exitBuild
+	case toolchain.CheckUnknown, toolchain.CheckDrift:
+		fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", msg)
+	case toolchain.CheckOK:
+		f := filepath.Join(p.Root, ".mbt", "libc370-checked")
+		if old, _ := os.ReadFile(f); string(old) != msg {
+			fmt.Printf("[mbt] %s\n", msg)
+			os.WriteFile(f, []byte(msg), 0o644)
+		}
+	}
+	return exitOK
+}
+
+func cmdModdata(args []string) int {
+	fl := flag.NewFlagSet("module-data", flag.ContinueOnError)
+	all := fl.Bool("all", false, "list every warning, not three per module")
+	raw := fl.Bool("raw", false, "scan the sources as written, without cc370 -E")
+	if err := fl.Parse(args); err != nil {
+		return exitConfig
+	}
+	root, _ := os.Getwd()
+	p, err := project.LoadV2(root, "project.toml")
+	if err != nil {
+		return fail(err)
+	}
+	t, err := toolchain.Find()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
+		return exitConfig
+	}
+	stamp.Write(root, p.Name, p.Version)
+	writeHeaders(filepath.Join(root, ".mbt/include"))
+	in := moddata.FromRaw(root, p.Raw)
+	in.CC = t.CC
+	if !*raw {
+		in.CFlags = build.New(p, t, build.Options{IncludeDir: ".mbt/include"}).CFlags()
+	}
+	errs, warns := moddata.Check(in)
+	if moddata.Print(os.Stderr, errs, warns, *all, "mbt module-data --all") {
+		return exitBuild
+	}
+	return exitOK
 }
 
 func cmdDeps(args []string) int {

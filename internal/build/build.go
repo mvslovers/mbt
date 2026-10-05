@@ -40,6 +40,9 @@ type Options struct {
 	Jobs       int
 	Verbose    bool
 	Out        io.Writer
+	// PreLink runs before the first link step that has work to do, with the
+	// compile flags; an error stops the build (the module-data check).
+	PreLink func(cflags []string) error
 }
 
 // Builder runs one build of one project.
@@ -112,6 +115,9 @@ func relSorted(root string, abs []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// CFlags is the compile flags, for checks that preprocess as the build does.
+func (b *Builder) CFlags() []string { return b.cflags() }
 
 // cflags is CFLAGS as mk/mbt.mk builds it: the defaults, the project's
 // [build] cflags, every dependency's include dir, mbt's headers, .mbt.
@@ -199,12 +205,19 @@ func (b *Builder) Run() error {
 	}
 
 	var links []step
+	work := false
 	for _, u := range units {
 		s, err := b.linkStep(u)
 		if err != nil {
 			return err
 		}
 		links = append(links, s)
+		work = work || b.stale(s)
+	}
+	if work && b.O.PreLink != nil {
+		if err := b.O.PreLink(b.cflags()); err != nil {
+			return err
+		}
 	}
 	return b.runAll(links)
 }
