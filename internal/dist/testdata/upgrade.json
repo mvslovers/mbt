@@ -1,0 +1,56 @@
+{
+ "cfg": {
+  "distribution": {
+   "smp": {
+    "fmid": "TABC120",
+    "system": "Z038",
+    "prereq": [
+     "TXYZ100"
+    ],
+    "delete": [
+     "TABC110"
+    ],
+    "lklib": "ABC.@VRM@.LKLIB",
+    "target": "ABC.LINKLIB",
+    "distlib": "ABC.AABCLOD"
+   },
+   "library": [
+    {
+     "dir": "samplib",
+     "target": "ABC.SAMPLIB"
+    }
+   ]
+  }
+ },
+ "modules": [
+  "ABCSRV",
+  "ABCUTIL1",
+  "ABCUTIL2",
+  "ABCUTIL3",
+  "ABCUTIL4",
+  "ABCUTIL5",
+  "ABCUTIL6",
+  "ABCUTIL7",
+  "ABCUTIL8"
+ ],
+ "aliases": {
+  "ABCSRV": [
+   "ABC",
+   "ABCX"
+  ]
+ },
+ "files": {
+  "ABC.V1R2M0.LKLIB": "p-1.2.0-load.xmit",
+  "ABC.SAMPLIB": "p-1.2.0-samplib.xmit"
+ },
+ "out": {
+  "mcs": "++FUNCTION(TABC120) .\n++VER(Z038) REQ(TXYZ100) DELETE(TABC110)\n   /* prod 1.2.0                                                 */\n   /* Load modules are copied from the LKLIB, not re-bound.      */ .\n++JCLIN .\n//TABC120 JOB 1,'PROD JCLIN',MSGLEVEL=1,CLASS=A\n//COPYLOAD EXEC PGM=IEBCOPY\n//AABCLOD  DD  DISP=SHR,DSN=ABC.AABCLOD\n//LINKLIB  DD  DISP=SHR,DSN=ABC.LINKLIB\n//SYSIN    DD  *\n  COPY INDD=AABCLOD,OUTDD=LINKLIB\n  SELECT MEMBER=(ABCSRV,ABCUTIL1,ABCUTIL2,ABCUTIL3,ABCUTIL4,ABCUTIL5,\n                 ABCUTIL6,ABCUTIL7,ABCUTIL8)\n/*\n++MOD(ABCSRV) LKLIB(LKLIB) DISTLIB(AABCLOD)\n      TALIAS(ABC,ABCX) .\n++MOD(ABCUTIL1) LKLIB(LKLIB) DISTLIB(AABCLOD) .\n++MOD(ABCUTIL2) LKLIB(LKLIB) DISTLIB(AABCLOD) .\n++MOD(ABCUTIL3) LKLIB(LKLIB) DISTLIB(AABCLOD) .\n++MOD(ABCUTIL4) LKLIB(LKLIB) DISTLIB(AABCLOD) .\n++MOD(ABCUTIL5) LKLIB(LKLIB) DISTLIB(AABCLOD) .\n++MOD(ABCUTIL6) LKLIB(LKLIB) DISTLIB(AABCLOD) .\n++MOD(ABCUTIL7) LKLIB(LKLIB) DISTLIB(AABCLOD) .\n++MOD(ABCUTIL8) LKLIB(LKLIB) DISTLIB(AABCLOD) .\n",
+  "apply": "//HMASMP.LINKLIB  DD  DISP=SHR,DSN=ABC.LINKLIB\n//HMASMP.LKLIB    DD  DISP=SHR,DSN=ABC.V1R2M0.LKLIB\n//HMASMP.AABCLOD  DD  DISP=SHR,DSN=ABC.AABCLOD",
+  "alloc": "//LINKLIB  DD  DSN=ABC.LINKLIB,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)\n//AABCLOD  DD  DSN=ABC.AABCLOD,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)",
+  "recv": "//* The RECEIVE targets are deleted first: TSO RECEIVE refuses to\n//* merge into an existing dataset, so without this the job would\n//* run exactly once. SET MAXCC=0 keeps a first run, where none of\n//* them exists yet, from failing on the DELETEs.\n//*\n//DELOLD  EXEC PGM=IDCAMS\n//SYSPRINT DD  SYSOUT=*\n//SYSIN    DD  *\n  DELETE ABC.V1R2M0.LKLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.SAMPLIB NONVSAM SCRATCH PURGE\n  SET MAXCC=0\n/*\n//*\n//* p-1.2.0-load.xmit\n//*   -> ABC.V1R2M0.LKLIB\n//RECV1   EXEC PGM=IKJEFT01,DYNAMNBR=20\n//SYSTSPRT DD  SYSOUT=*\n//SYSTSIN  DD  *\n  RECEIVE INDSN('CHANGE.ME.LKLIB') -\n    DATASET('ABC.V1R2M0.LKLIB')\n/*\n//*\n//* p-1.2.0-samplib.xmit\n//*   -> ABC.SAMPLIB\n//RECV2   EXEC PGM=IKJEFT01,DYNAMNBR=20\n//SYSTSPRT DD  SYSOUT=*\n//SYSTSIN  DD  *\n  RECEIVE INDSN('CHANGE.ME.SAMPLIB') -\n    DATASET('ABC.SAMPLIB')\n/*",
+  "cond": "(4,LT,APPLY.HMASMP)",
+  "cleanup": "//*\n//* ---- remove the staging library -----------------------------------\n//* Only reached when everything above worked. Comment the step out\n//* if you would rather keep the shipped modules on the system.\n//*\n//CLEANUP EXEC PGM=IDCAMS,COND=(0,NE,ACCEPT.HMASMP)\n//SYSPRINT DD  SYSOUT=*\n//SYSIN    DD  *\n  DELETE ABC.V1R2M0.LKLIB NONVSAM SCRATCH PURGE\n/*\n//",
+  "jobname": "BREXXALC",
+  "jobcard": "//PRODINS  JOB (SYS),'PROD INSTALL',\n//             CLASS=A,MSGCLASS=H,MSGLEVEL=(1,1),\n//             REGION=4096K"
+ }
+}

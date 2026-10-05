@@ -20,7 +20,9 @@ the output is byte-identical to mbt 2's (`internals/acceptance/`).
 
 `mbt build` checks the installed libc370 against `[toolchain] libc370` and
 runs the module-data check before it links, as mbt 2 does; their output is
-mbt 2's. `mbt package` writes the same load XMIT and lib tarball contents.
+mbt 2's. `mbt package` writes the same load XMIT, lib tarball and SMP installation
+package (install and allocation jobs, SYSMOD, source library XMITs).
 
-Not yet: the SMP package (`dist`), `deploy`, `test` (host and MVS),
+Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks),
+`deploy`, `test` (host and MVS),
 `mbt.toml` schema 3, the launcher.

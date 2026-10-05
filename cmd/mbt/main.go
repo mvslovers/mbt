@@ -19,6 +19,7 @@ import (
 	"github.com/mvslovers/mbt/include"
 	"github.com/mvslovers/mbt/internal/build"
 	"github.com/mvslovers/mbt/internal/deps"
+	"github.com/mvslovers/mbt/internal/dist"
 	"github.com/mvslovers/mbt/internal/moddata"
 	"github.com/mvslovers/mbt/internal/pkg"
 	"github.com/mvslovers/mbt/internal/project"
@@ -174,8 +175,19 @@ func cmdPackage(args []string) int {
 	if err := pkg.Run(p, o); err != nil {
 		return fail(err)
 	}
-	if _, ok := p.Raw["distribution"].(map[string]any); ok {
-		fmt.Fprintln(os.Stderr, "[mbt] WARNING: [distribution]: the SMP installation package is not built by mbt 3 yet")
+	if d, ok := p.Raw["distribution"].(map[string]any); ok && len(d) > 0 {
+		var mods []dist.Module
+		for _, m := range p.Modules {
+			mods = append(mods, dist.Module{Name: m.Name, Aliases: m.Aliases})
+		}
+		err := dist.Build(p.Raw, p.Name, p.Version, mods, dist.Options{
+			Root: p.Root, DistDir: "dist", BuildDir: "build", Mtime: o.Mtime,
+			Log: func(s string) { fmt.Printf("[mbt] %s\n", s) },
+		})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
+			return exitConfig
+		}
 	}
 	fmt.Println("[mbt] Package complete -> dist/")
 	return exitOK

@@ -41,9 +41,14 @@ an empty `.mbt/deps`, and compares the staged tree file by file and
 python3 internals/acceptance/pkg23.py <mbt3-binary> <workdir> PROJ ...
 ```
 
-`make package` against `mbt package`: the load XMIT byte for byte, the lib
-tarball member by member (AppleDouble `._` members from a macOS tar ignored,
-#161). The SMP installation package is not compared yet.
+`make package` against `mbt package`: the load XMIT byte for byte; the lib
+tarball and the SMP installation package (dist zip and tar.gz) member by
+member. Ignored: AppleDouble `._` members from a macOS tar (#161) and
+`httpd-webroot.img`, which is not reproducible by construction.
+
+httpd's Makefile adds a step of its own (`make webroot`: a UFS image built
+with a pinned `ufsd-utils`, shipped as `[distribution] extra`). mbt 3 has no
+tasks yet, so the script runs that step before `mbt package` and says so.
 
 ## `baseline.py` — the recorded manifest
 
