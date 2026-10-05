@@ -116,7 +116,6 @@ never appears in `make test`/`test-mvs` (it still runs under `test-host`):
 ```toml
 [[test]]
 name = "TSTCFG"
-startup = "crt1"
 mvs = false            # host-only (test/cfg/ fixture path); skipped by test-mvs
 sources = ["test/tstcfg.c", "src/nsfcfg.c"]
 ```
