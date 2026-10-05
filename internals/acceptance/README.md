@@ -25,6 +25,16 @@ A **negative control** belongs to every change of this tool: build mbt 3 with
 one deliberate difference (say `-O2` instead of `-O1`) and confirm the
 comparison fails.
 
+## `deps23.py` — dependency staging
+
+```
+python3 internals/acceptance/deps23.py <mbt3-binary> <workdir> PROJ ...
+```
+
+In checkouts `diff23.py` left behind: `make deps`, then `mbt deps`, each from
+an empty `.mbt/deps`, and compares the staged tree file by file and
+`mbt.lock`.
+
 ## `baseline.py` — the recorded manifest
 
 ```

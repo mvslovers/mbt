@@ -16,6 +16,7 @@ import (
 
 	"github.com/mvslovers/mbt/include"
 	"github.com/mvslovers/mbt/internal/build"
+	"github.com/mvslovers/mbt/internal/deps"
 	"github.com/mvslovers/mbt/internal/project"
 	"github.com/mvslovers/mbt/internal/stamp"
 	"github.com/mvslovers/mbt/internal/toolchain"
@@ -40,6 +41,7 @@ func usage() {
 
 commands:
   build [--all] [--tests] [NAME...]   build the primary deliverable, or more
+  deps [--update] [--locked]          resolve, download and stage dependencies
   version                             print mbt's version
 `)
 }
@@ -52,6 +54,8 @@ func run(args []string) int {
 	switch args[0] {
 	case "build":
 		return cmdBuild(args[1:])
+	case "deps":
+		return cmdDeps(args[1:])
 	case "version", "--version":
 		fmt.Println("mbt", version)
 		return exitOK
@@ -140,15 +144,37 @@ func writeHeaders(dir string) error {
 	})
 }
 
+func cmdDeps(args []string) int {
+	fl := flag.NewFlagSet("deps", flag.ContinueOnError)
+	update := fl.Bool("update", false, "re-resolve every range and rewrite mbt.lock")
+	locked := fl.Bool("locked", false, "fail instead of changing mbt.lock")
+	if err := fl.Parse(args); err != nil {
+		return exitConfig
+	}
+	root, _ := os.Getwd()
+	err := deps.Run(root, "project.toml", deps.Options{
+		Update: *update, Locked: *locked,
+		Log:  func(s string) { fmt.Printf("[mbt] %s\n", s) },
+		Warn: func(s string) { fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", s) },
+	})
+	if err != nil {
+		return fail(err)
+	}
+	return exitOK
+}
+
 func fail(err error) int {
 	fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
 	var ce *project.ConfigError
 	var be *build.Error
+	var de *deps.Error
 	switch {
 	case errors.As(err, &ce):
 		return exitConfig
 	case errors.As(err, &be):
 		return be.Code
+	case errors.As(err, &de):
+		return de.Code
 	}
 	return exitInternal
 }
