@@ -7,23 +7,26 @@ reproduce it, and where it is not reproducible.*
 
 ## Result
 
+*Recorded again on 2026-10-05 with the current toolchain; see "Re-recorded" below.*
+
 **mbt v2 builds are reproducible byte for byte once four clock values are
 pinned.** Two complete builds of eight projects — different directories, more
-than a minute apart — produced **645 identical outputs** (object decks, load
+than a minute apart — produced **654 identical outputs** (object decks, load
 modules, archives, XMIT files, JCL). The only remaining difference inside a
 package is one project-specific file (httpd's web root image, below).
 
-The same holds across the v2 line itself: building ufsd, brexx370 and crypto370
-with mbt `37b889b` instead of their pinned `f87bf0c` gave the identical outputs
-(219 of 219), so the baseline is not tied to one v2 commit.
+On 2026-10-03, with the first toolchain, the same held across the v2 line:
+building ufsd, brexx370 and crypto370 with mbt `37b889b` instead of their
+pinned `f87bf0c` gave identical outputs (219 of 219). That was not repeated for
+the current baseline; all eight projects now pin the same mbt.
 
 ## The inputs
 
 | Input | Value |
 |---|---|
 | Projects | the commits in `internals/baseline/v2-manifest.tsv` (column 2) |
-| mbt | each project's pinned submodule (`f87bf0c` or `37b889b`; identical output, see above) |
-| Toolchain | cc370 1.1.1 (`98d9ab0`), libc370 2.1.0, from the releases |
+| mbt | each project's pinned submodule, `9947753` (v2.2.0) in all eight |
+| Toolchain | cc370 1.4.0 (`2821ebb`), libc370 2.3.1, from the releases |
 | Dependencies | as pinned in each project's `mbt.lock` |
 | Clock | `LDDATE=26276 LDTIME=120000 ASMDATE=10/03/26 ASMTIME=12.00` |
 
@@ -45,13 +48,31 @@ C objects carry no timestamp: all of them were identical without any pinning.
 
 `internals/baseline/v2-manifest.tsv`: project, commit, file, SHA-256 — one line per
 output under `build/` and `dist/` (`.o`, `.iebcopy`, `.a`, `.xmit`, `.jcl`), and
-one line per member of each `dist/` archive (`archive!member`). 703 entries.
+one line per member of each `dist/` archive (`archive!member`). 712 entries.
 Exception: the `httpd-webroot.img` member hash is from one build and does not
 reproduce (above).
 
 An mbt 3 build of the same inputs, with the same clock pinned, must reproduce
 every hash. A difference is either a bug in mbt 3 or a deliberate change, and a
 deliberate change is named in the PR that makes it.
+
+## Re-recorded (2026-10-05)
+
+The first baseline (2026-10-03) was taken with cc370 1.1.1, libc370 2.1.0 and
+mbt 2.0/2.1. Three changes since then alter every load module on purpose, so a
+comparison against it would measure them rather than mbt 3:
+
+- cc370 1.3.0 writes `CC370` plus the version instead of `GCCMVS!!` in front of
+  every `main`;
+- libc370 2.3.0 moved the C startup `@@CRT0` into `libc.a`;
+- mbt 2.2.0 (#158, #160) links it from there, so it no longer sits at offset 0.
+
+The projects moved to newer commits as well. Against the first manifest:
+362 entries are unchanged (320 object decks among them), 340 changed (all 139
+load modules, 162 object decks, 10 XMIT files, 4 archives, 25 archive members),
+one left (brexx370's `jccompat.o`, removed with its compatibility layer) and 10
+are new (sources added to brexx370).
+The clock values are the same as before, so none of that comes from the date.
 
 ## Not covered
 
@@ -72,6 +93,10 @@ deliberate change is named in the PR that makes it.
   could check that every declared dependency is staged before compiling — a
   requirement for mbt 3. mbt already sends `GITHUB_TOKEN`/`MBT_GITHUB_TOKEN` when
   set, which avoids the limit.
+- **`make package` on macOS adds AppleDouble `._*` members** to the lib
+  tarball, one per file with extended attributes (#161); release builds run on
+  Linux and are clean. They are left out of the manifest: 28 such members
+  appeared in the re-recording, none in the first one.
 - **Archive timestamps** could honour `SOURCE_DATE_EPOCH` in `make package` /
   `make dist`, which would make the archives themselves byte-reproducible — a
   small v2 change, and a requirement for mbt 3.
