@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/mvslovers/mbt/internal/dist"
 	"github.com/mvslovers/mbt/internal/hosttest"
 	"github.com/mvslovers/mbt/internal/moddata"
+	"github.com/mvslovers/mbt/internal/mvsmf"
 	"github.com/mvslovers/mbt/internal/mvstest"
 	"github.com/mvslovers/mbt/internal/pkg"
 	"github.com/mvslovers/mbt/internal/project"
@@ -61,6 +63,7 @@ commands:
   deploy [--target DSN] [--module M]... [--dry-run] [-v]
                                       pack the built modules and RECEIVE them on MVS
   compiledb                           write compile_commands.json for clangd
+  doctor                              check the toolchain, the sysroot and the MVS connection
   version                             print mbt's version
 `)
 }
@@ -85,6 +88,8 @@ func run(args []string) int {
 		return cmdDeploy(args[1:])
 	case "compiledb":
 		return cmdCompiledb()
+	case "doctor":
+		return cmdDoctor()
 	case "version", "--version":
 		fmt.Println("mbt", version)
 		return exitOK
@@ -391,6 +396,95 @@ func anyTables(v any) []map[string]any {
 		return out
 	}
 	return nil
+}
+
+// cmdDoctor: make doctor.  One deliberate difference: the configuration
+// table masks MVS_PASS, which mbt 2 printed in clear.
+func cmdDoctor() int {
+	fmt.Println("[mbt] Running environment checks (mbt 3 / cc370)...")
+	failed := 0
+	bad := func(f string, a ...any) { fmt.Fprintf(os.Stderr, "[mbt] ERROR: "+f+"\n", a...); failed++ }
+	for _, tool := range []string{"cc370", "as370", "ld370", "ar370", "xmit370"} {
+		if p, err := exec.LookPath(tool); err == nil {
+			fmt.Printf("[mbt] %s: %s\n", tool, p)
+		} else {
+			bad("%s not found on PATH", tool)
+		}
+	}
+	root, _ := os.Getwd()
+	t, err := toolchain.Find()
+	if err != nil {
+		bad("%v", err)
+	} else {
+		var missing []string
+		for _, f := range []string{"libc.a", "crtm.o"} {
+			if _, err := os.Stat(filepath.Join(t.LibcDir, f)); err != nil {
+				missing = append(missing, f)
+			}
+		}
+		if len(missing) > 0 {
+			bad("sysroot %s incomplete, missing: %s", t.Sysroot, strings.Join(missing, ", "))
+		} else {
+			fmt.Printf("[mbt] sysroot: %s (libc.a + crtm.o OK)\n", t.Sysroot)
+		}
+	}
+	p, perr := project.LoadV2(root, "project.toml")
+	if t != nil {
+		want := ""
+		if perr == nil {
+			if tc, ok := p.Raw["toolchain"].(map[string]any); ok {
+				want, _ = tc["libc370"].(string)
+			}
+		}
+		switch st, msg := t.CheckLibc370(strings.TrimSpace(want), false); st {
+		case toolchain.CheckFail:
+			bad("%s", msg)
+		case toolchain.CheckUnknown:
+			fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", msg)
+		default:
+			fmt.Printf("[mbt] %s\n", msg)
+		}
+	}
+	if perr != nil {
+		fmt.Fprintf(os.Stderr, "[mbt] WARNING: project.toml not loaded, skipping MVS checks (%v)\n", perr)
+		failed++
+	} else {
+		cfg := config.Load(root)
+		port, _ := cfg.Port()
+		c := mvsmf.New(cfg.Host(), port, cfg.User(), cfg.Pass())
+		if code, err := c.Status("/info"); code == 0 {
+			fmt.Fprintf(os.Stderr, "[mbt] WARNING: MVS host not reachable: %s:%d -- %v (only needed for 'mbt deploy')\n", cfg.Host(), port, err)
+			failed++
+		} else {
+			fmt.Printf("[mbt] MVS host reachable: %s:%d (HTTP %d)\n", cfg.Host(), port, code)
+			switch code, _ := c.Status("/restjobs/jobs"); code {
+			case 200:
+				fmt.Printf("[mbt] MVS credentials valid: %s\n", cfg.User())
+			case 401:
+				bad("MVS credentials invalid for %s (HTTP 401)", cfg.User())
+			default:
+				fmt.Printf("[mbt] MVS credentials check: HTTP %d for %s\n", code, cfg.User())
+			}
+		}
+		fmt.Printf("[mbt] project.toml valid: %s v%s\n", p.Name, p.Version)
+		fmt.Println("[mbt] Configuration:")
+		keys := []struct{ name, key string }{{"MVS_HOST", "mvs.host"}, {"MVS_PORT", "mvs.port"}, {"MVS_USER", "mvs.user"},
+			{"MVS_PASS", "mvs.pass"}, {"MVS_HLQ", "mvs.hlq"}, {"MVS_DEPS_HLQ", "mvs.deps_hlq"}, {"MVS_DEPS_VOLUME", "mvs.deps_volume"},
+			{"JES_JOBCLASS", "jes.jobclass"}, {"JES_MSGCLASS", "jes.msgclass"}, {"BUILD_ID", "build.id"}}
+		for _, k := range keys {
+			v, src := cfg.Source(k.key)
+			if k.name == "MVS_PASS" && v != "" {
+				v = "********"
+			}
+			fmt.Printf("  %-15s = %-20s [%s]\n", k.name, v, src)
+		}
+	}
+	if failed > 0 {
+		fmt.Fprintf(os.Stderr, "[mbt] %d check(s) failed\n", failed)
+		return exitConfig
+	}
+	fmt.Println("[mbt] All checks passed")
+	return exitOK
 }
 
 // cmdCompiledb: make compiledb.

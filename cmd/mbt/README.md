@@ -13,6 +13,7 @@ mbt test [--only NAME]... [-v]
 mbt deploy [--target DSN] [--module M]... [--dry-run] [-v]
 mbt test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
 mbt compiledb
+mbt doctor
 ```
 
 Today it reads an mbt 2 `project.toml` and builds object decks, archives and
@@ -36,7 +37,9 @@ against a local stand-in for mvsMF; not yet run against a real system).
 `mbt compiledb` writes the same `compile_commands.json` (mbt's own include
 directory aside: `.mbt/include` instead of the submodule's).
 Requests go out as HTTP/1.0, as mbt 2 forces them.
+`mbt doctor` checks what `make doctor` checks; its configuration table
+masks `MVS_PASS`, which mbt 2 printed in clear.
 
 Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks),
-`doctor`, `release`,
+`release`,
 `mbt.toml` schema 3, the launcher.

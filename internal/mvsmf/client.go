@@ -373,3 +373,17 @@ func (c *Client) Ping() bool {
 	}
 	return strings.Contains(err.Error(), "HTTP ")
 }
+
+// Status asks path with the client's credentials and returns the HTTP status
+// (0 when the server could not be reached at all).
+func (c *Client) Status(path string) (int, error) {
+	_, err := c.do(request{method: "GET", path: path, timeout: 5 * time.Second})
+	if err == nil {
+		return 200, nil
+	}
+	var code int
+	if n, _ := fmt.Sscanf(err.Error(), "HTTP %d", &code); n == 1 {
+		return code, nil
+	}
+	return 0, err
+}
