@@ -13,17 +13,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mvslovers/mbt/include"
 	"github.com/mvslovers/mbt/internal/build"
+	"github.com/mvslovers/mbt/internal/compiledb"
 	"github.com/mvslovers/mbt/internal/config"
 	"github.com/mvslovers/mbt/internal/deploy"
 	"github.com/mvslovers/mbt/internal/deps"
 	"github.com/mvslovers/mbt/internal/dist"
 	"github.com/mvslovers/mbt/internal/hosttest"
 	"github.com/mvslovers/mbt/internal/moddata"
+	"github.com/mvslovers/mbt/internal/mvstest"
 	"github.com/mvslovers/mbt/internal/pkg"
 	"github.com/mvslovers/mbt/internal/project"
 	"github.com/mvslovers/mbt/internal/stamp"
@@ -53,8 +56,11 @@ commands:
   module-data [--all]                 check for writable data in RENT/AC(1) modules
   package                             build, then write the release artifacts to dist/
   test [--only NAME]... [-v]          build and run the dual tests on the host
+  test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
+                                      build the test modules and run them on MVS
   deploy [--target DSN] [--module M]... [--dry-run] [-v]
                                       pack the built modules and RECEIVE them on MVS
+  compiledb                           write compile_commands.json for clangd
   version                             print mbt's version
 `)
 }
@@ -77,6 +83,8 @@ func run(args []string) int {
 		return cmdTest(args[1:])
 	case "deploy":
 		return cmdDeploy(args[1:])
+	case "compiledb":
+		return cmdCompiledb()
 	case "version", "--version":
 		fmt.Println("mbt", version)
 		return exitOK
@@ -177,8 +185,7 @@ func cmdPackage(args []string) int {
 	t, _ := toolchain.Find()
 	o := pkg.Options{BuildDir: "build", DistDir: "dist", LD: t.LD, Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }}
 	if e := os.Getenv("SOURCE_DATE_EPOCH"); e != "" {
-		var sec int64
-		if _, err := fmt.Sscan(e, &sec); err == nil {
+		if sec, err := strconv.ParseInt(e, 10, 64); err == nil {
 			o.Mtime = time.Unix(sec, 0).UTC()
 		}
 	}
@@ -295,8 +302,14 @@ func cmdTest(args []string) int {
 	var only multiFlag
 	fl.Var(&only, "only", "run only this test (repeatable)")
 	verbose := fl.Bool("v", false, "print the compile commands and errors")
+	mvs := fl.Bool("mvs", false, "run the test modules on MVS (make test-mvs)")
+	noDeploy := fl.Bool("no-deploy", false, "with --mvs: reuse the TESTLIB already there")
+	target := fl.String("target", "", "with --mvs: the runtime production LINKLIB")
 	if err := fl.Parse(args); err != nil {
 		return exitConfig
+	}
+	if *mvs {
+		return cmdTestMVS(only, *noDeploy, *target, *verbose)
 	}
 	root, _ := os.Getwd()
 	p, err := project.LoadV2(root, "project.toml")
@@ -331,6 +344,80 @@ func cmdTest(args []string) int {
 	if !ok {
 		return exitBuild
 	}
+	return exitOK
+}
+
+// cmdTestMVS: make test-mvs -- build the tests, then run them on MVS.
+func cmdTestMVS(only []string, noDeploy bool, target string, verbose bool) int {
+	p, code := doBuild(false, true, 0, false, nil)
+	if code != exitOK {
+		return code
+	}
+	t, _ := toolchain.Find()
+	var tests []mvstest.TestDecl
+	opt := func(m map[string]any, k string) *string {
+		if s, ok := m[k].(string); ok {
+			return &s
+		}
+		return nil
+	}
+	for _, tt := range p.RawTables("test") {
+		d := mvstest.TestDecl{Parm: opt(tt, "parm"), ParmBatch: opt(tt, "parm_batch"), TSO: opt(tt, "parm_tso")}
+		d.Name, _ = tt["name"].(string)
+		for _, fx := range anyTables(tt["fixture"]) {
+			dd, _ := fx["dd"].(string)
+			d.Fixtures = append(d.Fixtures, mvstest.FixtureDecl{DD: dd, Members: project.RawStrs(fx, "members")})
+		}
+		tests = append(tests, d)
+	}
+	tt, _ := rawTable(p.Raw, "test_deploy")["target"].(string)
+	pt, _ := rawTable(p.Raw, "deploy")["target"].(string)
+	return mvstest.Run(mvstest.Options{Root: p.Root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
+		Tests: tests, TestTarget: tt, LinkTarget: target, ProjectTarget: pt, Only: only, NoDeploy: noDeploy,
+		Verbose: verbose, Out: os.Stdout, Err: os.Stderr, Config: config.Load(p.Root)})
+}
+
+func anyTables(v any) []map[string]any {
+	switch x := v.(type) {
+	case []map[string]any:
+		return x
+	case []any:
+		var out []map[string]any
+		for _, e := range x {
+			if m, ok := e.(map[string]any); ok {
+				out = append(out, m)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// cmdCompiledb: make compiledb.
+func cmdCompiledb() int {
+	root, _ := os.Getwd()
+	p, err := project.LoadV2(root, "project.toml")
+	if err != nil {
+		return fail(err)
+	}
+	writeHeaders(filepath.Join(root, ".mbt/include"))
+	var srcs []string
+	for _, kind := range []string{"module", "test"} {
+		for _, m := range p.RawTables(kind) {
+			srcs = append(srcs, p.Resolve(project.RawStrs(m, "sources"), project.RawStrs(m, "exclude"))...)
+		}
+	}
+	if l := rawTable(p.Raw, "lib"); len(l) > 0 {
+		srcs = append(srcs, p.Resolve(project.RawStrs(l, "sources"), nil)...)
+	}
+	if in := rawTable(p.Raw, "internal"); len(in) > 0 {
+		srcs = append(srcs, p.Resolve(project.RawStrs(in, "sources"), project.RawStrs(in, "exclude"))...)
+	}
+	n, err := compiledb.Write(root, project.RawStrs(rawTable(p.Raw, "build"), "cflags"), srcs, filepath.Join(root, ".mbt", "include"))
+	if err != nil {
+		return fail(err)
+	}
+	fmt.Printf("[mbt] Generated compile_commands.json (%d entries)\n", n)
 	return exitOK
 }
 

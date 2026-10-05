@@ -50,11 +50,15 @@ httpd's Makefile adds a step of its own (`make webroot`: a UFS image built
 with a pinned `ufsd-utils`, shipped as `[distribution] extra`). mbt 3 has no
 tasks yet, so the script runs that step before `mbt package` and says so.
 
-## `deploy23.py` — deploy, against a stand-in for mvsMF
+## `deploy23.py` — deploy and test-mvs, against a stand-in for mvsMF
 
 ```
-python3 internals/acceptance/deploy23.py <mbt3-binary> <built checkout> [spool-file]
+python3 internals/acceptance/deploy23.py <mbt3-binary> <built checkout> [spool-file] [--test]
 ```
+
+`--test` compares `make test-mvs` with `mbt test --mvs` instead of the deploy.
+The spool file stands in for every spool file the runner job returns; a real
+one (a saved MBTTEST spool) exercises the verdict parsing on real JES lines.
 
 `make deploy` and `mbt deploy` each talk to `stub_mvsmf.py` on 127.0.0.1,
 which records every request and answers like a healthy server; no MVS is

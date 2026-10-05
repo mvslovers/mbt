@@ -56,7 +56,9 @@ func MVSQualifier(name string) string {
 	return q
 }
 
-func (o *Options) log(f string, a ...any)  { fmt.Fprintf(o.Out, "[mbt] "+f+"\n", a...) }
+func (o *Options) log(f string, a ...any) { fmt.Fprintf(o.Out, "[mbt] "+f+"\n", a...) }
+
+// warn goes to Out, as mbtdeploy's _log_warn printed to stdout.
 func (o *Options) warn(f string, a ...any) { fmt.Fprintf(o.Out, "[mbt] WARNING: "+f+"\n", a...) }
 func (o *Options) fail(f string, a ...any) { fmt.Fprintf(o.Err, "[mbt] ERROR: "+f+"\n", a...) }
 func (o *Options) cont(f string, a ...any) { fmt.Fprintf(o.Err, "[mbt]        "+f+"\n", a...) }
@@ -204,13 +206,13 @@ func Run(o Options) int {
 			}
 		}
 		o.log("RECEIVE %s -> %s...", staging, target)
-		return receive(o, c, staging, target, filepath.Join(o.BuildDir, "receive.spool"), len(data))
+		return Receive(&o, c, staging, target, filepath.Join(o.BuildDir, "receive.spool"), len(data))
 	}
 	if err := step(); err != nil {
-		if re, ok := err.(*receiveError); ok {
+		if re, ok := err.(*ReceiveError); ok {
 			keep = true
-			o.fail("%s", re.headline)
-			for _, d := range re.details {
+			o.fail("%s", re.Headline)
+			for _, d := range re.Details {
 				o.cont("%s", d)
 			}
 			o.cont("%s kept for a retry of the RECEIVE", staging)
@@ -223,14 +225,18 @@ func Run(o Options) int {
 	return ExitOK
 }
 
-type receiveError struct {
-	headline string
-	details  []string
+// ReceiveError is a RECEIVE job that did not come back clean, with its
+// diagnosis.
+type ReceiveError struct {
+	Headline string
+	Details  []string
 }
 
-func (e *receiveError) Error() string { return e.headline }
+func (e *ReceiveError) Error() string { return e.Headline }
 
-func receive(o Options, c *mvsmf.Client, xmitDSN, target, spoolPath string, n int) error {
+// Receive submits a TSO RECEIVE of xmitDSN into target and waits for it; the
+// spool goes to spoolPath (relative to the project root).
+func Receive(o *Options, c *mvsmf.Client, xmitDSN, target, spoolPath string, n int) error {
 	jc := mvsmf.Jobcard("MBTDEPL", o.Config.JobClass(), o.Config.MsgClass(), "MBT DEPLOY")
 	vol := o.Config.Volume()
 	cmd := fmt.Sprintf(" RECEIVE INDSN('%s') -\n  DATASET('%s')", xmitDSN, target)
@@ -260,7 +266,7 @@ func receive(o Options, c *mvsmf.Client, xmitDSN, target, spoolPath string, n in
 		spoolPath = ""
 	}
 	if h, d := ReceiveFailure(res, target, timeout, spoolPath); h != "" {
-		return &receiveError{h, d}
+		return &ReceiveError{h, d}
 	}
 	return nil
 }

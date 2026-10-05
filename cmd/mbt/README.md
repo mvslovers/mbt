@@ -11,6 +11,8 @@ mbt module-data [--all] [--raw]
 mbt package
 mbt test [--only NAME]... [-v]
 mbt deploy [--target DSN] [--module M]... [--dry-run] [-v]
+mbt test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
+mbt compiledb
 ```
 
 Today it reads an mbt 2 `project.toml` and builds object decks, archives and
@@ -28,10 +30,13 @@ package (install and allocation jobs, SYSMOD, source library XMITs).
 `mbt test` builds and runs the dual tests on the host, with mbt 2's table
 and summary.
 
-`mbt deploy` sends the same requests and JCL as `make deploy` (measured
+`mbt deploy` and `mbt test --mvs` send the same requests and JCL as
+`make deploy` and `make test-mvs`, and print the same result (measured
 against a local stand-in for mvsMF; not yet run against a real system).
+`mbt compiledb` writes the same `compile_commands.json` (mbt's own include
+directory aside: `.mbt/include` instead of the submodule's).
 Requests go out as HTTP/1.0, as mbt 2 forces them.
 
 Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks),
-`test --mvs`,
+`doctor`, `release`,
 `mbt.toml` schema 3, the launcher.
