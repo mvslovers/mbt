@@ -113,7 +113,7 @@ mbt itself never runs there. Choosing Go closes that door on purpose. Should an
 MVS- or CMS-side component ever be wanted, it would be a small separate program
 (C or REXX) behind a defined interface, not a port of mbt.
 
-## 5. Distribution and version pinning — **Proposed**
+## 5. Distribution and version pinning — **Decided** (2026-10-05)
 
 The tool installs as a small **launcher**, the way the gradle wrapper or
 rustup work:
@@ -141,12 +141,14 @@ the reusable workflows to it.
 The reusable workflows move with it: a consumer pins `uses:` to the same tag
 as `[toolchain] mbt`, so workflow and tool can no longer drift apart.
 
-## 6. The project file — **Proposed** (format: **Open**)
+## 6. The project file — **Decided: TOML in `mbt.toml`, plus an optional `mbt.lua`** (2026-10-05)
 
 ### 6.1 Cleanup, independent of the format
 
-- **Name:** `mbt.toml` (or `mbt.lua`, see 6.3), matching `mbt.lock`.
-  A `schema = 3` field lets the launcher tell old from new.
+- **Name:** `mbt.toml`, matching `mbt.lock`; logic, where a project needs
+  any, goes into an optional `mbt.lua` beside it (6.3). A `schema = 3` field
+  lets the launcher tell old from new, and the new name shows at a glance
+  whether a project has been migrated.
 - **Tests are discovered, not listed.** Every `test/*.c` is a test. Tests
   link against the project's internal archive by autocall, so a test entry no
   longer lists the sources it links. An entry is only needed for exceptions:
@@ -411,6 +413,13 @@ A middle path exists too: **declarative TOML, plus an optional `mbt.lua`**
 that may add modules, tests and tasks programmatically (comparable to cargo's
 `build.rs` or gradle's build scripts). Simple projects never see Lua; rexx370
 can generate its 64 tests in five lines.
+
+**Decided (2026-10-05): the middle path.** The project file is declarative
+TOML (B) in `mbt.toml`; an optional `mbt.lua` beside it registers modules,
+tests, tasks and rules through the extension context (sections 9 and 10).
+What mbt reads from `mbt.toml` stays data, so `mbt migrate`, version bumps and
+the editor schema keep working; only a project that ships an `mbt.lua` has
+code in its build definition.
 
 **Not considered further:**
 - **JSON** — no comments. rexx370 has 683 comment lines in its project file,
@@ -1085,7 +1094,8 @@ on in its project file instead of copying workflow YAML.
 
 ## 17. Open questions
 
-1. **Project file format:** TOML (B), Lua (C), or TOML plus optional `mbt.lua`?
+1. ~~**Project file format**~~ — decided 2026-10-05: TOML, plus an optional
+   `mbt.lua` (section 6.3).
 2. **Lua version for extensions:** 5.1 (gopher-lua) or 5.4 (cgo or pure Go)?
 3. **Toolchain and artifacts** (section 8.5): per-project libc370 pinning
    with a shared cc370 (one tree per pair, or a driver option), and a nightly
@@ -1100,7 +1110,7 @@ on in its project file instead of copying workflow YAML.
 5. **Lint scope** for the first version.
 6. **COBOL:** as370 compatibility, dependency files, mixed-language linking —
    with the cobc370 maintainer.
-7. **Name of the project file:** `mbt.toml` / `mbt.lua`, or keep `project.toml`?
+7. ~~**Name of the project file**~~ — decided 2026-10-05: `mbt.toml` (section 6.1).
 8. **Static analysis:** keep SonarQube Cloud's Automatic Analysis with a
    generated configuration, or move to CI-based analysis fed by
    `compile_commands.json`? Which rules do we tune ecosystem-wide?
@@ -1116,11 +1126,17 @@ on in its project file instead of copying workflow YAML.
 
 1. ~~Toolchain groundwork~~ — **done on the toolchain side** (2026-10-03,
    section 8.0); mbt's artifact metadata moves into step 3.
-2. Settle the project file (format and schema 3) and the launcher — the two
-   decisions that are hardest to undo.
+2. ~~Settle the project file and the launcher~~ — **decided** (2026-10-05):
+   TOML in `mbt.toml` plus an optional `mbt.lua` (section 6), and the
+   launcher with `[toolchain] mbt` (section 5). The schema 3 details are
+   settled while step 3 implements them.
 3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
    package/dist, deploy, tests, targets, IDE integration.
-   Accepted by the differential comparison.
+   Accepted by the differential comparison. Before that comparison the v2
+   baseline is recorded again: it was taken with cc370 1.1.1 and libc370
+   2.1.0, and since then cc370 1.3.0 changed the eyecatcher in front of every
+   `main`, libc370 2.3.0 moved the C startup into `libc.a`, and mbt 2.2.0
+   (#158) links it from there.
 4. Toolchain management, `mbt migrate`, then migrate the projects one by one.
 5. Bonus, once the core stands: extensions, MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
    native backends and foreign build systems.
