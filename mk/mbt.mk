@@ -74,9 +74,11 @@ endif
 # libc370 sits in cc370's own tree (<sysroot>/lib), or from cc370 1.2.0 in its
 # second sysroot <sysroot>/libc370/lib, searched after the first -- the
 # Homebrew layout links a separately installed libc370 there (cc370#726, #144).
-# LIBCDIR is where crt*.o and libc.a are; the compiler runtime stays in
-# <sysroot>/lib.
-LIBCDIR := $(firstword $(foreach d,$(SYSROOT)/lib $(SYSROOT)/libc370/lib,$(if $(wildcard $(d)/crt0.o),$(d))))
+# LIBCDIR is where libc.a is (and crtm.o, and on a libc370 before 2.3.0 the
+# crt0.o/crt1.o startfiles); the compiler runtime stays in <sysroot>/lib.
+# Found by libc.a, the one file every libc370 installs; crt0.o still counts
+# for a sysroot that somehow lacks the archive name (#158).
+LIBCDIR := $(firstword $(foreach d,$(SYSROOT)/lib $(SYSROOT)/libc370/lib,$(if $(wildcard $(d)/libc.a $(d)/crt0.o),$(d))))
 # Neither: fall back to the default install location -- and say so, because
 # it is a different libc370 than the cc370 on PATH would use.
 ifeq ($(LIBCDIR),)
@@ -87,9 +89,24 @@ ifeq ($(LIBCDIR),)
   LIBCDIR := $(SYSROOT)/lib
 endif
 
-CRT0 := $(LIBCDIR)/crt0.o
-CRT1 := $(LIBCDIR)/crt1.o
 CRTM := $(LIBCDIR)/crtm.o
+
+# -- Where the C runtime startup comes from (#158) -----------------
+# Since libc370 2.3.0 the CRT (@@CRT0) is a member of libc.a (libc370#159),
+# and since cc370 1.2.0 ld370 pulls an entry nothing references out of the
+# archive by its name (cc370#107).  So a C module links no startfile: the
+# entry decides.  Asked of the archive itself, not of a version number --
+# that is the property the link depends on.
+CRT_IN_LIBC := $(shell $(AR) t $(LIBCDIR)/libc.a 2>/dev/null | awk '$$1 == "@@CRT0" { print 1; exit }')
+# cc370 >= 1.2.0, read from the driver's banner ("cc370 1.3.0 (1c8181e), ...").
+CC370_ENTRY_AUTOCALL := $(shell $(CC) --version 2>/dev/null | awk 'NR == 1 { split($$2, v, "."); if (v[1] > 1 || (v[1] == 1 && v[2] >= 2)) print 1; exit }')
+# A libc.a from before 2.3.0 has no CRT member: such a sysroot keeps linking
+# its crt0.o/crt1.o exactly as before -- said once, not silently.
+ifneq ($(CRT_IN_LIBC),1)
+  ifneq ($(wildcard $(LIBCDIR)/crt0.o),)
+    $(info [mbt] WARNING: $(LIBCDIR)/libc.a has no @@CRT0 (libc370 < 2.3.0); linking crt0.o/crt1.o from the sysroot)
+  endif
+endif
 
 # ld370 has no built-in library search path, so the sysroot lib dirs must
 # be passed explicitly: cc370's own (libcc370rt.a) and libc370's (-lc).
@@ -195,39 +212,43 @@ $(BUILDDIR)/%.o: %.s
 # Called by the generated module rules below.
 # $(1) = entry, $(2) = name, $(3) = objects, $(4) = AC, $(5) = the ld370
 # attribute flags (--rent/--norent/--reus/--noreus/--refr, from rent/reus/refr
-# in project.toml, cc370#100), $(6) unused
+# in project.toml, cc370#100), $(6) the startfile (see LINK_C)
 # AC/attributes/aliases are passed by VALUE (looked up by the make-safe key
 # in the rule) so they resolve even for a module name carrying '#'.  $(7) is
 # the module's alias list, one --alias per name (#112).
 #
-# $(LIBC_FIRST) is empty for modules and '-lc' for tests (set as a
-# target-specific variable on TEST_IMGS below).  crt0/crt1/crtm all declare
-# @@START as an unresolved ER, so autocall takes it from whichever archive
-# comes first: a dependency that exports @@START (httpd's CGI launcher) wins
-# over libc370 and the module runs as a CGI, exiting CC 12 before main().
-# Modules keep that behaviour on purpose -- CGI modules need the dependency's
-# @@START -- but tests must always get libc370's batch startup.  libc is then
-# named twice (first for @@START, last so the dependencies' own libc
-# references still resolve); ld370 handles the repeat without complaint.
+# $(6) is the startfile a C module names on a sysroot without the CRT in
+# libc.a (crt0/crt1, MODULE_<key>_STARTFILE); $(8) is 1 for dep_startup = true.
+#
+# Which @@START a module gets (#62): the CRT declares it as an unresolved ER,
+# and autocall takes it from whichever archive comes first.  libc370 is named
+# ahead of the dependencies, so every module and test gets libc370's @@START
+# -- unless it sets dep_startup = true, which leaves libc out of the front so
+# a dependency's @@START (httpd's CGI launcher) wins.  Before #62 that was the
+# default for modules and depended on nothing but archive order: one
+# dependency that exported @@START silently rewired every module.  libc is
+# named again last, so the dependencies' own libc references still resolve;
+# ld370 handles the repeat without complaint.  A module that defines @@START
+# itself (an explicit object) wins either way.
 
-define LINK_CRT0
-	$(E) "[ld370] $(2) (entry=$(1), crt0)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT0) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),$(5) ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
-endef
-
-define LINK_CRT1
-	$(E) "[ld370] $(2) (entry=$(1), crt1)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRT1) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),$(5) ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
+# A C program: no startfile.  ld370 pulls @@CRT0 out of libc.a by the entry
+# name -- or a cc370 main() stub's hard reference pulls it first.  On an old
+# sysroot (no @@CRT0 in libc.a) the module's crt0.o/crt1.o goes first, as
+# before #158.
+define LINK_C
+	$(if $(CRT_IN_LIBC),$(if $(CC370_ENTRY_AUTOCALL),,$(error $(2): libc370 has its CRT in libc.a, which ld370 only finds by the entry name from cc370 1.2.0 on -- upgrade cc370)))
+	$(E) "[ld370] $(2) (entry=$(1)$(if $(CRT_IN_LIBC),,, $(6))$(if $(8), [dep startup]))"
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(if $(CRT_IN_LIBC),,$(LIBCDIR)/$(6).o) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(if $(8),,-lc) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),$(5) ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_CRTM
 	$(E) "[ld370] $(2) (entry=$(1), crtm)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),$(5) ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(CRTM) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(if $(8),,-lc) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),$(5) ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 define LINK_NOCRT
 	$(E) "[ld370] $(2) (entry=$(1), no crt)"
-	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(LIBC_FIRST) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),$(5) ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
+	$(Q)$(LD) $(LDFLAGS) $(LDLIBDIR) -e $(1) $(3) $(INTERNAL_ARCHIVE) $(CC370RT) $(if $(8),,-lc) $(DEP_LIBS) -lc $(if $(4),--ac $(4) ,)$(if $(5),$(5) ,)$(foreach a,$(7),--alias $(a) )-iebcopy -o $(BUILDDIR)/$(2)
 endef
 
 # -- Auto-generate link rules for each module/test ----------------
@@ -236,7 +257,7 @@ endef
 # module length), so 'deploy' can ld370 --pack them into one LINKLIB XMIT.
 # For each MODULE and TEST, create:
 #   build/NAME.iebcopy: build/obj1.o build/obj2.o ...
-#       $(call LINK_xxx, ENTRY, NAME, $^, AC, ATTRS, , ALIASES)
+#       $(call LINK_xxx, ENTRY, NAME, $^, AC, ATTRS, STARTFILE, ALIASES, DEP_STARTUP)
 #   name (lowercase): build/NAME.iebcopy    <- alias
 
 # $(1) is the make-safe key; the real member name is MODULE_$(1)_NAME (may
@@ -246,15 +267,16 @@ endef
 # newer libc370, compiler runtime, startup object or dependency archive relinks
 # (#103).  Without it a sysroot upgrade or a 'make deps' changed no file make
 # looked at, and 'make' reported the module built while linking nothing -- the
-# old module then went out with 'make deploy'.  All three startup objects are
-# listed for every module, which costs at most an extra relink when one of the
-# other two changes.  $(wildcard) keeps a file that is absent (no
-# libcc370rt.a before cc370 1.1.0) from becoming a target make cannot build.
-LINK_INPUTS := $(wildcard $(LIBCDIR)/libc.a $(SYSROOT)/lib/libcc370rt.a $(CRT0) $(CRT1) $(CRTM)) $(DEP_LIBS)
+# old module then went out with 'make deploy'.  The startup objects a link
+# can still name -- crtm.o, and crt0.o/crt1.o on a sysroot without the CRT in
+# libc.a -- are listed for every module, which costs at most an extra relink.
+# $(wildcard) keeps a file that is absent (no libcc370rt.a before cc370
+# 1.1.0) from becoming a target make cannot build.
+LINK_INPUTS := $(wildcard $(LIBCDIR)/libc.a $(SYSROOT)/lib/libcc370rt.a $(CRTM) $(if $(CRT_IN_LIBC),,$(LIBCDIR)/crt0.o $(LIBCDIR)/crt1.o)) $(DEP_LIBS)
 
 define _MODULE_RULE
 $(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy: $$(MODULE_$(1)_OBJS) $(INTERNAL_ARCHIVE) $(LINK_INPUTS)
-	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$$(MODULE_$(1)_NAME),$$(MODULE_$(1)_OBJS),$$(MODULE_$(1)_AC),$$(MODULE_$(1)_ATTRS),,$$(MODULE_$(1)_ALIASES))
+	$$(call $$(MODULE_$(1)_LINK_CMD),$$(MODULE_$(1)_ENTRY),$$(MODULE_$(1)_NAME),$$(MODULE_$(1)_OBJS),$$(MODULE_$(1)_AC),$$(MODULE_$(1)_ATTRS),$$(MODULE_$(1)_STARTFILE),$$(MODULE_$(1)_ALIASES),$$(MODULE_$(1)_DEP_STARTUP))
 
 .PHONY: $$(MODULE_$(1)_ALIAS)
 $$(MODULE_$(1)_ALIAS): $(BUILDDIR)/$$(MODULE_$(1)_NAME).iebcopy
@@ -279,9 +301,19 @@ TEST_IMGS   := $(foreach t,$(TESTS),$(BUILDDIR)/$(MODULE_$(t)_NAME).iebcopy)
 # (after both lists exist -- a prerequisite list is expanded when read)
 $(MODULE_IMGS) $(TEST_IMGS): | module-data
 
-# Tests link libc370 first so they get its @@START, never a dependency's
-# (see the LINK_* helpers above).  Modules are left untouched.
-$(TEST_IMGS): LIBC_FIRST := -lc
+# A module that does not say where its @@START comes from, while a dependency
+# archive defines one, is a configuration error (#62): left alone it would get
+# libc370's @@START and build green -- a CGI module without its HTTP header.
+# Checked before any module links; re-checked when a dependency or
+# project.toml changes.
+DEP_STARTUP_STAMP := .mbt/dep-startup-checked
+
+$(DEP_STARTUP_STAMP): $(DEP_LIBS) project.toml
+	$(Q)python3 $(MBT_SCRIPTS)/mbtconfig.py --project project.toml \
+	    --ar $(AR) --check-dep-startup $(DEP_LIBS)
+	$(Q)touch $@
+
+$(MODULE_IMGS): | $(DEP_STARTUP_STAMP)
 
 # -- Include generated header dependencies -------------------------
 # Missing on the first build (-include ignores them); present and

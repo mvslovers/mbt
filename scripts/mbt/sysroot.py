@@ -1,7 +1,7 @@
 """cc370 sysroot discovery and the libc370 version installed in it.
 
 The sysroot carries no version marker -- libc370's `make install` copies
-headers, macros, libc.a and the crt objects and nothing else, and the
+headers, macros, libc.a and the startup objects and nothing else, and the
 installed clibver.h only declares `libc370_version()`. The version is only
 reachable through the build stamp baked into the archive, EBCDIC-encoded
 because it is a target string constant:
@@ -30,14 +30,16 @@ _ENCODINGS = ("cp037", "latin-1")
 
 
 def libc_dir(sysroot: str | Path) -> Path | None:
-    """Where libc370's crt*.o and libc.a are, below a cc370 sysroot.
+    """Where libc370's libc.a (and crtm.o) are, below a cc370 sysroot.
 
     In cc370's own tree (<sysroot>/lib), or from cc370 1.2.0 in its second
     sysroot <sysroot>/libc370/lib, searched after the first (cc370#726, #144).
-    Mirrors LIBCDIR in mk/mbt.mk.
+    Found by libc.a, the one file every libc370 installs -- the CRT is a
+    member of it since libc370 2.3.0 (#158); crt0.o still counts, so an older
+    sysroot is found as before. Mirrors LIBCDIR in mk/mbt.mk.
     """
     for d in (Path(sysroot) / "lib", Path(sysroot) / "libc370" / "lib"):
-        if (d / "crt0.o").exists():
+        if (d / "libc.a").exists() or (d / "crt0.o").exists():
             return d
     return None
 
@@ -52,7 +54,7 @@ def derive_sysroot() -> Path | None:
     Falls back to ~/.local/cc370.
 
     Returns:
-        The sysroot path, or None if no candidate holds crt0.o
+        The sysroot path, or None if no candidate holds libc370
     """
     cc = shutil.which("cc370")
     if cc:
