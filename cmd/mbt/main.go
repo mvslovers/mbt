@@ -560,8 +560,8 @@ func cmdDeps(args []string) int {
 	root, _ := os.Getwd()
 	err := deps.Run(root, "project.toml", deps.Options{
 		Update: *update,
-		Log:  func(s string) { fmt.Printf("[mbt] %s\n", s) },
-		Warn: func(s string) { fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", s) },
+		Log:    func(s string) { fmt.Printf("[mbt] %s\n", s) },
+		Warn:   func(s string) { fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", s) },
 	})
 	if err != nil {
 		return fail(err)

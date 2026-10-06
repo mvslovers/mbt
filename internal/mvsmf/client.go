@@ -1,15 +1,13 @@
 // Package mvsmf talks to MVS through mvsMF's z/OSMF-compatible REST API,
 // as mbt v2's scripts/mbt/mvsmf.py does.
 //
-// Requests go out as HTTP/1.0, as v2 forces them, written by hand on the
-// connection: Go's client always speaks HTTP/1.1, and what mvsMF does with
-// that has not been measured.  Paths are percent-encoded exactly as Python's
+// Requests go out with Go's standard client (HTTP/1.1, which mvsMF speaks;
+// mbt 2 forced HTTP/1.0).  Paths are percent-encoded exactly as Python's
 // urllib.parse.quote(path, safe='/?=&()') does, so '#', '$' and '@' in a
 // dataset name travel the same way.
 package mvsmf
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
@@ -79,53 +77,50 @@ func (c *Client) do(r request) ([]byte, error) {
 	if r.accept == "" {
 		r.accept = "application/json"
 	}
-	path := "/zosmf" + quote(r.path)
 	addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
-	conn, err := net.DialTimeout("tcp", addr, r.timeout)
-	if err != nil {
-		return nil, errf("Connection failed to http://%s%s: %v", addr, path, err)
-	}
-	defer conn.Close()
-	conn.SetDeadline(time.Now().Add(r.timeout))
-	var req bytes.Buffer
-	fmt.Fprintf(&req, "%s %s HTTP/1.0\r\n", r.method, path)
-	fmt.Fprintf(&req, "Host: %s\r\n", addr)
-	fmt.Fprintf(&req, "Authorization: Basic %s\r\n", c.auth)
-	fmt.Fprintf(&req, "Accept: %s\r\n", r.accept)
-	fmt.Fprintf(&req, "User-Agent: mbt/3\r\n")
+	url := "http://" + addr + "/zosmf" + quote(r.path)
+	var body io.Reader
 	if r.body != nil {
-		fmt.Fprintf(&req, "Content-Type: %s\r\n", r.contentType)
-		fmt.Fprintf(&req, "Content-Length: %d\r\n", len(r.body))
+		body = bytes.NewReader(r.body)
+	}
+	req, err := http.NewRequest(r.method, url, body)
+	if err != nil {
+		return nil, errf("bad request %s %s: %v", r.method, r.path, err)
+	}
+	req.Header.Set("Authorization", "Basic "+c.auth)
+	req.Header.Set("Accept", r.accept)
+	req.Header.Set("User-Agent", "mbt/3")
+	if r.body != nil {
+		req.Header.Set("Content-Type", r.contentType)
 	}
 	for k, v := range r.extra {
-		fmt.Fprintf(&req, "%s: %s\r\n", k, v)
+		req.Header.Set(k, v)
 	}
-	req.WriteString("Connection: close\r\n\r\n")
-	req.Write(r.body)
-	if _, err := conn.Write(req.Bytes()); err != nil {
-		return nil, errf("Connection lost during %s %s: %v", r.method, r.path, err)
-	}
-	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	resp, err := (&http.Client{Timeout: r.timeout}).Do(req)
 	if err != nil {
 		var ne net.Error
 		if errors.As(err, &ne) && ne.Timeout() {
 			return nil, errf("No response to %s %s within %ds (read timeout)", r.method, r.path, int(r.timeout.Seconds()))
 		}
+		var oe *net.OpError
+		if errors.As(err, &oe) && oe.Op == "dial" {
+			return nil, errf("Connection failed to %s: %v", url, oe.Err)
+		}
 		return nil, errf("Connection lost during %s %s: %v", r.method, r.path, err)
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errf("Connection lost during %s %s: %v", r.method, r.path, err)
 	}
 	if resp.StatusCode >= 400 {
 		msg := fmt.Sprintf("HTTP %d %s for %s %s", resp.StatusCode, http.StatusText(resp.StatusCode), r.method, r.path)
-		if len(body) > 0 {
-			msg += ": " + string(body)
+		if len(data) > 0 {
+			msg += ": " + string(data)
 		}
 		return nil, &Error{msg}
 	}
-	return body, nil
+	return data, nil
 }
 
 func (c *Client) jsonDo(method, path string, body any) (map[string]any, []any, error) {

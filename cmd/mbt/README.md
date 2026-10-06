@@ -40,7 +40,7 @@ and summary.
 against a local stand-in for mvsMF; not yet run against a real system).
 `mbt compiledb` writes the same `compile_commands.json` (mbt's own include
 directory aside: `.mbt/include` instead of the submodule's).
-Requests go out as HTTP/1.0, as mbt 2 forces them.
+Requests go out with Go's standard HTTP/1.1 client (mbt 2 forced HTTP/1.0).
 `mbt doctor` checks what `make doctor` checks; its configuration table
 masks `MVS_PASS`, which mbt 2 printed in clear.
 
