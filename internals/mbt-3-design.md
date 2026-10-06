@@ -78,7 +78,7 @@ mbt deploy [--target NAME]  # into the DEV library on a named target
 mbt release [--pre]
 mbt doctor                  # toolchain + every configured target
 mbt run <task>              # a project-defined task (section 9)
-mbt mvs up / down           # local MVS/CE in Docker
+mbt target ping / info      # is a system there, and what runs on it (section 7)
 mbt mcp                     # MCP server for mvsMF (section 12)
 ```
 
@@ -143,6 +143,9 @@ The reusable workflows move with it: a consumer pins `uses:` to the same tag
 as `[toolchain] mbt`, so workflow and tool can no longer drift apart.
 
 ## 6. The project file — **Decided: TOML in `mbt.toml`, plus an optional `mbt.lua`** (2026-10-05)
+
+*Where the Lua lives changed on 2026-10-06: `mbt/init.lua`, with modules in
+`mbt/lua/` (`mbt-3-extensions.md` §2). The text below says `mbt.lua`.*
 
 ### 6.1 Cleanup, independent of the format
 
@@ -531,7 +534,16 @@ layout and the file). Built with the project tasks of phasing step 4: until
 then a project builds the stream in a task of its own and puts it into
 `dist/`.
 
-## 7. Targets instead of `.env` — **Proposed**
+## 7. Targets instead of `.env` — **Superseded** (2026-10-06)
+
+**Settled in the concept rounds of 2026-10-06; the result is
+[`mbt-3-extensions.md`](mbt-3-extensions.md) §4:** targets live in
+`~/.mbt/targets.toml` (mvsMF required; Hercules, SSH, TN3270 optional, each with
+its own credentials), CI sets them through environment variables, `mbt target
+ping / info` replace waiting loops, and mbt does not start or stop MVS (no
+`mbt mvs up/down`). The sketch below is the earlier proposal. Two of its points
+were not discussed in those rounds and remain proposals: read-only targets
+(`write = false`) and `mbt test --mvs --target all`.
 
 MVS systems get names and live in a per-user configuration that is never
 checked in:
@@ -756,7 +768,7 @@ tooling, scanners or a Homebrew automation will follow. So:
   incompatible change to generated code or the ABI. Prebuilt *project*
   archives still need mbt's metadata (8.4) to be checked against it.
 
-## 9. Extensions — **Decided: Lua** (version: **Open**)
+## 9. Extensions — **Decided: Lua 5.4, in pure Go** (2026-10-06)
 
 Some projects need things mbt does not do. Instead of a Makefile next to the
 project file, an extension is a Lua script that works through a context mbt
@@ -796,34 +808,32 @@ mbt.task {
 - `mbt.hook("pre-release", fn)` hooks into existing phases;
   `mbt.command("deploy-desktop", fn)` becomes `mbt run deploy-desktop`.
 - Extensions can be packages: `[plugins] "mvslovers/mbt-ufs" = "^1"`, resolved
-  like dependencies, so httpd and httplua share one webroot plugin.
+  like dependencies, so projects that build a UFS image share one plugin.
 
 What today's Makefiles do and where it would go:
 
 | Today | Where | Proposed |
 |---|---|---|
-| Docker `run-mvs` / `stop-mvs` | mvsmf, rexx370, nsf370 (near-identical copies) | built in: `mbt mvs up/down` |
+| Docker `run-mvs` / `stop-mvs` | mvsmf, rexx370, nsf370 (near-identical copies) | dropped: CI starts its own container; locally a command in `~/.mbt/init.lua` if wanted |
 | `buildid.h` from the git hash | mvsmf | dropped — mbt already generates `buildstamp.h` |
 | Webroot UFS image with pinned ufsd-utils | httpd | Lua task |
 | Desktop upload into the UFS | mvsmf | Lua command |
 
-**Decided (2026-10-06): tasks start as data in `mbt.toml`.** Every step the
-projects' Makefiles carry today -- httpd's webroot, mvsMF's desktop upload,
-brexx370's usermod stream -- is a fixed sequence of commands. So step 4 builds
-`[task.NAME]` (argv lists, no shell, `inputs`/`outputs`, `before = [...]`)
-and `[tools]` (pinned in `mbt.lock`), and `mbt mvs up/down` for the docker
-targets; reference in `internals/mbt-3-schema.md`. The Lua context above
-comes when a project needs logic, together with the answer to the version
-question below. A TOML task and a later `mbt.task{}` describe the same
-thing, so nothing written now is thrown away.
-
-**Open: Lua 5.1 or 5.4.**
+**Decided (2026-10-06), in concept rounds with the maintainer: Lua 5.4, in
+pure Go.** The result, for discussion with the community, is
+[`mbt-3-extensions.md`](mbt-3-extensions.md): project Lua in `mbt/init.lua`
+(modules in `mbt/lua/`), yours in `~/.mbt/init.lua`, plugins pinned in
+`mbt.lock` with a declared list of the programs they run; hooks before and
+after each command that act but never change the build; tasks and commands as
+above; one mvsMF session per run, the password never in Lua. A first attempt
+with tasks as plain TOML (#169) was built, measured and dropped in favour of
+one model.
 
 | Option | For | Against |
 |---|---|---|
 | gopher-lua (pure Go, Lua 5.1) | mature; trivial cross-compilation | a different Lua than lua370 on MVS |
 | Lua 5.4 reference implementation via cgo | the same Lua as lua370 | CI needs native runners per platform instead of `GOOS=… go build` |
-| A pure-Go Lua 5.4 | both of the above | maturity unknown — needs evaluation |
+| **A pure-Go Lua 5.4** — chosen | both of the above | maturity: the candidate, arnodel/golua, is at v0.3.0; a spike checks sandbox, speed and standard library before anything is built on it |
 
 ## 10. Languages — **Proposed**
 
@@ -1211,7 +1221,8 @@ on in its project file instead of copying workflow YAML.
 
 1. ~~**Project file format**~~ — decided 2026-10-05: TOML, plus an optional
    `mbt.lua` (section 6.3).
-2. **Lua version for extensions:** 5.1 (gopher-lua) or 5.4 (cgo or pure Go)?
+2. ~~**Lua version for extensions**~~ — decided 2026-10-06: Lua 5.4 in pure Go
+   (section 9, `mbt-3-extensions.md`).
 3. **Toolchain and artifacts** (section 8.5): per-project libc370 pinning
    with a shared cc370 (one tree per pair, or a driver option), and a nightly
    channel. The sysroot and the compatibility rule are settled (8.0).
@@ -1246,7 +1257,8 @@ on in its project file instead of copying workflow YAML.
 1. ~~Toolchain groundwork~~ — **done on the toolchain side** (2026-10-03,
    section 8.0); mbt's artifact metadata moves into step 3.
 2. ~~Settle the project file and the launcher~~ — **decided** (2026-10-05):
-   TOML in `mbt.toml` plus an optional `mbt.lua` (section 6), and the
+   TOML in `mbt.toml` plus optional Lua (section 6; it lives in `mbt/init.lua`,
+   `mbt-3-extensions.md`), and the
    launcher with `[toolchain] mbt` (section 5). The schema 3 details are
    settled (2026-10-06): `internals/mbt-3-schema.md`.
 3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
