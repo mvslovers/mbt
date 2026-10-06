@@ -110,49 +110,94 @@ func TestResolveStageAndLock(t *testing.T) {
 	}
 }
 
-func TestDrift(t *testing.T) {
+func lockOf(t *testing.T, root string) []byte {
+	data, _ := os.ReadFile(filepath.Join(root, "mbt.lock"))
+	return data
+}
+
+func staged(root string) string {
+	h, _ := os.ReadFile(filepath.Join(root, ".mbt/deps/lib/include/lib.h"))
+	return string(h)
+}
+
+// The lock moves only with --update; a republished prerelease stays
+// buildable from the SHA-addressed cache.
+func TestStrictLock(t *testing.T) {
 	gh := &fakeGitHub{rels: map[string]bool{"1.0.0": false, "2.0.0-dev": true}, data: map[string][]byte{}}
 	gh.data["1.0.0"] = libTarball(t, "lib", "1.0.0", "a")
-	gh.data["2.0.0-dev"] = libTarball(t, "lib", "2.0.0-dev", "a")
+	gh.data["2.0.0-dev"] = libTarball(t, "lib", "2.0.0-dev", "old")
 	srv := gh.server(t)
 	defer srv.Close()
 
-	// stable: a changed asset is an error
+	// stable: a changed asset is an error, the lock stays
 	root, o, _ := setup(t, ">=1.0.0")
 	o.API = srv.URL
 	if err := Run(root, "project.toml", o); err != nil {
 		t.Fatal(err)
 	}
+	before := lockOf(t, root)
 	gh.data["1.0.0"] = libTarball(t, "lib", "1.0.0", "b")
 	os.RemoveAll(o.Cache)
 	if err := Run(root, "project.toml", o); code(err) != 3 {
 		t.Errorf("stable drift: %v", err)
 	}
+	if !bytes.Equal(before, lockOf(t, root)) {
+		t.Error("stable drift changed mbt.lock")
+	}
 
-	// prerelease: accepted with a warning and re-pinned -- unless --locked
-	root, o, warns := setup(t, ">=2.0.0-dev")
+	// prerelease republished, locked archive in the cache: still builds it
+	root, o, _ = setup(t, ">=2.0.0-dev")
 	o.API = srv.URL
 	if err := Run(root, "project.toml", o); err != nil {
 		t.Fatal(err)
 	}
-	before, _ := os.ReadFile(filepath.Join(root, "mbt.lock"))
-	gh.data["2.0.0-dev"] = libTarball(t, "lib", "2.0.0-dev", "b")
-	o.Locked = true
-	if err := Run(root, "project.toml", o); code(err) != 3 {
-		t.Errorf("prerelease drift under --locked: %v", err)
-	}
-	if after, _ := os.ReadFile(filepath.Join(root, "mbt.lock")); !bytes.Equal(before, after) {
-		t.Error("--locked changed mbt.lock")
-	}
-	o.Locked = false
+	before = lockOf(t, root)
+	gh.data["2.0.0-dev"] = libTarball(t, "lib", "2.0.0-dev", "new")
 	if err := Run(root, "project.toml", o); err != nil {
-		t.Fatalf("prerelease drift: %v", err)
+		t.Fatalf("republished prerelease with the locked archive cached: %v", err)
 	}
-	if len(*warns) != 1 || !strings.Contains((*warns)[0], "rolling prerelease") {
-		t.Errorf("warnings: %q", *warns)
+	if !bytes.Equal(before, lockOf(t, root)) || staged(root) != "/* old */\n" {
+		t.Errorf("lock changed or wrong archive staged: %q", staged(root))
 	}
-	if after, _ := os.ReadFile(filepath.Join(root, "mbt.lock")); bytes.Equal(before, after) {
-		t.Error("prerelease drift was not re-pinned")
+
+	// ... and on a machine without that archive: an error, the lock stays
+	o.Cache = t.TempDir()
+	if err := Run(root, "project.toml", o); code(err) != 3 || !strings.Contains(err.Error(), "republished") {
+		t.Errorf("republished prerelease, nothing cached: %v", err)
+	}
+	if !bytes.Equal(before, lockOf(t, root)) {
+		t.Error("an error changed mbt.lock")
+	}
+
+	// --update pins the new one
+	o.Update = true
+	if err := Run(root, "project.toml", o); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(before, lockOf(t, root)) || staged(root) != "/* new */\n" {
+		t.Error("--update did not re-pin")
+	}
+}
+
+func TestLockAndConstraint(t *testing.T) {
+	gh := &fakeGitHub{rels: map[string]bool{"1.0.0": false, "2.0.0": false}, data: map[string][]byte{}}
+	gh.data["1.0.0"] = libTarball(t, "lib", "1.0.0", "a")
+	gh.data["2.0.0"] = libTarball(t, "lib", "2.0.0", "b")
+	srv := gh.server(t)
+	defer srv.Close()
+	root, o, _ := setup(t, "<2.0.0")
+	o.API = srv.URL
+	if err := Run(root, "project.toml", o); err != nil {
+		t.Fatal(err)
+	}
+	// the range moved past the pin: an error until --update
+	os.WriteFile(filepath.Join(root, "project.toml"), []byte("[dependencies]\n\"o/lib\" = \">=2.0.0\"\n"), 0o644)
+	if err := Run(root, "project.toml", o); code(err) != 3 || !strings.Contains(err.Error(), "--update") {
+		t.Errorf("pin outside the range: %v", err)
+	}
+	o.Update = true
+	if err := Run(root, "project.toml", o); err != nil || !strings.Contains(string(lockOf(t, root)), "2.0.0") {
+		t.Errorf("--update: %v\n%s", err, lockOf(t, root))
 	}
 }
 
@@ -172,5 +217,24 @@ func TestOfflineFallsBackToCache(t *testing.T) {
 	}
 	if len(*warns) != 1 || !strings.Contains((*warns)[0], "from the local cache") {
 		t.Errorf("warnings: %q", *warns)
+	}
+}
+
+// A dependency newly declared is added to an existing lock, one no longer
+// declared is dropped: deliberate edits, not drift.
+func TestLockFollowsDeclarations(t *testing.T) {
+	gh := &fakeGitHub{rels: map[string]bool{"1.0.0": false}, data: map[string][]byte{}}
+	gh.data["1.0.0"] = libTarball(t, "lib", "1.0.0", "a")
+	srv := gh.server(t)
+	defer srv.Close()
+	root, o, _ := setup(t, ">=1.0.0")
+	o.API = srv.URL
+	os.WriteFile(filepath.Join(root, "mbt.lock"), []byte("{\n  \"o/gone\": {\n    \"sha256\": \"x\",\n    \"version\": \"1.0.0\"\n  }\n}\n"), 0o644)
+	if err := Run(root, "project.toml", o); err != nil {
+		t.Fatal(err)
+	}
+	l := string(lockOf(t, root))
+	if !strings.Contains(l, "\"o/lib\"") || strings.Contains(l, "o/gone") {
+		t.Errorf("lock:\n%s", l)
 	}
 }

@@ -54,7 +54,7 @@ func usage() {
 
 commands:
   build [--all] [--tests] [NAME...]   build the primary deliverable, or more
-  deps [--update] [--locked]          resolve, download and stage dependencies
+  deps [--update]                     stage dependencies as pinned in mbt.lock
   module-data [--all]                 check for writable data in RENT/AC(1) modules
   package                             build, then write the release artifacts to dist/
   test [--only NAME]... [-v]          build and run the dual tests on the host
@@ -554,13 +554,12 @@ func rawTable(m map[string]any, key string) map[string]any {
 func cmdDeps(args []string) int {
 	fl := flag.NewFlagSet("deps", flag.ContinueOnError)
 	update := fl.Bool("update", false, "re-resolve every range and rewrite mbt.lock")
-	locked := fl.Bool("locked", false, "fail instead of changing mbt.lock")
 	if err := fl.Parse(args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
 	err := deps.Run(root, "project.toml", deps.Options{
-		Update: *update, Locked: *locked,
+		Update: *update,
 		Log:  func(s string) { fmt.Printf("[mbt] %s\n", s) },
 		Warn: func(s string) { fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", s) },
 	})

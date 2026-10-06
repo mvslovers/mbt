@@ -2,11 +2,16 @@
 // downloads each {repo}-{version}-lib.tar.gz, stages it under .mbt/deps and
 // pins it in mbt.lock -- mbt v2's `make deps` (scripts/mbtdeps.py).
 //
-// The lock is the real pin.  As in v2, a stable release whose asset changed
-// is an error, while a prerelease (-dev, -rcN) is a rolling tag whose drift is
-// accepted with a warning and re-pinned (mbt#52).  --locked makes every drift,
-// and every change to the lock, an error -- for builds that must be
-// reproducible, and for the acceptance comparison.
+// The lock is the pin, and nothing but `mbt deps --update` moves it: a locked
+// version that no longer fits its range, or an asset whose SHA-256 differs
+// from the lock -- a republished -dev prerelease included -- is an error.
+// (mbt 2 accepted a drifted prerelease with a warning and rewrote the lock,
+// #52; that made two builds of one commit link different code.)  A missing
+// mbt.lock is created, and a dependency newly declared is added: both are
+// deliberate edits, not drift.
+//
+// Archives are cached by their SHA-256, so a locked prerelease stays
+// buildable after its tag moved on, as long as this machine fetched it once.
 package deps
 
 import (
@@ -42,7 +47,6 @@ func depErr(format string, a ...any) error { return &Error{3, fmt.Sprintf(format
 // Options for one run.
 type Options struct {
 	Update bool // re-resolve every range, rewrite the lock
-	Locked bool // the lock must not change: drift and re-resolution are errors
 	Log    func(string)
 	Warn   func(string)
 	// API is the GitHub API base (tests point it at a local server).
@@ -127,23 +131,20 @@ func Run(root, projectFile string, o Options) error {
 			continue
 		}
 
-		keep := !o.Update && hasLock && lockFits(locked, constraint)
-		if hasLock && !keep && !o.Update {
-			if o.Locked {
-				return depErr("%s: locked '%s' no longer fits '%s' (--locked)", key, locked.Version, constraint)
-			}
-			o.Warn(fmt.Sprintf("%s: locked '%s' no longer fits '%s'; re-resolving this entry", key, locked.Version, constraint))
+		keep := !o.Update && hasLock
+		if keep && !lockFits(locked, constraint) {
+			return depErr("%s: locked '%s' no longer fits '%s' -- run 'mbt deps --update' to re-resolve", key, locked.Version, constraint)
 		}
 		var ver string
 		if keep {
 			ver = locked.Version
 		} else {
-			if o.Locked {
-				return depErr("%s: not in mbt.lock (--locked)", key)
-			}
 			ver, err = resolve(o, owner, repo, constraint)
 			if err != nil {
 				return err
+			}
+			if !o.Update && !hasLock && len(lock) > 0 {
+				o.Log(fmt.Sprintf("%s: not in mbt.lock yet -- adding it", key))
 			}
 		}
 		v, err := version.Parse(ver)
@@ -153,23 +154,32 @@ func Run(root, projectFile string, o Options) error {
 		o.Log(fmt.Sprintf("%s %s -> %s", key, constraint, ver))
 
 		asset := fmt.Sprintf("%s-%s-lib.tar.gz", repo, ver)
-		tarball, err := fetch(o, owner, repo, ver, asset, v.IsPre())
-		if err != nil {
-			return err
+		var tarball string
+		if keep && locked.SHA256 != "" {
+			// the locked archive itself, if this machine ever fetched it
+			if p := cachedBySHA(o, owner, repo, ver, locked.SHA256, asset); p != "" {
+				tarball = p
+			}
+		}
+		if tarball == "" {
+			tarball, err = fetch(o, owner, repo, ver, asset, v.IsPre())
+			if err != nil {
+				return err
+			}
 		}
 		sha, err := sha256File(tarball)
 		if err != nil {
 			return err
 		}
 		if keep && locked.SHA256 != "" && locked.SHA256 != sha {
-			switch {
-			case o.Locked:
-				return depErr("%s %s: lib SHA changed (%s -> %s) (--locked)", key, ver, locked.SHA256[:12], sha[:12])
-			case !v.IsPre():
-				return depErr("%s %s: lib SHA changed (%s -> %s) for a stable release. Run 'mbt deps --update' to re-pin.", key, ver, locked.SHA256[:12], sha[:12])
-			default:
-				o.Warn(fmt.Sprintf("%s %s: prerelease asset changed (%s -> %s); accepting (rolling prerelease). Re-pin with a stable release for reproducibility.", key, ver, locked.SHA256[:12], sha[:12]))
+			what := "the release asset changed"
+			if v.IsPre() {
+				what = "the prerelease was republished, and the locked archive is not in the local cache"
 			}
+			return depErr("%s %s: lib SHA %s differs from mbt.lock (%s) -- %s. Run 'mbt deps --update' to pin the new one.", key, ver, sha[:12], locked.SHA256[:12], what)
+		}
+		if err := keepBySHA(o, owner, repo, ver, sha, asset, tarball); err != nil {
+			return err
 		}
 		dest := filepath.Join(depsDir, repo)
 		if err := stage(tarball, dest); err != nil {
@@ -182,9 +192,6 @@ func Run(root, projectFile string, o Options) error {
 	data := lockJSON(newLock)
 	old, _ := os.ReadFile(lockPath)
 	if string(old) != string(data) {
-		if o.Locked {
-			return depErr("mbt.lock would change (--locked)")
-		}
 		if err := os.WriteFile(lockPath, data, 0o644); err != nil {
 			return err
 		}
@@ -534,4 +541,29 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return out.Close()
+}
+
+// The SHA-addressed cache: <cache>/<owner>/<repo>/<version>/sha256/<sha>/<asset>.
+
+func shaPath(o Options, owner, repo, ver, sha, asset string) string {
+	return filepath.Join(o.Cache, owner, repo, ver, "sha256", sha, asset)
+}
+
+func cachedBySHA(o Options, owner, repo, ver, sha, asset string) string {
+	p := shaPath(o, owner, repo, ver, sha, asset)
+	if got, err := sha256File(p); err == nil && got == sha {
+		return p
+	}
+	return ""
+}
+
+func keepBySHA(o Options, owner, repo, ver, sha, asset, src string) error {
+	p := shaPath(o, owner, repo, ver, sha, asset)
+	if _, err := os.Stat(p); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return copyFile(src, p)
 }

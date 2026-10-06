@@ -31,9 +31,11 @@ comparison fails.
 python3 internals/acceptance/deps23.py <mbt3-binary> <workdir> PROJ ...
 ```
 
-In checkouts `diff23.py` left behind: `make deps`, then `mbt deps`, each from
-an empty `.mbt/deps`, and compares the staged tree file by file and
-`mbt.lock`.
+In checkouts `diff23.py` left behind: `make deps ARGS=--update`, then
+`mbt deps --update`, each from an empty `.mbt/deps`, and compares the staged
+tree file by file and `mbt.lock`. Without `--update` the two differ on
+purpose: mbt 3 never moves a pin by itself (a drifted SHA is an error), where
+mbt 2 re-pinned a republished prerelease with a warning.
 
 ## `pkg23.py` — release artifacts
 
