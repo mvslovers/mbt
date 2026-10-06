@@ -1,0 +1,161 @@
+# Reusable release workflow for mbt 3 projects (mbt.toml).
+#
+# Usage in a consumer (.github/workflows/release.yml):
+#
+#   on:
+#     push:
+#       tags: ["v*"]
+#   jobs:
+#     release:
+#       uses: mvslovers/mbt/.github/workflows/release3.yml@v3.0.0
+#
+# A tag pushed by `mbt release` or `mbt prerelease` lands here: the tag must
+# match [project] version, the toolchain is the one [toolchain] names (a
+# version means its tag, nothing means main), `mbt package` builds dist/, and
+# dist/* becomes the GitHub release of the tag -- a prerelease when the tag
+# has a '-'. The release of a re-pushed prerelease tag is replaced.
+#
+# mbt itself is installed as in build3.yml (mbt_ref: from source).
+
+name: Release (mbt 3)
+
+on:
+  workflow_call:
+    inputs:
+      cc370_ref:
+        description: "cc370 git ref; overrides [toolchain] cc370 (empty = use it)"
+        type: string
+        default: ""
+      libc370_ref:
+        description: "libc370 git ref; overrides [toolchain] libc370 (empty = use it)"
+        type: string
+        default: ""
+      mbt_ref:
+        description: "build mbt from this ref of mvslovers/mbt instead of installing a release"
+        type: string
+        default: ""
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: mbt from source
+        if: inputs.mbt_ref != ''
+        uses: actions/checkout@v4
+        with:
+          repository: mvslovers/mbt
+          ref: ${{ inputs.mbt_ref }}
+          path: .mbt-src
+      - uses: actions/setup-go@v5
+        if: inputs.mbt_ref != ''
+        with:
+          go-version-file: .mbt-src/go.mod
+      - name: Build mbt
+        if: inputs.mbt_ref != ''
+        run: |
+          (cd .mbt-src && go build -o "$HOME/.mbt-bin/mbt" ./cmd/mbt)
+          rm -rf .mbt-src
+          echo "MBT_NO_SWITCH=1" >> "$GITHUB_ENV"
+      - name: Install mbt
+        if: inputs.mbt_ref == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # the newest mbt 3 release; it switches to the pinned one by itself
+          TAG=$(gh release list -R mvslovers/mbt --limit 100 --json tagName,isDraft \
+                --jq '[.[] | select(.isDraft | not) | .tagName | select(startswith("v3."))][0]')
+          [ -n "$TAG" ] || { echo "[mbt] ERROR: no mbt 3 release on mvslovers/mbt" >&2; exit 3; }
+          VER="${TAG#v}"
+          cd "$RUNNER_TEMP"
+          gh release download "$TAG" -R mvslovers/mbt -p "mbt-$VER-linux-amd64.tar.gz" -p "mbt-$VER-sha256.txt"
+          sha256sum -c --ignore-missing "mbt-$VER-sha256.txt"
+          tar -xzf "mbt-$VER-linux-amd64.tar.gz"
+          install -D "mbt-$VER-linux-amd64/mbt" "$HOME/.mbt-bin/mbt"
+      - name: mbt on PATH
+        run: |
+          # not ~/.local: the toolchain cache restores that directory
+          echo "$HOME/.mbt-bin" >> "$GITHUB_PATH"
+          "$HOME/.mbt-bin/mbt" version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Tag, version and toolchain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          INPUT_CC370_REF: ${{ inputs.cc370_ref }}
+          INPUT_LIBC370_REF: ${{ inputs.libc370_ref }}
+        run: |
+          mbt ci-info > "$RUNNER_TEMP/ci-info"
+          cat "$RUNNER_TEMP/ci-info"
+          . "$RUNNER_TEMP/ci-info"
+          if [ "${GITHUB_REF_NAME#v}" != "$PROJECT_VERSION" ]; then
+            echo "[mbt] ERROR: tag $GITHUB_REF_NAME does not match $PROJECT_FILE version $PROJECT_VERSION" >&2
+            exit 1
+          fi
+          {
+            echo "CC370_REF=${INPUT_CC370_REF:-$CC370_REF}"
+            echo "LIBC370_REF=${INPUT_LIBC370_REF:-$LIBC370_REF}"
+          } >> "$GITHUB_ENV"
+
+      - name: Clone toolchain (cc370 + libc370)
+        run: |
+          echo "[mbt] cc370   @ $CC370_REF"
+          echo "[mbt] libc370 @ $LIBC370_REF"
+          fetch_at() {   # $1 repo, $2 ref, $3 target dir
+            git init -q "$3"
+            git -C "$3" remote add origin "https://github.com/mvslovers/$1.git"
+            if ! git -C "$3" fetch -q --depth 1 origin "$2"; then
+              echo "[mbt] ERROR: $1: no such ref '$2'" >&2
+              exit 1
+            fi
+            git -C "$3" checkout -q --detach FETCH_HEAD
+          }
+          fetch_at cc370   "$CC370_REF"   /tmp/cc370
+          fetch_at libc370 "$LIBC370_REF" /tmp/libc370
+          echo "TC_KEY=$(git -C /tmp/cc370 rev-parse HEAD)-$(git -C /tmp/libc370 rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache toolchain
+        id: tc-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local
+          key: cc370-${{ runner.os }}-${{ env.TC_KEY }}
+
+      - name: Build + install toolchain
+        if: steps.tc-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex
+          # as mbt 2's build.yml: compiler + tools, then the libc370 sysroot
+          make -C /tmp/cc370 install PREFIX="$HOME/.local"
+          export PATH="$HOME/.local/bin:$PATH"
+          make -C /tmp/libc370 install
+
+      - name: Toolchain on PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Dependencies
+        run: mbt deps
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Package
+        run: mbt package
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          gh api "repos/${{ github.repository }}/releases" --paginate \
+            --jq ".[] | select(.tag_name==\"$TAG\") | .id" | while read -r id; do
+            [ -n "$id" ] && gh api -X DELETE "repos/${{ github.repository }}/releases/$id"
+          done
+          PRE=""
+          case "$TAG" in *-*) PRE="--prerelease" ;; esac
+          gh release create "$TAG" $PRE --title "$TAG" --generate-notes dist/*

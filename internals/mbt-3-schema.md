@@ -43,7 +43,8 @@ error (exit 2): mbt does not pick one.
 
 | key | default | from v2 |
 |---|---|---|
-| `libc370` | — | `toolchain.libc370`; schema 3 needs `>= 2.3.0` (the CRT in `libc.a`) |
+| `cc370` | `main` in CI | `toolchain.cc370`: the cc370 release (or git ref) a release is built with |
+| `libc370` | `main` in CI | `toolchain.libc370`; schema 3 needs `>= 2.3.0` (the CRT in `libc.a`). Also the floor a local build checks the installed sysroot against |
 | `mbt` | — | new; read by the launcher (design §5), ignored by the core |
 
 ## `[dependencies]`
