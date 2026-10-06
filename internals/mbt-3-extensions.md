@@ -291,8 +291,9 @@ ufs.webroot { from = "static", image = "build/webroot/httpd-webroot.img", size =
 Two spikes, both go:
 
 - **The Lua engine:** [arnodel/golua](https://github.com/arnodel/golua) v0.3.0,
-  Apache-2.0, no dependencies of its own. It implements **Lua 5.5**; its 5.4
-  line has not moved since November 2025, so mbt follows 5.5. Start-up takes
+  Apache-2.0, one small dependency by the same author (strftime). It
+  implements **Lua 5.5**; its 5.4 line has not moved since November 2025, so
+  mbt follows 5.5. Start-up takes
   about 2 ms. The sandbox holds: no `os`, `io`, `debug`, `dofile` or
   `loadfile`, and `require` reads `mbt/lua/` only. An endless loop is stopped
   by the CPU limit (after about 260 ms), a runaway string by the memory limit.
