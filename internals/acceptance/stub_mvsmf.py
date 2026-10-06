@@ -57,7 +57,16 @@ class H(BaseHTTPRequestHandler):
             return self.send(200, {"jobname": name, "jobid": f"JOB{jobs[0]:05d}"})
         datasets.add(p.split("/")[-1]); return self.send(204)
     def do_POST(self):
-        b = self.body(); record(self, b); datasets.add(urlsplit(self.path).path.split("/")[-1]); self.send(201, {})
+        b = self.body(); record(self, b); p = urlsplit(self.path).path
+        if p == "/zosmf/services/authenticate":   # mbt 3's session logon
+            data = json.dumps({"returnCode": 0, "reasonCode": 0, "message": "Success."}).encode()
+            self.send_response(200); self.send_header("Set-Cookie", "LtpaToken2=stubtoken; Path=/")
+            self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(data)))
+            self.end_headers(); self.wfile.write(data); return
+        datasets.add(p.split("/")[-1]); self.send(201, {})
     def do_DELETE(self):
-        record(self, b""); datasets.discard(urlsplit(self.path).path.split("/")[-1]); self.send(204)
+        record(self, b""); p = urlsplit(self.path).path
+        if p == "/zosmf/services/authenticate":   # mbt 3's session logoff
+            return self.send(204)
+        datasets.discard(p.split("/")[-1]); self.send(204)
 ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()

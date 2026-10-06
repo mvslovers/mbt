@@ -80,6 +80,17 @@ type Options struct {
 	Stdin   io.Reader
 	// CPU and Memory limit one call into Lua (0 = the defaults).
 	CPU, Memory uint64
+	// Target describes the selected MVS system for ctx.target -- never a
+	// password; MVS opens (once) the mvsMF session for ctx.mvs. Both are
+	// asked only when Lua uses them; nil: there is none.
+	Target func() (map[string]any, error)
+	MVS    func() (MVS, error)
+}
+
+// MVS is the mvsMF session as Lua reaches it.
+type MVS interface {
+	Request(method, path, contentType string, body []byte) (int, []byte, error)
+	Token() string
 }
 
 // Engine is the loaded Lua of one mbt invocation.
