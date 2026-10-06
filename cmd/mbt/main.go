@@ -26,14 +26,17 @@ import (
 	"github.com/mvslovers/mbt/internal/deps"
 	"github.com/mvslovers/mbt/internal/dist"
 	"github.com/mvslovers/mbt/internal/hosttest"
+	"github.com/mvslovers/mbt/internal/launch"
 	"github.com/mvslovers/mbt/internal/migrate"
 	"github.com/mvslovers/mbt/internal/moddata"
 	"github.com/mvslovers/mbt/internal/mvsmf"
 	"github.com/mvslovers/mbt/internal/mvstest"
 	"github.com/mvslovers/mbt/internal/pkg"
 	"github.com/mvslovers/mbt/internal/project"
+	"github.com/mvslovers/mbt/internal/release"
 	"github.com/mvslovers/mbt/internal/stamp"
 	"github.com/mvslovers/mbt/internal/toolchain"
+	"github.com/mvslovers/mbt/internal/version"
 )
 
 // Exit codes (spec section 11.1).
@@ -44,7 +47,8 @@ const (
 	exitInternal = 99
 )
 
-var version = "3.0.0-dev"
+// mbtVersion is set by the release build: -ldflags "-X main.mbtVersion=3.0.1".
+var mbtVersion = "3.0.0-dev"
 
 func main() {
 	os.Exit(run(os.Args[1:]))
@@ -68,7 +72,12 @@ commands:
                                       pack the built modules and RECEIVE them on MVS
   compiledb                           write compile_commands.json for clangd
   doctor                              check the toolchain, the sysroot and the MVS connection
+  release VERSION [--next V]          release VERSION-dev as VERSION: bump, tag, push, then bump to V
+  prerelease                          (re)tag the current -dev version and push the tag
   version                             print mbt's version
+
+mbt.toml may pin the mbt to run: [toolchain] mbt = "3.0" (any 3.0.x) or "3.0.2".
+Another version is fetched into ~/.mbt/versions/ and run; MBT_NO_SWITCH=1 keeps this one.
 `)
 }
 
@@ -78,6 +87,20 @@ func run(args []string) int {
 		return exitConfig
 	}
 	switch args[0] {
+	case "help", "-h", "--help":
+	default:
+		// the mbt the project pins, if this is not it (design §5)
+		if handled, code := launch.Switch(mbtVersion, args, launch.Options{}); handled {
+			return code
+		}
+	}
+	switch args[0] {
+	case "release":
+		return cmdRelease(args[1:], false)
+	case "prerelease":
+		return cmdRelease(args[1:], true)
+	case "ci-info":
+		return cmdCIInfo()
 	case "build":
 		return cmdBuild(args[1:])
 	case "deps":
@@ -104,7 +127,7 @@ func run(args []string) int {
 	case "doctor":
 		return cmdDoctor()
 	case "version", "--version":
-		fmt.Println("mbt", version)
+		fmt.Println("mbt", mbtVersion)
 		return exitOK
 	case "help", "-h", "--help":
 		usage()
@@ -196,6 +219,11 @@ func runDist(p *project.Project, mtime time.Time) int {
 		return exitOK
 	}
 	if p.DistError != "" {
+		if v, err := version.Parse(p.Version); err == nil && v.IsPre() {
+			// a development level after a release: nothing to install from it
+			fmt.Fprintf(os.Stderr, "[mbt] WARNING: no SMP package for %s: %s\n", p.Version, p.DistError)
+			return exitOK
+		}
 		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %s\n", p.DistError)
 		return exitConfig
 	}
@@ -284,6 +312,66 @@ func cmdMigrate(args []string) int {
 	}
 	fmt.Printf("[mbt] Wrote mbt.toml (checked against project.toml: same modules, tests, flags and package); removed %s\n", removed)
 	fmt.Println("[mbt] Left to the migrating PR: the Makefile, the mbt submodule (.gitmodules), and CI workflows that call make")
+	return exitOK
+}
+
+func cmdRelease(args []string, pre bool) int {
+	fl := flag.NewFlagSet("release", flag.ContinueOnError)
+	next := fl.String("next", "", "the development version after the release (default: patch+1-dev)")
+	if err := fl.Parse(args); err != nil {
+		return exitConfig
+	}
+	root, _ := os.Getwd()
+	p, err := project.Load(root)
+	if err != nil {
+		return fail(err)
+	}
+	o := release.Options{Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }}
+	if pre {
+		if fl.NArg() != 0 {
+			fmt.Fprintln(os.Stderr, "[mbt] ERROR: prerelease takes no version -- it tags the current one")
+			return exitConfig
+		}
+		err = release.Prerelease(root, p, o)
+	} else {
+		if fl.NArg() != 1 {
+			fmt.Fprintln(os.Stderr, "[mbt] ERROR: usage: mbt release VERSION [--next V]")
+			return exitConfig
+		}
+		err = release.Release(root, p, fl.Arg(0), *next, o)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
+		return exitConfig
+	}
+	return exitOK
+}
+
+// cmdCIInfo prints what the reusable workflows need, one KEY=VALUE per line
+// (suited to >> "$GITHUB_ENV"): the project, its version, and the git refs
+// of the toolchain a release is built with -- a version names its tag,
+// anything else is a ref, nothing is main.
+func cmdCIInfo() int {
+	root, _ := os.Getwd()
+	p, err := project.Load(root)
+	if err != nil {
+		return fail(err)
+	}
+	tc, _ := p.Raw["toolchain"].(map[string]any)
+	ref := func(repo string) string {
+		v, _ := tc[repo].(string)
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return "main"
+		}
+		if _, err := version.Parse(v); err == nil {
+			return "v" + v
+		}
+		return v
+	}
+	pin, _ := launch.Pin(root)
+	fmt.Printf("PROJECT_NAME=%s\nPROJECT_VERSION=%s\nPROJECT_FILE=%s\nCC370_REF=%s\nLIBC370_REF=%s\nMBT_PIN=%s\n",
+		p.Name, p.Version, p.File, ref("cc370"), ref("libc370"), pin)
 	return exitOK
 }
 

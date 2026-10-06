@@ -38,7 +38,7 @@ func LoadV3(root, file string) (*Project, error) {
 var v3Keys = map[string][]string{
 	"":             {"schema", "project", "toolchain", "dependencies", "build", "lib", "internal", "module", "tests", "test", "deploy", "distribution", "smp", "release"},
 	"project":      {"name", "version", "kind"},
-	"toolchain":    {"libc370", "mbt"},
+	"toolchain":    {"cc370", "libc370", "mbt"},
 	"build":        {"include", "cflags", "asflags", "host"},
 	"build.host":   {"cflags", "sources", "replace"},
 	"lib":          {"name", "sources", "headers"},
@@ -102,8 +102,14 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 	if err := checkKeys(tc, "toolchain", "[toolchain]"); err != nil {
 		return nil, "", err
 	}
-	if lc, ok := tc["libc370"].(string); ok {
-		out["toolchain"] = map[string]any{"libc370": lc}
+	t := map[string]any{}
+	for _, k := range []string{"cc370", "libc370"} {
+		if v, ok := tc[k].(string); ok {
+			t[k] = v
+		}
+	}
+	if len(t) > 0 {
+		out["toolchain"] = t
 	}
 	if d := table(in, "dependencies"); d != nil {
 		out["dependencies"] = d

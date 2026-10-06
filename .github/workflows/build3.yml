@@ -1,0 +1,145 @@
+# Reusable build workflow for mbt 3 projects (mbt.toml).
+#
+# Usage in a consumer (.github/workflows/build.yml):
+#
+#   on:
+#     pull_request:
+#     push:
+#       branches: [main]
+#   jobs:
+#     build:
+#       uses: mvslovers/mbt/.github/workflows/build3.yml@v3.0.0
+#
+# Pin `uses:` to the release that [toolchain] mbt names, so workflow and tool
+# move together (design §5).
+#
+# mbt itself: the newest mbt 3 release is installed and switches to the one
+# mbt.toml pins. mbt_ref builds mbt from source instead (a branch or SHA of
+# mvslovers/mbt) and keeps it, for testing mbt before it is released.
+#
+# The toolchain floats on main by default, as in mbt 2's build.yml: a PR built
+# against the tip of cc370/libc370 is the early warning for a toolchain
+# regression. release3.yml is the one that pins. cc370_ref / libc370_ref hold
+# it for a while (mbt#121).
+
+name: Build (mbt 3)
+
+on:
+  workflow_call:
+    inputs:
+      cc370_ref:
+        description: "cc370 git ref to build the toolchain from"
+        type: string
+        default: "main"
+      libc370_ref:
+        description: "libc370 git ref to build the sysroot from"
+        type: string
+        default: "main"
+      mbt_ref:
+        description: "build mbt from this ref of mvslovers/mbt instead of installing a release"
+        type: string
+        default: ""
+      host_tests:
+        description: "also run the host tests (mbt test)"
+        type: boolean
+        default: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: mbt from source
+        if: inputs.mbt_ref != ''
+        uses: actions/checkout@v7
+        with:
+          repository: mvslovers/mbt
+          ref: ${{ inputs.mbt_ref }}
+          path: .mbt-src
+      - uses: actions/setup-go@v7
+        if: inputs.mbt_ref != ''
+        with:
+          go-version-file: .mbt-src/go.mod
+          cache-dependency-path: .mbt-src/go.sum
+      - name: Build mbt
+        if: inputs.mbt_ref != ''
+        run: |
+          (cd .mbt-src && go build -o "$HOME/.mbt-bin/mbt" ./cmd/mbt)
+          rm -rf .mbt-src
+          echo "MBT_NO_SWITCH=1" >> "$GITHUB_ENV"
+      - name: Install mbt
+        if: inputs.mbt_ref == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # the newest mbt 3 release; it switches to the pinned one by itself
+          TAG=$(gh release list -R mvslovers/mbt --limit 100 --json tagName,isDraft \
+                --jq '[.[] | select(.isDraft | not) | .tagName | select(startswith("v3."))][0]')
+          [ -n "$TAG" ] || { echo "[mbt] ERROR: no mbt 3 release on mvslovers/mbt" >&2; exit 3; }
+          VER="${TAG#v}"
+          cd "$RUNNER_TEMP"
+          gh release download "$TAG" -R mvslovers/mbt -p "mbt-$VER-linux-amd64.tar.gz" -p "mbt-$VER-sha256.txt"
+          sha256sum -c --ignore-missing "mbt-$VER-sha256.txt"
+          tar -xzf "mbt-$VER-linux-amd64.tar.gz"
+          install -D "mbt-$VER-linux-amd64/mbt" "$HOME/.mbt-bin/mbt"
+      - name: mbt on PATH
+        run: |
+          # not ~/.local: the toolchain cache restores that directory
+          echo "$HOME/.mbt-bin" >> "$GITHUB_PATH"
+          "$HOME/.mbt-bin/mbt" version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Clone toolchain (cc370 + libc370)
+        env:
+          CC370_REF: ${{ inputs.cc370_ref }}
+          LIBC370_REF: ${{ inputs.libc370_ref }}
+        run: |
+          echo "[mbt] cc370   @ $CC370_REF"
+          echo "[mbt] libc370 @ $LIBC370_REF"
+          fetch_at() {   # $1 repo, $2 ref, $3 target dir
+            git init -q "$3"
+            git -C "$3" remote add origin "https://github.com/mvslovers/$1.git"
+            if ! git -C "$3" fetch -q --depth 1 origin "$2"; then
+              echo "[mbt] ERROR: $1: no such ref '$2'" >&2
+              exit 1
+            fi
+            git -C "$3" checkout -q --detach FETCH_HEAD
+          }
+          fetch_at cc370   "$CC370_REF"   /tmp/cc370
+          fetch_at libc370 "$LIBC370_REF" /tmp/libc370
+          echo "TC_KEY=$(git -C /tmp/cc370 rev-parse HEAD)-$(git -C /tmp/libc370 rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Cache toolchain
+        id: tc-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.local
+          key: cc370-${{ runner.os }}-${{ env.TC_KEY }}
+
+      - name: Build + install toolchain
+        if: steps.tc-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex
+          # as mbt 2's build.yml: compiler + tools, then the libc370 sysroot
+          make -C /tmp/cc370 install PREFIX="$HOME/.local"
+          export PATH="$HOME/.local/bin:$PATH"
+          make -C /tmp/libc370 install
+
+      - name: Toolchain on PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Dependencies
+        run: mbt deps
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Build
+        run: mbt build --all --tests
+
+      - name: Host tests
+        if: inputs.host_tests
+        run: mbt test
