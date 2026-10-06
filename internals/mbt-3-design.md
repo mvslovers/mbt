@@ -768,7 +768,7 @@ tooling, scanners or a Homebrew automation will follow. So:
   incompatible change to generated code or the ABI. Prebuilt *project*
   archives still need mbt's metadata (8.4) to be checked against it.
 
-## 9. Extensions — **Decided: Lua 5.4, in pure Go** (2026-10-06)
+## 9. Extensions — **Decided: Lua 5.5, in pure Go** (2026-10-06)
 
 Some projects need things mbt does not do. Instead of a Makefile next to the
 project file, an extension is a Lua script that works through a context mbt
@@ -819,8 +819,9 @@ What today's Makefiles do and where it would go:
 | Webroot UFS image with pinned ufsd-utils | httpd | Lua task |
 | Desktop upload into the UFS | mvsmf | Lua command |
 
-**Decided (2026-10-06), in concept rounds with the maintainer: Lua 5.4, in
-pure Go.** The result, for discussion with the community, is
+**Decided (2026-10-06), in concept rounds with the maintainer: Lua, in pure
+Go -- 5.5, after the spike** (golua's 5.4 line has not moved since 2025-11; its
+development continues on 5.5). The result, for discussion with the community, is
 [`mbt-3-extensions.md`](mbt-3-extensions.md): project Lua in `mbt/init.lua`
 (modules in `mbt/lua/`), yours in `~/.mbt/init.lua`, plugins pinned in
 `mbt.lock` with a declared list of the programs they run; hooks before and
@@ -833,7 +834,7 @@ one model.
 |---|---|---|
 | gopher-lua (pure Go, Lua 5.1) | mature; trivial cross-compilation | a different Lua than lua370 on MVS |
 | Lua 5.4 reference implementation via cgo | the same Lua as lua370 | CI needs native runners per platform instead of `GOOS=… go build` |
-| **A pure-Go Lua 5.4** — chosen | both of the above | maturity: the candidate, arnodel/golua, is at v0.3.0; a spike checks sandbox, speed and standard library before anything is built on it |
+| **A pure-Go Lua** — chosen: arnodel/golua v0.3.0, **Lua 5.5** | trivial cross-compilation; close to lua370 (5.4) | young; measured in a spike first: sandbox, limits, start-up, errors (`mbt-3-extensions.md` §9) |
 
 ## 10. Languages — **Proposed**
 
@@ -1221,7 +1222,7 @@ on in its project file instead of copying workflow YAML.
 
 1. ~~**Project file format**~~ — decided 2026-10-05: TOML, plus an optional
    `mbt.lua` (section 6.3).
-2. ~~**Lua version for extensions**~~ — decided 2026-10-06: Lua 5.4 in pure Go
+2. ~~**Lua version for extensions**~~ — decided 2026-10-06: Lua 5.5 in pure Go
    (section 9, `mbt-3-extensions.md`).
 3. **Toolchain and artifacts** (section 8.5): per-project libc370 pinning
    with a shared cc370 (one tree per pair, or a driver option), and a nightly

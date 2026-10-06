@@ -8,7 +8,7 @@ comments before it is.
 
 ## In short
 
-- **Extensions are Lua 5.4**, run inside mbt (a pure-Go implementation, so mbt
+- **Extensions are Lua 5.5**, run inside mbt (a pure-Go implementation, so mbt
   stays one binary). A project puts its Lua in `mbt/init.lua`; you put yours in
   `~/.mbt/init.lua`; shared pieces come as **plugins**, pinned like dependencies.
 - Lua can **hook** into fixed points (`before_deploy`, `after_test`, …), declare
@@ -286,11 +286,30 @@ ufs.webroot { from = "static", image = "build/webroot/httpd-webroot.img", size =
 - **Python (tnz) or s3270 as a requirement** for interactive tests.
 - **A separate "test userid" concept.** The target's TN3270 entry has its own user.
 
-## 9. Still open
+## 9. Measured before building (2026-10-06)
 
-- **Spikes before building:** the Lua engine (arnodel/golua, young — sandbox,
-  speed, standard library); the TN3270 client against Hercules (logon, expect,
-  logoff).
+Two spikes, both go:
+
+- **The Lua engine:** [arnodel/golua](https://github.com/arnodel/golua) v0.3.0,
+  Apache-2.0, no dependencies of its own. It implements **Lua 5.5**; its 5.4
+  line has not moved since November 2025, so mbt follows 5.5. Start-up takes
+  about 2 ms. The sandbox holds: no `os`, `io`, `debug`, `dofile` or
+  `loadfile`, and `require` reads `mbt/lua/` only. An endless loop is stopped
+  by the CPU limit (after about 260 ms), a runaway string by the memory limit.
+  Errors name the file and line. One difference from the reference Lua:
+  `%q` writes a newline as `
+`. Lua reads both back, so it is cosmetic.
+- **The TN3270 client:** about 600 lines of Go, against MVS/CE on Hercules.
+  Logon, a TSO command, logoff, five runs in a row. A TSO session needs more
+  than the data stream: the extended terminal type with an answer to the
+  host's partition query, the reset of modified fields the host asks for, and
+  waiting until the host is quiet before typing. Each of these was found by
+  failing first, with s3270 as the control.
+  **Dropping the connection does not free a TSO userid**, so mbt logs off on
+  every path, and a stuck session can be cancelled through the console chain.
+
+## 10. Still open
+
 - **Ideas for later:** a password manager as a credential source; targets that a
   project defines (stand descriptions without passwords).
 
