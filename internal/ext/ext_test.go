@@ -332,3 +332,60 @@ func TestBadDeclarations(t *testing.T) {
 		}
 	}
 }
+
+type fakeMVS struct{ calls []string }
+
+func (f *fakeMVS) Request(method, path, ct string, body []byte) (int, []byte, error) {
+	f.calls = append(f.calls, method+" "+path+" "+ct+" "+string(body))
+	return 200, []byte(`{"items":[]}`), nil
+}
+func (f *fakeMVS) Token() string { return "tok" }
+
+func TestTargetAndMVS(t *testing.T) {
+	v := setup(t, map[string]string{"mbt/init.lua": `
+mbt.hook("after_deploy", function(ctx)
+  local tg = ctx.target()
+  assert(tg.name == "lab" and tg.mvsmf.user == "IBMUSER" and tg.mvsmf.password == nil, "target")
+  local code, body = ctx.mvs.request { path = "/restfiles/ds?dslevel=HTTPD" }
+  assert(code == 200 and body == '{"items":[]}', body)
+  ctx.mvs.request { method = "PUT", path = "/restconsoles/consoles/MBT", body = '{"cmd":"D T"}' }
+  assert(ctx.mvs.token() == "tok")
+end)
+mbt.command("bad", function(ctx) ctx.mvs.request { path = "zosmf/x" } end)`})
+	f := &fakeMVS{}
+	logins := 0
+	e := v.mustLoad(t, func(o *Options) {
+		o.Target = func() (map[string]any, error) {
+			return map[string]any{"name": "lab", "mvsmf": map[string]any{"url": "http://lab:1080", "user": "IBMUSER"}}, nil
+		}
+		o.MVS = func() (MVS, error) { logins++; return f, nil }
+	})
+	if err := e.After("deploy", nil); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.calls, "|") != `GET /restfiles/ds?dslevel=HTTPD  |PUT /restconsoles/consoles/MBT application/json {"cmd":"D T"}` {
+		t.Errorf("calls: %q", f.calls)
+	}
+	if err := e.Run("bad", nil); err == nil || !strings.Contains(err.Error(), "must start with /") {
+		t.Errorf("%v", err)
+	}
+	// dry run: a GET goes out, anything else does not
+	f.calls = nil
+	e = v.mustLoad(t, func(o *Options) {
+		o.DryRun = true
+		o.Target = func() (map[string]any, error) { return map[string]any{"name": "lab", "mvsmf": map[string]any{"user": "IBMUSER"}}, nil }
+		o.MVS = func() (MVS, error) { return f, nil }
+	})
+	if err := e.After("deploy", nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.calls) != 1 || !strings.HasPrefix(f.calls[0], "GET") {
+		t.Errorf("dry run calls: %q", f.calls)
+	}
+	// no target in the command
+	v2 := setup(t, map[string]string{"mbt/init.lua": `mbt.command("x", function(ctx) ctx.target() end)`})
+	e = v2.mustLoad(t)
+	if err := e.Run("x", nil); err == nil || !strings.Contains(err.Error(), "no MVS target") {
+		t.Errorf("%v", err)
+	}
+}

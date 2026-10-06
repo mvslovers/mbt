@@ -32,6 +32,14 @@ var envMap = map[string]string{
 type Config struct {
 	dotenv map[string]string
 	global map[string]any
+	fixed  map[string]string // Fixed: the values of a target, nothing else
+}
+
+// Fixed is a configuration of given values (a target's); keys not given
+// fall back to the defaults, and the environment, .env and config.toml are
+// not read.
+func Fixed(values map[string]string) *Config {
+	return &Config{fixed: values}
 }
 
 // Load reads .env in root and ~/.mbt/config.toml.
@@ -61,6 +69,12 @@ func (c *Config) Get(key string) string { v, _ := c.Source(key); return v }
 // Source returns the value and its origin: env, .env, ~/.mbt/config.toml or
 // default.
 func (c *Config) Source(key string) (string, string) {
+	if c.fixed != nil {
+		if v, ok := c.fixed[key]; ok && v != "" {
+			return v, "target"
+		}
+		return defaults[key], "default"
+	}
 	if e, ok := envMap[key]; ok {
 		if v, ok := os.LookupEnv(e); ok {
 			return v, "env"

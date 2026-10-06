@@ -7,15 +7,18 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mvslovers/mbt/include"
@@ -36,6 +39,7 @@ import (
 	"github.com/mvslovers/mbt/internal/project"
 	"github.com/mvslovers/mbt/internal/release"
 	"github.com/mvslovers/mbt/internal/stamp"
+	"github.com/mvslovers/mbt/internal/target"
 	"github.com/mvslovers/mbt/internal/toolchain"
 	"github.com/mvslovers/mbt/internal/tools"
 	"github.com/mvslovers/mbt/internal/version"
@@ -46,6 +50,7 @@ const (
 	exitOK       = 0
 	exitBuild    = 1
 	exitConfig   = 2
+	exitMVS      = 4
 	exitInternal = 99
 )
 
@@ -80,6 +85,8 @@ commands:
                                       run a command or task of mbt/init.lua; without NAME: list them
   clean                               remove build/ and dist/ (keeps staged deps)
   distclean                           clean, and remove .mbt/ (deps, tools, state; keeps mbt.lock)
+  target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | import .env --name NAME
+                                      the MVS systems in ~/.mbt/targets.toml
   version                             print mbt's version
 
 mbt.toml may pin the mbt to run: [toolchain] mbt = "3.0" (any 3.0.x) or "3.0.2".
@@ -100,6 +107,9 @@ func run(args []string) int {
 			return code
 		}
 	}
+	stop := onSignal()
+	defer stop()
+	defer closeSession()
 	code := dispatch(args)
 	if code != exitOK && engine != nil {
 		failure := lastErr
@@ -115,6 +125,8 @@ func dispatch(args []string) int {
 	switch args[0] {
 	case "run":
 		return cmdRun(args[1:])
+	case "target":
+		return cmdTarget(args[1:])
 	case "clean":
 		return cmdClean(false)
 	case "distclean":
@@ -451,7 +463,21 @@ func exts(p *project.Project, verbose, dry bool) (*ext.Engine, error) {
 	}
 	e, err := ext.Load(ext.Options{Root: p.Root, Home: home, Version: mbtVersion, Verbose: verbose, DryRun: dry,
 		Project: ext.Project{Name: p.Name, Version: p.Version, Modules: unitNames(p.Modules), Tests: unitNames(p.Tests)},
-		Tools:   tl, ToolOpt: tools.Options{Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }}})
+		Tools:   tl, ToolOpt: tools.Options{Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }},
+		Target: func() (map[string]any, error) {
+			t, err := chooseTarget(p.Root, selectedTarget)
+			if err != nil {
+				return nil, err
+			}
+			return targetInfo(t), nil
+		},
+		MVS: func() (ext.MVS, error) {
+			_, c, code := connect(p.Root, selectedTarget, true)
+			if code != exitOK {
+				return nil, lastErrOr("no mvsMF session")
+			}
+			return c, nil
+		}})
 	if err != nil {
 		return nil, err
 	}
@@ -499,6 +525,271 @@ func distFiles(root, part string) []string {
 		}
 	}
 	return out
+}
+
+// selectedTarget is the --target of this command ("" = the default);
+// targetWarned: the fallback to the mbt 2 settings was announced once.
+var (
+	selectedTarget string
+	targetWarned   bool
+)
+
+// The one mvsMF session of this invocation, and the target it belongs to.
+var (
+	session       *mvsmf.Client
+	sessionTarget *target.Target
+	sessionCfg    *config.Config
+)
+
+func lastErrOr(s string) error {
+	if lastErr != nil {
+		return lastErr
+	}
+	return errors.New(s)
+}
+
+// chooseTarget picks the target (target.Select) and says when it falls back
+// to the mbt 2 settings.
+func chooseTarget(root, name string) (*target.Target, error) {
+	f, err := target.Load(target.Home())
+	if err != nil {
+		return nil, err
+	}
+	legacy := func() *target.Target {
+		c := config.Load(root)
+		return target.Legacy(c.Get)
+	}
+	t, warn, err := target.Select(name, f, os.Getenv, legacy)
+	if err != nil {
+		return nil, err
+	}
+	if warn != "" && !targetWarned {
+		targetWarned = true
+		fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", warn)
+	}
+	t.Defaults()
+	return t, nil
+}
+
+// connect resolves the target into the settings deploy and test-mvs read
+// and, with login, the session every call of this run shares.
+func connect(root, name string, login bool) (*config.Config, *mvsmf.Client, int) {
+	if session != nil {
+		return sessionCfg, session, exitOK
+	}
+	t, err := chooseTarget(root, name)
+	if err != nil {
+		return nil, nil, fail(err)
+	}
+	host, port, err := t.MVSMF.HostPort()
+	if err != nil {
+		return nil, nil, fail(err)
+	}
+	pw, err := t.MVSMF.Password.Resolve()
+	if err != nil {
+		return nil, nil, fail(err)
+	}
+	cfg := config.Fixed(map[string]string{"mvs.host": host, "mvs.port": strconv.Itoa(port), "mvs.user": t.MVSMF.User,
+		"mvs.pass": pw, "mvs.hlq": t.HLQ, "mvs.deps_volume": t.Volume, "jes.jobclass": t.JobClass, "jes.msgclass": t.MsgClass})
+	if !login {
+		return cfg, nil, exitOK
+	}
+	c := mvsmf.New(host, port, t.MVSMF.User, pw)
+	if err := c.Login(); err != nil {
+		lastErr = err
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: target %s: %v\n", t.Name, err)
+		return nil, nil, exitMVS
+	}
+	session, sessionTarget, sessionCfg = c, t, cfg
+	return cfg, c, exitOK
+}
+
+// closeSession logs off; it runs at the end of every command and on Ctrl-C.
+func closeSession() {
+	if session != nil {
+		if err := session.Logout(); err != nil {
+			fmt.Fprintf(os.Stderr, "[mbt] WARNING: mvsMF logoff: %v (httpd expires the session by itself)\n", err)
+		}
+		session = nil
+	}
+}
+
+// onSignal logs off on SIGINT/SIGTERM before mbt goes.
+func onSignal() func() {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ch:
+			closeSession()
+			os.Exit(130)
+		case <-done:
+		}
+	}()
+	return func() { signal.Stop(ch); close(done) }
+}
+
+// targetInfo is what Lua may see of a target: no passwords.
+func targetInfo(t *target.Target) map[string]any {
+	m := map[string]any{"name": t.Name, "hlq": t.HLQ, "volume": t.Volume, "jobclass": t.JobClass, "msgclass": t.MsgClass,
+		"console": t.Console, "mvsmf": map[string]any{"url": t.MVSMF.URL, "user": t.MVSMF.User}}
+	if t.Hercules != nil {
+		m["hercules"] = map[string]any{"url": t.Hercules.URL, "user": t.Hercules.User}
+	}
+	if t.SSH != nil {
+		m["ssh"] = map[string]any{"host": t.SSH.Host, "user": t.SSH.User, "port": t.SSH.Port}
+	}
+	if t.TN3270 != nil {
+		m["tn3270"] = map[string]any{"host": t.TN3270.Host, "port": t.TN3270.Port, "tls": t.TN3270.TLS, "user": t.TN3270.User}
+	}
+	return m
+}
+
+// cmdTarget: mbt target list | ping | info | import
+func cmdTarget(args []string) int {
+	if len(args) == 0 {
+		args = []string{"list"}
+	}
+	root, _ := os.Getwd()
+	switch args[0] {
+	case "list":
+		f, err := target.Load(target.Home())
+		if err != nil {
+			return fail(err)
+		}
+		if len(f.Targets) == 0 {
+			fmt.Printf("[mbt] no targets: %s does not exist or defines none -- 'mbt target import .env --name NAME' starts one\n", f.Path)
+		}
+		for _, n := range f.Names() {
+			t := f.Targets[n]
+			mark := " "
+			if t.Default {
+				mark = "*"
+			}
+			var extra []string
+			if t.Hercules != nil {
+				extra = append(extra, "hercules")
+			}
+			if t.SSH != nil {
+				extra = append(extra, "ssh")
+			}
+			if t.TN3270 != nil {
+				extra = append(extra, "tn3270")
+			}
+			fmt.Printf("%s %-12s %-28s %-10s password: %-18s %s\n", mark, n, t.MVSMF.URL, t.MVSMF.User, t.MVSMF.Password.Source(), strings.Join(extra, " "))
+		}
+		if t, ok := target.FromEnv(os.Getenv); ok {
+			fmt.Printf("  %-12s %-28s %-10s (from MBT_TARGET_*, used unless --target names another)\n", "env", t.MVSMF.URL, t.MVSMF.User)
+		}
+		return exitOK
+	case "ping", "info":
+		fl := flag.NewFlagSet("target "+args[0], flag.ContinueOnError)
+		wait := fl.Int("wait", 0, "wait up to this many seconds for mvsMF to answer")
+		if err := fl.Parse(flagsFirst(args[1:])); err != nil {
+			return exitConfig
+		}
+		name := fl.Arg(0)
+		t, err := chooseTarget(root, name)
+		if err != nil {
+			return fail(err)
+		}
+		if *wait > 0 {
+			fmt.Printf("[mbt] target %s: waiting up to %ds for %s ...\n", t.Name, *wait, t.MVSMF.URL)
+			p, took := target.Wait(t, time.Duration(*wait)*time.Second, time.Sleep)
+			if !p.OK {
+				fmt.Fprintf(os.Stderr, "[mbt] ERROR: target %s: mvsMF not answering after %s: %s\n", t.Name, took.Round(time.Second), p.Detail)
+				return exitMVS
+			}
+			fmt.Printf("[mbt] target %s: mvsMF answering after %s\n", t.Name, took.Round(time.Second))
+		}
+		if args[0] == "ping" {
+			ok := true
+			for _, p := range target.Ping(t, 5*time.Second) {
+				fmt.Printf("[mbt] %-10s %-9s %-28s %s\n", t.Name, p.Access, p.Addr, p.Detail)
+				ok = ok && (p.OK || p.Access != "mvsmf")
+			}
+			if !ok {
+				return exitMVS
+			}
+			return exitOK
+		}
+		selectedTarget = name
+		_, c, code := connect(root, name, true)
+		if code != exitOK {
+			return code
+		}
+		st, body, err := c.Request("GET", "/info", "", nil)
+		if err != nil {
+			return fail(err)
+		}
+		var info map[string]any
+		json.Unmarshal(body, &info)
+		fmt.Printf("[mbt] %-10s %-9s %-28s logged on as %s (HTTP %d) -- %v %v, %v\n", t.Name, "mvsmf", t.MVSMF.URL, t.MVSMF.User, st,
+			info["zosmf_full_version"], info["zosmf_hostname"], info["zos_version"])
+		if t.Hercules != nil {
+			p := target.HerculesInfo(t.Hercules, 5*time.Second)
+			fmt.Printf("[mbt] %-10s %-9s %-28s %s\n", t.Name, p.Access, p.Addr, p.Detail)
+		}
+		for _, p := range target.Ping(t, 5*time.Second) {
+			if p.Access == "tn3270" || p.Access == "ssh" {
+				fmt.Printf("[mbt] %-10s %-9s %-28s %s\n", t.Name, p.Access, p.Addr, p.Detail)
+			}
+		}
+		return exitOK
+	case "import":
+		fl := flag.NewFlagSet("target import", flag.ContinueOnError)
+		name := fl.String("name", "", "the new target's name")
+		if err := fl.Parse(flagsFirst(args[1:])); err != nil {
+			return exitConfig
+		}
+		if fl.NArg() != 1 || *name == "" {
+			fmt.Fprintln(os.Stderr, "[mbt] usage: mbt target import .env --name NAME")
+			return exitConfig
+		}
+		env, err := target.ReadDotenv(fl.Arg(0))
+		if err != nil {
+			return fail(err)
+		}
+		shown, skipped, err := target.Import(target.Home(), *name, env)
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("[mbt] added to %s:\n%s", target.Path(target.Home()), shown)
+		for _, s := range skipped {
+			fmt.Printf("[mbt] not carried over: %s\n", s)
+		}
+		return exitOK
+	}
+	fmt.Fprintln(os.Stderr, "[mbt] usage: mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | import .env --name NAME")
+	return exitConfig
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
+}
+
+// flagsFirst moves "-x v" / "--x=v" ahead of the positional arguments, so
+// "mbt target import .env --name X" parses as written (Go's flag package
+// stops at the first non-flag).
+func flagsFirst(args []string) []string {
+	var flags, pos []string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if strings.HasPrefix(a, "-") && a != "-" {
+			flags = append(flags, a)
+			if !strings.Contains(a, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				flags = append(flags, args[i+1])
+				i++
+			}
+			continue
+		}
+		pos = append(pos, a)
+	}
+	return append(flags, pos...)
 }
 
 // cmdRun: mbt run [NAME] [-v] [--dry-run] [-- ARGS...]
@@ -695,12 +986,14 @@ func cmdTest(args []string) int {
 	verbose := fl.Bool("v", false, "print the compile commands and errors")
 	mvs := fl.Bool("mvs", false, "run the test modules on MVS (make test-mvs)")
 	noDeploy := fl.Bool("no-deploy", false, "with --mvs: reuse the TESTLIB already there")
-	target := fl.String("target", "", "with --mvs: the runtime production LINKLIB")
+	targetName := fl.String("target", "", "with --mvs: the MVS system (a name in ~/.mbt/targets.toml)")
+	linklib := fl.String("linklib", "", "with --mvs: the runtime load library the tests run against")
 	if err := fl.Parse(args); err != nil {
 		return exitConfig
 	}
+	selectedTarget = *targetName
 	if *mvs {
-		return cmdTestMVS(only, *noDeploy, *target, *verbose)
+		return cmdTestMVS(only, *noDeploy, *linklib, *verbose)
 	}
 	root, _ := os.Getwd()
 	p, err := project.Load(root)
@@ -772,9 +1065,13 @@ func cmdTestMVS(only []string, noDeploy bool, target string, verbose bool) int {
 	}
 	tt, _ := rawTable(p.Raw, "test_deploy")["target"].(string)
 	pt, _ := rawTable(p.Raw, "deploy")["target"].(string)
+	cfg, client, code := connect(p.Root, selectedTarget, true)
+	if code != exitOK {
+		return code
+	}
 	code = mvstest.Run(mvstest.Options{Root: p.Root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
 		Tests: tests, TestTarget: tt, LinkTarget: target, ProjectTarget: pt, Only: only, NoDeploy: noDeploy,
-		Verbose: verbose, Out: os.Stdout, Err: os.Stderr, Config: config.Load(p.Root)})
+		Verbose: verbose, Out: os.Stdout, Err: os.Stderr, Config: cfg, Client: client})
 	if code == mvstest.ExitOK || code == mvstest.ExitFailed {
 		if c := after(p, "test", map[string]any{"kind": "mvs", "passed": code == mvstest.ExitOK}); c != exitOK {
 			return c
@@ -850,34 +1147,26 @@ func cmdDoctor() int {
 		fmt.Fprintf(os.Stderr, "[mbt] WARNING: project file not loaded, skipping MVS checks (%v)\n", perr)
 		failed++
 	} else {
-		cfg := config.Load(root)
-		port, _ := cfg.Port()
-		c := mvsmf.New(cfg.Host(), port, cfg.User(), cfg.Pass())
-		if code, err := c.Status("/info"); code == 0 {
-			fmt.Fprintf(os.Stderr, "[mbt] WARNING: MVS host not reachable: %s:%d -- %v (only needed for 'mbt deploy')\n", cfg.Host(), port, err)
-			failed++
-		} else {
-			fmt.Printf("[mbt] MVS host reachable: %s:%d (HTTP %d)\n", cfg.Host(), port, code)
-			switch code, _ := c.Status("/restjobs/jobs"); code {
-			case 200:
-				fmt.Printf("[mbt] MVS credentials valid: %s\n", cfg.User())
-			case 401:
-				bad("MVS credentials invalid for %s (HTTP 401)", cfg.User())
-			default:
-				fmt.Printf("[mbt] MVS credentials check: HTTP %d for %s\n", code, cfg.User())
-			}
-		}
 		fmt.Printf("[mbt] %s valid: %s v%s\n", p.File, p.Name, p.Version)
-		fmt.Println("[mbt] Configuration:")
-		keys := []struct{ name, key string }{{"MVS_HOST", "mvs.host"}, {"MVS_PORT", "mvs.port"}, {"MVS_USER", "mvs.user"},
-			{"MVS_PASS", "mvs.pass"}, {"MVS_HLQ", "mvs.hlq"}, {"MVS_DEPS_HLQ", "mvs.deps_hlq"}, {"MVS_DEPS_VOLUME", "mvs.deps_volume"},
-			{"JES_JOBCLASS", "jes.jobclass"}, {"JES_MSGCLASS", "jes.msgclass"}, {"BUILD_ID", "build.id"}}
-		for _, k := range keys {
-			v, src := cfg.Source(k.key)
-			if k.name == "MVS_PASS" && v != "" {
-				v = "********"
+		tg, err := chooseTarget(root, "")
+		if err != nil {
+			bad("%v", err)
+		} else {
+			fmt.Printf("[mbt] target %s (from %s)\n", tg.Name, tg.Source)
+			fmt.Printf("  mvsMF     %s as %s, password: %s\n", tg.MVSMF.URL, tg.MVSMF.User, tg.MVSMF.Password.Source())
+			fmt.Printf("  hlq %s, volume %s, jobclass %s, msgclass %s, console: %s\n", tg.HLQ, orDash(tg.Volume), tg.JobClass, tg.MsgClass, strings.Join(tg.Console, " -> "))
+			for _, pr := range target.Ping(tg, 5*time.Second) {
+				fmt.Printf("  %-9s %-28s %s\n", pr.Access, pr.Addr, pr.Detail)
+				if pr.Access == "mvsmf" && !pr.OK {
+					fmt.Fprintln(os.Stderr, "[mbt] WARNING: mvsMF not reachable (only needed for deploy and test --mvs)")
+					failed++
+				}
 			}
-			fmt.Printf("  %-15s = %-20s [%s]\n", k.name, v, src)
+			if _, _, code := connect(root, "", true); code == exitOK {
+				fmt.Printf("[mbt] MVS logon valid: %s\n", tg.MVSMF.User)
+			} else {
+				failed++
+			}
 		}
 	}
 	if failed > 0 {
@@ -919,7 +1208,8 @@ func cmdCompiledb() int {
 // cmdDeploy: make deploy.  Packs what is built; builds nothing.
 func cmdDeploy(args []string) int {
 	fl := flag.NewFlagSet("deploy", flag.ContinueOnError)
-	target := fl.String("target", "", "override the target LINKLIB")
+	targetName := fl.String("target", "", "the MVS system (a name in ~/.mbt/targets.toml)")
+	linklib := fl.String("linklib", "", "deploy into this load library instead of [deploy] target")
 	var mods multiFlag
 	fl.Var(&mods, "module", "deploy only this module (repeatable)")
 	dry := fl.Bool("dry-run", false, "pack locally and report, touch no MVS")
@@ -932,6 +1222,7 @@ func cmdDeploy(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	selectedTarget = *targetName
 	if code := before(p, "deploy", *verbose, *dry); code != exitOK {
 		return code
 	}
@@ -945,13 +1236,17 @@ func cmdDeploy(args []string) int {
 		names = append(names, m.Name)
 	}
 	pt, _ := rawTable(p.Raw, "deploy")["target"].(string)
-	code := deploy.Run(deploy.Options{Root: root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
-		Modules: names, Target: *target, ProjectTarget: pt, Only: mods, DryRun: *dry, Verbose: *verbose,
-		Out: os.Stdout, Err: os.Stderr, Config: config.Load(root)})
+	cfg, client, code := connect(root, *targetName, !*dry)
 	if code != exitOK {
 		return code
 	}
-	lib := *target
+	code = deploy.Run(deploy.Options{Root: root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
+		Modules: names, Target: *linklib, ProjectTarget: pt, Only: mods, DryRun: *dry, Verbose: *verbose,
+		Out: os.Stdout, Err: os.Stderr, Config: cfg, Client: client})
+	if code != exitOK {
+		return code
+	}
+	lib := *linklib
 	if lib == "" {
 		lib = pt
 	}
@@ -1008,6 +1303,10 @@ func fail(err error) int {
 	fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
 	var xe *ext.Error
 	var te *tools.Error
+	var tge *target.Error
+	if errors.As(err, &tge) {
+		return exitConfig
+	}
 	if errors.As(err, &xe) {
 		if xe.Config {
 			return exitConfig

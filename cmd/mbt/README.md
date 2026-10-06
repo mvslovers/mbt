@@ -11,14 +11,15 @@ mbt module-data [--all] [--raw]
 mbt package
 mbt dist
 mbt test [--only NAME]... [-v]
-mbt deploy [--target DSN] [--module M]... [--dry-run] [-v]
-mbt test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
+mbt deploy [--target NAME] [--linklib DSN] [--module M]... [--dry-run] [-v]
+mbt test --mvs [--only NAME]... [--no-deploy] [--target NAME] [--linklib DSN] [-v]
 mbt check
 mbt migrate [--dry-run]
 mbt release VERSION [--next V]
 mbt prerelease
 mbt run [NAME] [-v] [--dry-run] [-- ARGS...]
 mbt clean | distclean
+mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | import .env --name NAME
 mbt compiledb
 mbt doctor
 ```
@@ -86,5 +87,20 @@ limit; with `--dry-run` nothing is run or written. Measured: httpd's webroot
 as a task and mvsMF's desktop upload as a command reproduce `make webroot` and
 `make deploy-desktop-dry`.
 
-Not yet: plugins, targets (`~/.mbt/targets.toml`), the console chain,
-`mbt test --tso`.
+**Targets.** The MVS systems live in `~/.mbt/targets.toml` (`MBT_HOME`
+moves it), one `[target.NAME]` each: mvsMF required, Hercules, SSH and
+TN3270 optional, passwords as `{ env = }`, `{ keychain = }`, `{ cmd = [] }`
+or -- in a file only its owner can read -- a literal. CI sets one through
+`MBT_TARGET_MVSMF_URL` / `_USER` / `_PASSWORD` (and `_HLQ`, `_VOLUME`, ...);
+without either, the mbt 2 settings (`MBT_MVS_*`, `.env`) still work, with a
+warning. `--target NAME` picks one (`deploy`, `test --mvs`); the switch that
+names a load library is `--linklib` now. mbt logs on to mvsMF once per run
+(`/zosmf/services/authenticate`), sends the token on every call and logs off
+at the end, on a failure and on Ctrl-C. `mbt target ping` asks every access
+without logging on (`--wait` for CI); `info` logs on; `import` turns an
+mbt 2 `.env` into a target. Lua gets `ctx.target()` (no passwords) and
+`ctx.mvs.request{...}` / `ctx.mvs.token()`. Measured on mvsdev: import,
+ping, info; a deploy through the session (member list checked) and
+`test --mvs` with ftpd, 170 PASS (JOB01551), as before.
+
+Not yet: plugins, the console chain, `mbt test --tso`.
