@@ -1,0 +1,169 @@
+{
+ "jcl": "//MBTTEST JOB (A),'MBT TEST',\n//          CLASS=A,MSGCLASS=H,\n//          MSGLEVEL=(1,1),\n//          NOTIFY=&SYSUID\n//FX001  EXEC PGM=IEBGENER\n//SYSPRINT DD SYSOUT=*\n//SYSIN    DD DUMMY\n//SYSUT2   DD DSN=IBMUSER.REXX370.FIX.TSTLOAD.SYSEXEC(HELLO),DISP=SHR\n//SYSUT1   DD *,DLM=$A\n/* REXX */\nsay 'hi'\n$A\n//FX002  EXEC PGM=IEBGENER\n//SYSPRINT DD SYSOUT=*\n//SYSIN    DD DUMMY\n//SYSUT2   DD DSN=IBMUSER.REXX370.FIX.TSTLOAD.SYSEXEC(LONGNAMEX),\n//             DISP=SHR\n//SYSUT1   DD *,DLM=$A\nx\n$A\n//FX003  EXEC PGM=IEBGENER\n//SYSPRINT DD SYSOUT=*\n//SYSIN    DD DUMMY\n//SYSUT2   DD DSN=IBMUSERX.REXX370X.FIX.TSTJCLXX.SYSPROC1(A),DISP=SHR\n//SYSUT1   DD *,DLM=$A\na\nb\n$A\n//B01     EXEC PGM=TSTLOAD,COND=EVEN,REGION=8M,PARM='0'\n//STEPLIB  DD DSN=IBMUSER.REXX370.V1R0M0D.TESTLIB,DISP=SHR\n//         DD DSN=REXX370.DEV.LINKLIB,DISP=SHR\n//SYSEXEC  DD DSN=IBMUSER.REXX370.FIX.TSTLOAD.SYSEXEC,DISP=SHR\n//SYSPRINT DD SYSOUT=*\n//SYSTERM  DD SYSOUT=*\n//SYSTSPRT DD SYSOUT=*\n//SYSUDUMP DD SYSOUT=*\n//B02     EXEC PGM=TSTJCL,COND=EVEN,REGION=8M\n//STEPLIB  DD DSN=IBMUSER.REXX370.V1R0M0D.TESTLIB,DISP=SHR\n//         DD DSN=REXX370.DEV.LINKLIB,DISP=SHR\n//SYSPROC  DD DSN=IBMUSERX.REXX370X.FIX.TSTJCLXX.SYSPROC1,DISP=SHR\n//SYSPRINT DD SYSOUT=*\n//SYSTERM  DD SYSOUT=*\n//SYSTSPRT DD SYSOUT=*\n//SYSUDUMP DD SYSOUT=*\n//B03     EXEC PGM=TSTP,COND=EVEN,REGION=8M\n//STEPLIB  DD DSN=IBMUSER.REXX370.V1R0M0D.TESTLIB,DISP=SHR\n//         DD DSN=REXX370.DEV.LINKLIB,DISP=SHR\n//SYSPRINT DD SYSOUT=*\n//SYSTERM  DD SYSOUT=*\n//SYSTSPRT DD SYSOUT=*\n//SYSUDUMP DD SYSOUT=*\n//T01     EXEC PGM=IKJEFT01,DYNAMNBR=50,REGION=8M,COND=EVEN\n//STEPLIB  DD DSN=IBMUSER.REXX370.V1R0M0D.TESTLIB,DISP=SHR\n//         DD DSN=REXX370.DEV.LINKLIB,DISP=SHR\n//SYSEXEC  DD DSN=IBMUSER.REXX370.FIX.TSTLOAD.SYSEXEC,DISP=SHR\n//SYSTSPRT DD SYSOUT=*\n//SYSPRINT DD SYSOUT=*\n//SYSTERM  DD SYSOUT=*\n//SYSTSIN  DD *\n CALL 'IBMUSER.REXX370.V1R0M0D.TESTLIB(TSTLOAD)' '1'\n/*\n//T02     EXEC PGM=IKJEFT01,DYNAMNBR=50,REGION=8M,COND=EVEN\n//STEPLIB  DD DSN=IBMUSER.REXX370.V1R0M0D.TESTLIB,DISP=SHR\n//         DD DSN=REXX370.DEV.LINKLIB,DISP=SHR\n//SYSPROC  DD DSN=IBMUSERX.REXX370X.FIX.TSTJCLXX.SYSPROC1,DISP=SHR\n//SYSTSPRT DD SYSOUT=*\n//SYSPRINT DD SYSOUT=*\n//SYSTERM  DD SYSOUT=*\n//SYSTSIN  DD *\n CALL 'IBMUSER.REXX370.V1R0M0D.TESTLIB(TSTJCL)'\n/*\n//T03     EXEC PGM=IKJEFT01,DYNAMNBR=50,REGION=8M,COND=EVEN\n//STEPLIB  DD DSN=IBMUSER.REXX370.V1R0M0D.TESTLIB,DISP=SHR\n//         DD DSN=REXX370.DEV.LINKLIB,DISP=SHR\n//SYSTSPRT DD SYSOUT=*\n//SYSPRINT DD SYSOUT=*\n//SYSTERM  DD SYSOUT=*\n//SYSTSIN  DD *\n CALL 'IBMUSER.REXX370.V1R0M0D.TESTLIB(TSTP)' 'x y'\n/*\n",
+ "jcl_nolink": "//MBTTEST JOB (A),'MBT TEST',\n//          CLASS=A,MSGCLASS=H,\n//          MSGLEVEL=(1,1),\n//          NOTIFY=&SYSUID\n//B01     EXEC PGM=TSTP,COND=EVEN,REGION=8M\n//STEPLIB  DD DSN=T.TESTLIB,DISP=SHR\n//SYSPRINT DD SYSOUT=*\n//SYSTERM  DD SYSOUT=*\n//SYSTSPRT DD SYSOUT=*\n//SYSUDUMP DD SYSOUT=*\n//T01     EXEC PGM=IKJEFT01,DYNAMNBR=50,REGION=8M,COND=EVEN\n//STEPLIB  DD DSN=T.TESTLIB,DISP=SHR\n//SYSTSPRT DD SYSOUT=*\n//SYSPRINT DD SYSOUT=*\n//SYSTERM  DD SYSOUT=*\n//SYSTSIN  DD *\n CALL 'T.TESTLIB(TSTP)'\n/*\n",
+ "steps": {
+  "B01": [
+   "TSTLOAD",
+   "batch"
+  ],
+  "B02": [
+   "TSTJCL",
+   "batch"
+  ],
+  "B03": [
+   "TSTP",
+   "batch"
+  ],
+  "T01": [
+   "TSTLOAD",
+   "tso"
+  ],
+  "T02": [
+   "TSTJCL",
+   "tso"
+  ],
+  "T03": [
+   "TSTP",
+   "tso"
+  ]
+ },
+ "fx": {
+  "FX001": [
+   "TSTLOAD",
+   "SYSEXEC",
+   "HELLO",
+   "IBMUSER.REXX370.FIX.TSTLOAD.SYSEXEC"
+  ],
+  "FX002": [
+   "TSTLOAD",
+   "SYSEXEC",
+   "LONGNAMEX",
+   "IBMUSER.REXX370.FIX.TSTLOAD.SYSEXEC"
+  ],
+  "FX003": [
+   "TSTJCL",
+   "SYSPROC",
+   "A",
+   "IBMUSERX.REXX370X.FIX.TSTJCLXX.SYSPROC1"
+  ]
+ },
+ "spool": " IEF142I MBTTEST FX001 - STEP WAS EXECUTED - COND CODE 0000\n IEF450I MBTTEST FX002 - ABEND SB37 U0000\n IEF272I MBTTEST FX003 - STEP WAS NOT EXECUTED.\n IEF142I MBTTEST B01 - STEP WAS EXECUTED - COND CODE 0000\n IEF450I MBTTEST B02 - ABEND SA03 U0000\n IEF142I MBTTEST T01 - STEP WAS EXECUTED - COND CODE 0004\n IEF272I MBTTEST T02 - STEP WAS NOT EXECUTED.\n  PASS: one\n  PASS: two\n FAIL: three",
+ "rows": {
+  "TSTLOAD": {
+   "batch": [
+    0,
+    "CC"
+   ],
+   "tso": [
+    4,
+    "CC"
+   ]
+  },
+  "TSTJCL": {
+   "batch": [
+    9999,
+    "ABEND SA03"
+   ],
+   "tso": [
+    -1,
+    "NOT EXECUTED"
+   ]
+  },
+  "TSTP": {
+   "batch": [
+    -1,
+    "NO RC"
+   ],
+   "tso": [
+    -1,
+    "NO RC"
+   ]
+  }
+ },
+ "matrix": [
+  [
+   "  TEST       BATCH          TSO           ",
+   "  ---------- -------------- --------------",
+   "  TSTJCL     FAIL ABEND SA03 FAIL NOT EXECUTED",
+   "  TSTLOAD    ok CC 0        FAIL CC 4      fixture not loaded",
+   "  TSTP       FAIL NO RC     FAIL NO RC    "
+  ],
+  5,
+  0
+ ],
+ "matrix_unread": [
+  [
+   "  TEST       BATCH          TSO           ",
+   "  ---------- -------------- --------------",
+   "  TSTJCL     FAIL ABEND SA03 FAIL NOT EXECUTED",
+   "  TSTLOAD    ok CC 0        FAIL CC 4     ",
+   "  TSTP       ??   NO RC     ??   NO RC    "
+  ],
+  3,
+  2
+ ],
+ "fxfail": [
+  "fixture load failed for TSTJCL, TSTLOAD",
+  [
+   "FX002 SYSEXEC(LONGNAMEX) into IBMUSER.REXX370.FIX.TSTLOAD.SYSEXEC: ABEND SB37",
+   "FX003 SYSPROC: 1 member(s) not loaded (NOT EXECUTED)",
+   "an x37 ABEND is the fixture PDS out of space",
+   "the test results of TSTJCL, TSTLOAD are not about the tests"
+  ]
+ ],
+ "jobfail": {
+  "jcl": [
+   "runner job MBTTEST JOB00009 was rejected -- no test ran",
+   [
+    "IEF642I EXCESSIVE PARAMETER LENGTH IN THE PGM FIELD    (STMT 12)",
+    "the generated JCL is in build/r.jcl"
+   ]
+  ],
+  "timeout": [
+   "runner job MBTTEST JOB00009 did not finish within 120s -- no test result",
+   [
+    "the job may still be running -- check it on MVS before rerunning",
+    "raise the poll with MBT_TEST_TIMEOUT=<seconds>"
+   ]
+  ],
+  "readback": [
+   "runner job MBTTEST JOB00009 ran, but its output could not be read -- no test result",
+   [
+    "JESMSGLG: HTTP 500",
+    "JESYSMSG: HTTP 500",
+    "this is the readback failing, not the job -- the tests may well have passed",
+    "the return codes are on the console: IEFACTRT writes the per-step RC to SYSLOG,",
+    "  IEFACTRT B05     /TSTEXPIR/00:00:00.02/00:00:00.05/00000/MBTTEST",
+    "                                                     ^^^^^ step RC",
+    "and $HASP165 carries the job-level MAX COND CODE",
+    "what was read is in build/r.spool"
+   ]
+  ],
+  "none": [
+   "runner job MBTTEST JOB00009 produced no return code for any step -- no test ran",
+   [
+    "the full spool is in build/r.spool",
+    "the generated JCL is in build/r.jcl"
+   ]
+  ]
+ },
+ "space": [
+  "TRK",
+  4,
+  2,
+  5
+ ],
+ "readback": [
+  "a",
+  "a",
+  "a",
+  "a",
+  "a",
+  "... and 2 more",
+  "this is the readback failing, not the job -- the tests may well have passed",
+  "the return codes are on the console: IEFACTRT writes the per-step RC to SYSLOG,",
+  "  IEFACTRT B05     /TSTEXPIR/00:00:00.02/00:00:00.05/00000/MBTTEST",
+  "                                                     ^^^^^ step RC",
+  "and $HASP165 carries the job-level MAX COND CODE"
+ ]
+}

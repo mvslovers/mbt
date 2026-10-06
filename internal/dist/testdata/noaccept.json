@@ -1,0 +1,31 @@
+{
+ "cfg": {
+  "distribution": {
+   "smp": {
+    "fmid": "TQQQ100",
+    "system": "Z038",
+    "accept_fmid": false,
+    "lklib": "QQQ.QQQLOAD",
+    "target": "QQQ.LINKLIB",
+    "distlib": "QQQ.AQQQLOD"
+   }
+  }
+ },
+ "modules": [
+  "QQQ"
+ ],
+ "aliases": {},
+ "files": {
+  "QQQ.QQQLOAD": "p-1.2.0-load.xmit"
+ },
+ "out": {
+  "mcs": "++FUNCTION(TQQQ100) .\n++VER(Z038)\n   /* prod 1.2.0                                                 */\n   /* Load modules are copied from the LKLIB, not re-bound.      */ .\n++JCLIN .\n//TQQQ100 JOB 1,'PROD JCLIN',MSGLEVEL=1,CLASS=A\n//COPYLOAD EXEC PGM=IEBCOPY\n//AQQQLOD  DD  DISP=SHR,DSN=QQQ.AQQQLOD\n//LINKLIB  DD  DISP=SHR,DSN=QQQ.LINKLIB\n//SYSIN    DD  *\n  COPY INDD=AQQQLOD,OUTDD=LINKLIB\n  SELECT MEMBER=(QQQ)\n/*\n++MOD(QQQ) LKLIB(QQQLOAD) DISTLIB(AQQQLOD) .\n",
+  "apply": "//HMASMP.LINKLIB  DD  DISP=SHR,DSN=QQQ.LINKLIB\n//HMASMP.QQQLOAD  DD  DISP=SHR,DSN=QQQ.QQQLOAD\n//HMASMP.AQQQLOD  DD  DISP=SHR,DSN=QQQ.AQQQLOD",
+  "alloc": "//LINKLIB  DD  DSN=QQQ.LINKLIB,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)\n//AQQQLOD  DD  DSN=QQQ.AQQQLOD,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)",
+  "recv": "//* The RECEIVE targets are deleted first: TSO RECEIVE refuses to\n//* merge into an existing dataset, so without this the job would\n//* run exactly once. SET MAXCC=0 keeps a first run, where none of\n//* them exists yet, from failing on the DELETEs.\n//*\n//DELOLD  EXEC PGM=IDCAMS\n//SYSPRINT DD  SYSOUT=*\n//SYSIN    DD  *\n  DELETE QQQ.QQQLOAD NONVSAM SCRATCH PURGE\n  SET MAXCC=0\n/*\n//*\n//* p-1.2.0-load.xmit\n//*   -> QQQ.QQQLOAD\n//RECV1   EXEC PGM=IKJEFT01,DYNAMNBR=20\n//SYSTSPRT DD  SYSOUT=*\n//SYSTSIN  DD  *\n  RECEIVE INDSN('CHANGE.ME.QQQLOAD') -\n    DATASET('QQQ.QQQLOAD')\n/*",
+  "cond": "(0,NE,APPLY.HMASMP)",
+  "cleanup": "//*\n//* ---- remove the staging library -----------------------------------\n//* Only reached when everything above worked. Comment the step out\n//* if you would rather keep the shipped modules on the system.\n//*\n//CLEANUP EXEC PGM=IDCAMS,COND=(0,NE,ACCEPT.HMASMP)\n//SYSPRINT DD  SYSOUT=*\n//SYSIN    DD  *\n  DELETE QQQ.QQQLOAD NONVSAM SCRATCH PURGE\n/*\n//",
+  "jobname": "BREXXALC",
+  "jobcard": "//PRODINS  JOB (SYS),'PROD INSTALL',\n//             CLASS=A,MSGCLASS=H,MSGLEVEL=(1,1),\n//             REGION=4096K"
+ }
+}
