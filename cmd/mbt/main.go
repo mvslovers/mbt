@@ -73,11 +73,13 @@ commands:
   package                             build, then write the release artifacts to dist/
   dist                                re-render the SMP install package alone
   test [--only NAME]... [-v]          build and run the dual tests on the host
-  test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
+  test --mvs [--only NAME]... [--no-deploy] [--target NAME] [--linklib DSN] [-v]
                                       build the test modules and run them on MVS
+  test --tso [--only NAME]... [--target NAME] [-v]
+                                      run test/tso/*.lua interactively over TN3270, one TSO logon each
   check                               every test suite: the host first, then MVS
   migrate [--dry-run]                 convert project.toml into mbt.toml (schema 3)
-  deploy [--target DSN] [--module M]... [--dry-run] [-v]
+  deploy [--target NAME] [--linklib DSN] [--module M]... [--dry-run] [-v]
                                       pack the built modules and RECEIVE them on MVS
   compiledb                           write compile_commands.json for clangd
   doctor                              check the toolchain, the sysroot and the MVS connection
@@ -1070,6 +1072,7 @@ func cmdTest(args []string) int {
 	fl.Var(&only, "only", "run only this test (repeatable)")
 	verbose := fl.Bool("v", false, "print the compile commands and errors")
 	mvs := fl.Bool("mvs", false, "run the test modules on MVS (make test-mvs)")
+	tso := fl.Bool("tso", false, "run the interactive tests in test/tso/*.lua over TN3270")
 	noDeploy := fl.Bool("no-deploy", false, "with --mvs: reuse the TESTLIB already there")
 	targetName := fl.String("target", "", "with --mvs: the MVS system (a name in ~/.mbt/targets.toml)")
 	linklib := fl.String("linklib", "", "with --mvs: the runtime load library the tests run against")
@@ -1077,6 +1080,19 @@ func cmdTest(args []string) int {
 		return exitConfig
 	}
 	selectedTarget = *targetName
+	if *tso {
+		var rest []string
+		for _, o := range only {
+			rest = append(rest, "--only", o)
+		}
+		if *targetName != "" {
+			rest = append(rest, "--target", *targetName)
+		}
+		if *verbose {
+			rest = append(rest, "-v")
+		}
+		return cmdTestTSO(rest)
+	}
 	if *mvs {
 		return cmdTestMVS(only, *noDeploy, *linklib, *verbose)
 	}
