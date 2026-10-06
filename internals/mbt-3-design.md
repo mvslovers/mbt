@@ -807,6 +807,16 @@ What today's Makefiles do and where it would go:
 | Webroot UFS image with pinned ufsd-utils | httpd | Lua task |
 | Desktop upload into the UFS | mvsmf | Lua command |
 
+**Decided (2026-10-06): tasks start as data in `mbt.toml`.** Every step the
+projects' Makefiles carry today -- httpd's webroot, mvsMF's desktop upload,
+brexx370's usermod stream -- is a fixed sequence of commands. So step 4 builds
+`[task.NAME]` (argv lists, no shell, `inputs`/`outputs`, `before = [...]`)
+and `[tools]` (pinned in `mbt.lock`), and `mbt mvs up/down` for the docker
+targets; reference in `internals/mbt-3-schema.md`. The Lua context above
+comes when a project needs logic, together with the answer to the version
+question below. A TOML task and a later `mbt.task{}` describe the same
+thing, so nothing written now is thrown away.
+
 **Open: Lua 5.1 or 5.4.**
 
 | Option | For | Against |
