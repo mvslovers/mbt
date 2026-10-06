@@ -1,8 +1,8 @@
 // Command mbt is the MVS Build Tool, version 3.
 //
 // Phase 3 of the mbt 3 proposal (internals/mbt-3-design.md): the cc370 host
-// path.  This first cut builds from an mbt v2 project.toml, so its output can
-// be compared byte for byte with mbt v2's.
+// path.  It reads an mbt.toml (schema 3) or an mbt v2 project.toml; from the
+// latter its output is compared byte for byte with mbt v2's.
 package main
 
 import (
@@ -26,6 +26,7 @@ import (
 	"github.com/mvslovers/mbt/internal/deps"
 	"github.com/mvslovers/mbt/internal/dist"
 	"github.com/mvslovers/mbt/internal/hosttest"
+	"github.com/mvslovers/mbt/internal/migrate"
 	"github.com/mvslovers/mbt/internal/moddata"
 	"github.com/mvslovers/mbt/internal/mvsmf"
 	"github.com/mvslovers/mbt/internal/mvstest"
@@ -62,6 +63,7 @@ commands:
   test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
                                       build the test modules and run them on MVS
   check                               every test suite: the host first, then MVS
+  migrate [--dry-run]                 convert project.toml into mbt.toml (schema 3)
   deploy [--target DSN] [--module M]... [--dry-run] [-v]
                                       pack the built modules and RECEIVE them on MVS
   compiledb                           write compile_commands.json for clangd
@@ -86,6 +88,8 @@ func run(args []string) int {
 		return cmdPackage(args[1:])
 	case "dist":
 		return cmdDist()
+	case "migrate":
+		return cmdMigrate(args[1:])
 	case "check":
 		if code := cmdTest(nil); code != exitOK {
 			return code
@@ -131,7 +135,7 @@ func cmdBuild(args []string) int {
 func doBuild(all, tests bool, jobs int, verbose bool, only []string) (*project.Project, int) {
 	root, _ := os.Getwd()
 
-	p, err := project.LoadV2(root, "project.toml")
+	p, err := project.Load(root)
 	if err != nil {
 		return nil, fail(err)
 	}
@@ -191,6 +195,10 @@ func runDist(p *project.Project, mtime time.Time) int {
 	if !ok || len(d) == 0 {
 		return exitOK
 	}
+	if p.DistError != "" {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %s\n", p.DistError)
+		return exitConfig
+	}
 	var mods []dist.Module
 	for _, m := range p.Modules {
 		mods = append(mods, dist.Module{Name: m.Name, Aliases: m.Aliases})
@@ -210,12 +218,12 @@ func runDist(p *project.Project, mtime time.Time) int {
 // a previous package left in dist/ (the inner loop for a samplib or JCL edit).
 func cmdDist() int {
 	root, _ := os.Getwd()
-	p, err := project.LoadV2(root, "project.toml")
+	p, err := project.Load(root)
 	if err != nil {
 		return fail(err)
 	}
 	if d, ok := p.Raw["distribution"].(map[string]any); !ok || len(d) == 0 {
-		fmt.Println("[mbt] No [distribution] section in project.toml -- nothing to build")
+		fmt.Printf("[mbt] No [distribution] section in %s -- nothing to build\n", p.File)
 		return exitOK
 	}
 	var mtime time.Time
@@ -225,6 +233,58 @@ func cmdDist() int {
 		}
 	}
 	return runDist(p, mtime)
+}
+
+// cmdMigrate converts project.toml into mbt.toml.  The converted file is
+// loaded and compared with the original before anything is written; a
+// difference beyond the intended ones writes nothing.
+func cmdMigrate(args []string) int {
+	fl := flag.NewFlagSet("migrate", flag.ContinueOnError)
+	dry := fl.Bool("dry-run", false, "print mbt.toml instead of writing it")
+	if err := fl.Parse(args); err != nil {
+		return exitConfig
+	}
+	root, _ := os.Getwd()
+	if f, err := project.Find(root); err != nil {
+		return fail(err)
+	} else if f == project.FileV3 {
+		fmt.Println("[mbt] mbt.toml is here already -- nothing to migrate")
+		return exitOK
+	}
+	res, err := migrate.Convert(root)
+	if err != nil {
+		return fail(err)
+	}
+	diffs, err := migrate.Check(root, res.Text)
+	if err != nil {
+		return fail(err)
+	}
+	for _, n := range res.Notices {
+		fmt.Printf("[mbt] NOTE: %s\n", n)
+	}
+	if len(diffs) > 0 {
+		for _, d := range diffs {
+			fmt.Fprintf(os.Stderr, "[mbt] ERROR: mbt.toml would differ: %s\n", d)
+		}
+		fmt.Fprintln(os.Stderr, "[mbt] ERROR: nothing written")
+		return exitInternal
+	}
+	if *dry {
+		fmt.Print(res.Text)
+		return exitOK
+	}
+	if err := os.WriteFile(filepath.Join(root, project.FileV3), []byte(res.Text), 0o644); err != nil {
+		return fail(err)
+	}
+	os.Remove(filepath.Join(root, project.FileV2))
+	removed := "project.toml"
+	if _, err := os.Stat(filepath.Join(root, "VERSION")); err == nil {
+		os.Remove(filepath.Join(root, "VERSION"))
+		removed += " and VERSION"
+	}
+	fmt.Printf("[mbt] Wrote mbt.toml (checked against project.toml: same modules, tests, flags and package); removed %s\n", removed)
+	fmt.Println("[mbt] Left to the migrating PR: the Makefile, the mbt submodule (.gitmodules), and CI workflows that call make")
+	return exitOK
 }
 
 // cmdPackage: build the modules and the library, then write dist/ (v2's
@@ -313,7 +373,7 @@ func cmdModdata(args []string) int {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
-	p, err := project.LoadV2(root, "project.toml")
+	p, err := project.Load(root)
 	if err != nil {
 		return fail(err)
 	}
@@ -358,7 +418,7 @@ func cmdTest(args []string) int {
 		return cmdTestMVS(only, *noDeploy, *target, *verbose)
 	}
 	root, _ := os.Getwd()
-	p, err := project.LoadV2(root, "project.toml")
+	p, err := project.Load(root)
 	if err != nil {
 		return fail(err)
 	}
@@ -469,7 +529,7 @@ func cmdDoctor() int {
 			fmt.Printf("[mbt] sysroot: %s (libc.a + crtm.o OK)\n", t.Sysroot)
 		}
 	}
-	p, perr := project.LoadV2(root, "project.toml")
+	p, perr := project.Load(root)
 	if t != nil {
 		want := ""
 		if perr == nil {
@@ -487,7 +547,7 @@ func cmdDoctor() int {
 		}
 	}
 	if perr != nil {
-		fmt.Fprintf(os.Stderr, "[mbt] WARNING: project.toml not loaded, skipping MVS checks (%v)\n", perr)
+		fmt.Fprintf(os.Stderr, "[mbt] WARNING: project file not loaded, skipping MVS checks (%v)\n", perr)
 		failed++
 	} else {
 		cfg := config.Load(root)
@@ -507,7 +567,7 @@ func cmdDoctor() int {
 				fmt.Printf("[mbt] MVS credentials check: HTTP %d for %s\n", code, cfg.User())
 			}
 		}
-		fmt.Printf("[mbt] project.toml valid: %s v%s\n", p.Name, p.Version)
+		fmt.Printf("[mbt] %s valid: %s v%s\n", p.File, p.Name, p.Version)
 		fmt.Println("[mbt] Configuration:")
 		keys := []struct{ name, key string }{{"MVS_HOST", "mvs.host"}, {"MVS_PORT", "mvs.port"}, {"MVS_USER", "mvs.user"},
 			{"MVS_PASS", "mvs.pass"}, {"MVS_HLQ", "mvs.hlq"}, {"MVS_DEPS_HLQ", "mvs.deps_hlq"}, {"MVS_DEPS_VOLUME", "mvs.deps_volume"},
@@ -531,7 +591,7 @@ func cmdDoctor() int {
 // cmdCompiledb: make compiledb.
 func cmdCompiledb() int {
 	root, _ := os.Getwd()
-	p, err := project.LoadV2(root, "project.toml")
+	p, err := project.Load(root)
 	if err != nil {
 		return fail(err)
 	}
@@ -568,7 +628,7 @@ func cmdDeploy(args []string) int {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
-	p, err := project.LoadV2(root, "project.toml")
+	p, err := project.Load(root)
 	if err != nil {
 		return fail(err)
 	}
@@ -599,7 +659,11 @@ func cmdDeps(args []string) int {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
-	err := deps.Run(root, "project.toml", deps.Options{
+	file, err := project.Find(root)
+	if err != nil {
+		return fail(err)
+	}
+	err = deps.Run(root, file, deps.Options{
 		Update: *update,
 		Log:    func(s string) { fmt.Printf("[mbt] %s\n", s) },
 		Warn:   func(s string) { fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", s) },

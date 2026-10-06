@@ -80,3 +80,20 @@ Clones each project at the manifest's commit, builds it with the pinned clock
 and compares against the manifest. It answers "does this still reproduce what
 was recorded" — useful as a control, but not as the mbt 3 gate, for the reason
 above.
+
+## `schema23.py` — schema 2 against schema 3
+
+```
+python3 internals/acceptance/schema23.py <mbt3-binary> <workdir> PROJ ...
+```
+
+One mbt 3 binary builds a checkout `diff23.py` left behind from its
+`project.toml`, and a copy of it after `mbt migrate` from its `mbt.toml`:
+object decks, archives and load modules byte for byte, the package member by
+member, the host test results. Expected and normalized: schema 3 orders
+modules and tests by name, so the install JCL (`SELECT MEMBER`, `++MOD`) and
+the list of skipped tests can come out in another order.
+
+Measured 2026-10-06 (cc370 1.4.0, libc370 2.4.0): all 8 projects identical --
+633 build outputs, 62 package entries, every host test result. Control: the
+migrated ftpd with `rent = false` on FTPD links a different `FTPD.iebcopy`.

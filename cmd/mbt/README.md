@@ -14,13 +14,20 @@ mbt test [--only NAME]... [-v]
 mbt deploy [--target DSN] [--module M]... [--dry-run] [-v]
 mbt test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
 mbt check
+mbt migrate [--dry-run]
 mbt compiledb
 mbt doctor
 ```
 
-Today it reads an mbt 2 `project.toml` and builds object decks, archives and
-load modules with the cc370 toolchain on PATH. For all eight ported projects
-the output is byte-identical to mbt 2's (`internals/acceptance/`).
+It reads an `mbt.toml` (schema 3, `internals/mbt-3-schema.md`) or an mbt 2
+`project.toml`, and builds object decks, archives and load modules with the
+cc370 toolchain on PATH. From a `project.toml`, the output of all eight
+ported projects is byte-identical to mbt 2's (`internals/acceptance/`).
+
+`mbt migrate` converts `project.toml` into `mbt.toml`, comments included, and
+removes `project.toml` and `VERSION`. Before it writes anything it loads the
+new file and compares the two models; any difference beyond the intended ones
+writes nothing.
 
 `mbt deps --update` stages the same files and writes the same `mbt.lock` as
 mbt 2. Without `--update`, mbt 3 never moves a pin: a version outside its
@@ -51,5 +58,4 @@ Requests go out with Go's standard HTTP/1.1 client (mbt 2 forced HTTP/1.0).
 masks `MVS_PASS`, which mbt 2 printed in clear.
 
 Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks),
-`release`,
-`mbt.toml` schema 3, the launcher.
+`release`, the launcher.

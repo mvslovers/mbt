@@ -492,8 +492,12 @@ func stageOverride(path, dest string) (string, error) {
 			Headers []string `toml:"headers"`
 		} `toml:"lib"`
 	}
-	if _, err := toml.DecodeFile(filepath.Join(path, "project.toml"), &raw); err != nil {
-		return "", fmt.Errorf("no project.toml in override path %s", path)
+	file := "mbt.toml"
+	if _, err := os.Stat(filepath.Join(path, file)); err != nil {
+		file = "project.toml"
+	}
+	if _, err := toml.DecodeFile(filepath.Join(path, file), &raw); err != nil {
+		return "", fmt.Errorf("no mbt.toml or project.toml in override path %s", path)
 	}
 	if raw.Lib == nil {
 		return "", fmt.Errorf("%s has no [lib] section to consume", path)
