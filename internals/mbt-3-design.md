@@ -1127,10 +1127,15 @@ on in its project file instead of copying workflow YAML.
 
 ## 16. Migration and acceptance — **Proposed**
 
-- **Differential acceptance.** Old and new mbt build every active project;
-  object decks, load modules, rendered JCL and SMP packages must be identical
-  except for timestamps. That is a measurable definition of "done" for the
-  rewrite.
+- **Differential acceptance.** Old and new mbt build every active project
+  **side by side**: in the same checkout, on the same staged dependencies,
+  with the clock pinned. Object decks, load modules, rendered JCL and SMP
+  packages must be identical. Not against the recorded manifest: once a
+  `-dev` dependency is republished its old archive is gone and the manifest
+  cannot be reproduced (`internals/v2-baseline.md`, measured 2026-10-05).
+  Commands that touch MVS are compared against a local stand-in for mvsMF
+  (requests, submitted JCL, console), then run once on a real system. The
+  scripts are `internals/acceptance/` (#165).
 - **Behaviour to carry over, each with a test:** a failed recipe leaves no
   output behind (as370 writes a deck even at RC 8, and a later build would
   link it); header dependency tracking; the build stamp only rewritten when
@@ -1192,12 +1197,17 @@ on in its project file instead of copying workflow YAML.
    2.1.0, and since then cc370 1.3.0 changed the eyecatcher in front of every
    `main`, libc370 2.3.0 moved the C startup into `libc.a`, and mbt 2.2.0
    (#158) links it from there.
-4. Toolchain management, `mbt migrate`, then migrate the projects one by one.
-   PTF packaging (section 6.4) comes here, after its measurements: step 3
-   ports v2's `++FUNCTION` path unchanged, because the differential
-   comparison accepts exactly that.
-5. Bonus, once the core stands: extensions, MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
-   native backends and foreign build systems.
+4. Toolchain management, **project tasks** (section 9: `[tools]` and a task
+   a project runs as part of its build), `mbt migrate`, then migrate the
+   projects one by one. Tasks come before the migration because a project
+   needs them to migrate at all: httpd builds its webroot image with a
+   pinned `ufsd-utils` in its own Makefile (`make webroot`), which mbt 3
+   cannot run otherwise (found in #165). PTF packaging (section 6.4) comes
+   here too, after its measurements: step 3 ports v2's `++FUNCTION` path
+   unchanged, because the differential comparison accepts exactly that.
+5. Bonus, once the core stands: Lua extensions beyond tasks, MCP server,
+   workspaces, `lint`, `size`, `smp verify`, languages, native backends and
+   foreign build systems.
 
 ## Appendix A — open mbt v2 issues, sorted (2026-10-03)
 
