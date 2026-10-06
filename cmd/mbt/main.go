@@ -25,6 +25,7 @@ import (
 	"github.com/mvslovers/mbt/internal/deploy"
 	"github.com/mvslovers/mbt/internal/deps"
 	"github.com/mvslovers/mbt/internal/dist"
+	"github.com/mvslovers/mbt/internal/ext"
 	"github.com/mvslovers/mbt/internal/hosttest"
 	"github.com/mvslovers/mbt/internal/launch"
 	"github.com/mvslovers/mbt/internal/migrate"
@@ -36,6 +37,7 @@ import (
 	"github.com/mvslovers/mbt/internal/release"
 	"github.com/mvslovers/mbt/internal/stamp"
 	"github.com/mvslovers/mbt/internal/toolchain"
+	"github.com/mvslovers/mbt/internal/tools"
 	"github.com/mvslovers/mbt/internal/version"
 )
 
@@ -74,6 +76,10 @@ commands:
   doctor                              check the toolchain, the sysroot and the MVS connection
   release VERSION [--next V]          release VERSION-dev as VERSION: bump, tag, push, then bump to V
   prerelease                          (re)tag the current -dev version and push the tag
+  run [NAME] [-v] [--dry-run] [-- ARGS...]
+                                      run a command or task of mbt/init.lua; without NAME: list them
+  clean                               remove build/ and dist/ (keeps staged deps)
+  distclean                           clean, and remove .mbt/ (deps, tools, state; keeps mbt.lock)
   version                             print mbt's version
 
 mbt.toml may pin the mbt to run: [toolchain] mbt = "3.0" (any 3.0.x) or "3.0.2".
@@ -94,7 +100,25 @@ func run(args []string) int {
 			return code
 		}
 	}
+	code := dispatch(args)
+	if code != exitOK && engine != nil {
+		failure := lastErr
+		if failure == nil {
+			failure = fmt.Errorf("exit code %d", code)
+		}
+		engine.Failure(args[0], failure)
+	}
+	return code
+}
+
+func dispatch(args []string) int {
 	switch args[0] {
+	case "run":
+		return cmdRun(args[1:])
+	case "clean":
+		return cmdClean(false)
+	case "distclean":
+		return cmdClean(true)
 	case "release":
 		return cmdRelease(args[1:], false)
 	case "prerelease":
@@ -162,6 +186,15 @@ func doBuild(all, tests bool, jobs int, verbose bool, only []string) (*project.P
 	if err != nil {
 		return nil, fail(err)
 	}
+	if code := before(p, "build", verbose, false); code != exitOK {
+		return nil, code
+	}
+	if engine.Active() {
+		// a task may have written sources the patterns now match
+		if p, err = project.Load(root); err != nil {
+			return nil, fail(err)
+		}
+	}
 	for _, w := range p.Warnings {
 		fmt.Printf("[mbt] WARNING: %s\n", w)
 	}
@@ -208,6 +241,9 @@ func doBuild(all, tests bool, jobs int, verbose bool, only []string) (*project.P
 	if err := build.New(p, t, o).Run(); err != nil {
 		return nil, fail(err)
 	}
+	if code := after(p, "build", map[string]any{"modules": unitNames(p.Modules), "tests": unitNames(p.Tests)}); code != exitOK {
+		return nil, code
+	}
 	return p, exitOK
 }
 
@@ -217,6 +253,9 @@ func runDist(p *project.Project, mtime time.Time) int {
 	d, ok := p.Raw["distribution"].(map[string]any)
 	if !ok || len(d) == 0 {
 		return exitOK
+	}
+	if code := before(p, "dist", false, false); code != exitOK {
+		return code
 	}
 	if p.DistError != "" {
 		if v, err := version.Parse(p.Version); err == nil && v.IsPre() {
@@ -239,7 +278,7 @@ func runDist(p *project.Project, mtime time.Time) int {
 		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
 		return exitConfig
 	}
-	return exitOK
+	return after(p, "dist", map[string]any{"artifacts": distFiles(p.Root, "-dist.")})
 }
 
 // cmdDist: make dist -- re-render the SMP package alone, from the load XMIT
@@ -326,6 +365,9 @@ func cmdRelease(args []string, pre bool) int {
 	if err != nil {
 		return fail(err)
 	}
+	if code := before(p, "release", false, false); code != exitOK {
+		return code
+	}
 	o := release.Options{Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }}
 	if pre {
 		if fl.NArg() != 0 {
@@ -342,9 +384,14 @@ func cmdRelease(args []string, pre bool) int {
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
+		lastErr = err
 		return exitConfig
 	}
-	return exitOK
+	v := p.Version
+	if !pre {
+		v = fl.Arg(0)
+	}
+	return after(p, "release", map[string]any{"version": v, "tag": "v" + v, "prerelease": pre})
 }
 
 // cmdCIInfo prints what the reusable workflows need, one KEY=VALUE per line
@@ -375,6 +422,150 @@ func cmdCIInfo() int {
 	return exitOK
 }
 
+// engine is the Lua of this invocation (mbt/init.lua, ~/.mbt/init.lua),
+// loaded once; lastErr is what on_failure hooks are told.
+var (
+	engine  *ext.Engine
+	lastErr error
+)
+
+// exts loads the extensions of an mbt.toml project. A v2 project gets none:
+// its mbt/ is the submodule, and a v2 build must not change.
+func exts(p *project.Project, verbose, dry bool) (*ext.Engine, error) {
+	if engine != nil {
+		return engine, nil
+	}
+	if p.Schema != 3 {
+		engine = &ext.Engine{}
+		return engine, nil
+	}
+	home := os.Getenv("MBT_HOME")
+	if home == "" {
+		if h, err := os.UserHomeDir(); err == nil {
+			home = filepath.Join(h, ".mbt")
+		}
+	}
+	tl, err := tools.Declared(p.Raw)
+	if err != nil {
+		return nil, err
+	}
+	e, err := ext.Load(ext.Options{Root: p.Root, Home: home, Version: mbtVersion, Verbose: verbose, DryRun: dry,
+		Project: ext.Project{Name: p.Name, Version: p.Version, Modules: unitNames(p.Modules), Tests: unitNames(p.Tests)},
+		Tools:   tl, ToolOpt: tools.Options{Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }}})
+	if err != nil {
+		return nil, err
+	}
+	engine = e
+	return e, nil
+}
+
+func before(p *project.Project, point string, verbose, dry bool) int {
+	e, err := exts(p, verbose, dry)
+	if err != nil {
+		return fail(err)
+	}
+	if err := e.Before(point); err != nil {
+		return fail(err)
+	}
+	return exitOK
+}
+
+func after(p *project.Project, point string, result map[string]any) int {
+	e, err := exts(p, false, false)
+	if err != nil {
+		return fail(err)
+	}
+	if err := e.After(point, result); err != nil {
+		return fail(err)
+	}
+	return exitOK
+}
+
+func unitNames(us []*project.Unit) []string {
+	var n []string
+	for _, u := range us {
+		n = append(n, u.Name)
+	}
+	return n
+}
+
+// distFiles lists dist/ (only names containing part, when given).
+func distFiles(root, part string) []string {
+	var out []string
+	entries, _ := os.ReadDir(filepath.Join(root, "dist"))
+	for _, e := range entries {
+		if !e.IsDir() && (part == "" || strings.Contains(e.Name(), part)) {
+			out = append(out, "dist/"+e.Name())
+		}
+	}
+	return out
+}
+
+// cmdRun: mbt run [NAME] [-v] [--dry-run] [-- ARGS...]
+func cmdRun(args []string) int {
+	var extra []string
+	for i, a := range args {
+		if a == "--" {
+			args, extra = args[:i], append([]string{}, args[i+1:]...)
+			break
+		}
+	}
+	fl := flag.NewFlagSet("run", flag.ContinueOnError)
+	verbose := fl.Bool("v", false, "show each program run and its output")
+	dry := fl.Bool("dry-run", false, "run the Lua, but no program and no write")
+	if err := fl.Parse(args); err != nil {
+		return exitConfig
+	}
+	root, _ := os.Getwd()
+	p, err := project.Load(root)
+	if err != nil {
+		return fail(err)
+	}
+	e, err := exts(p, *verbose, *dry)
+	if err != nil {
+		return fail(err)
+	}
+	if fl.NArg() == 0 {
+		cmds := e.Commands()
+		if len(cmds) == 0 {
+			fmt.Println("[mbt] no commands or tasks: mbt/init.lua defines none (or there is none)")
+			return exitOK
+		}
+		fmt.Println("[mbt] commands and tasks (mbt run NAME [-- ARGS]):")
+		for _, c := range cmds {
+			fmt.Printf("  %-20s %s\n", c[0], c[1])
+		}
+		return exitOK
+	}
+	if fl.NArg() > 1 {
+		fmt.Fprintln(os.Stderr, "[mbt] ERROR: usage: mbt run NAME [-v] [--dry-run] [-- ARGS...]")
+		return exitConfig
+	}
+	if err := e.Run(fl.Arg(0), extra); err != nil {
+		return fail(err)
+	}
+	return exitOK
+}
+
+// cmdClean: build/ and dist/ go; distclean takes .mbt/ too. mbt.lock stays.
+func cmdClean(dist bool) int {
+	root, _ := os.Getwd()
+	if _, err := project.Find(root); err != nil {
+		return fail(err)
+	}
+	dirs := []string{"build", "dist"}
+	if dist {
+		dirs = append(dirs, ".mbt")
+	}
+	for _, d := range dirs {
+		if err := os.RemoveAll(filepath.Join(root, d)); err != nil {
+			return fail(err)
+		}
+	}
+	fmt.Printf("[mbt] Removed %s\n", strings.Join(dirs, ", "))
+	return exitOK
+}
+
 // cmdPackage: build the modules and the library, then write dist/ (v2's
 // `make package`).  SOURCE_DATE_EPOCH, when set, stamps the tarball.
 func cmdPackage(args []string) int {
@@ -385,6 +576,9 @@ func cmdPackage(args []string) int {
 	}
 	p, code := doBuild(true, false, *jobs, false, nil)
 	if code != exitOK {
+		return code
+	}
+	if code := before(p, "package", false, false); code != exitOK {
 		return code
 	}
 	t, _ := toolchain.Find()
@@ -398,6 +592,9 @@ func cmdPackage(args []string) int {
 		return fail(err)
 	}
 	if code := runDist(p, o.Mtime); code != exitOK {
+		return code
+	}
+	if code := after(p, "package", map[string]any{"artifacts": distFiles(p.Root, "")}); code != exitOK {
 		return code
 	}
 	fmt.Println("[mbt] Package complete -> dist/")
@@ -510,6 +707,9 @@ func cmdTest(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	if code := before(p, "test", *verbose, false); code != exitOK {
+		return code
+	}
 	stamp.Write(root, p.Name, p.Version)
 	writeHeaders(filepath.Join(root, ".mbt/include"))
 	c := hosttest.Config{CFlags: project.RawStrs(rawTable(p.Raw, "build"), "cflags"), Resolve: p.Resolve, Replace: map[string]string{}}
@@ -535,6 +735,9 @@ func cmdTest(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	if code := after(p, "test", map[string]any{"kind": "host", "passed": ok}); code != exitOK {
+		return code
+	}
 	if !ok {
 		return exitBuild
 	}
@@ -545,6 +748,9 @@ func cmdTest(args []string) int {
 func cmdTestMVS(only []string, noDeploy bool, target string, verbose bool) int {
 	p, code := doBuild(false, true, 0, false, nil)
 	if code != exitOK {
+		return code
+	}
+	if code := before(p, "test", verbose, false); code != exitOK {
 		return code
 	}
 	t, _ := toolchain.Find()
@@ -566,9 +772,15 @@ func cmdTestMVS(only []string, noDeploy bool, target string, verbose bool) int {
 	}
 	tt, _ := rawTable(p.Raw, "test_deploy")["target"].(string)
 	pt, _ := rawTable(p.Raw, "deploy")["target"].(string)
-	return mvstest.Run(mvstest.Options{Root: p.Root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
+	code = mvstest.Run(mvstest.Options{Root: p.Root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
 		Tests: tests, TestTarget: tt, LinkTarget: target, ProjectTarget: pt, Only: only, NoDeploy: noDeploy,
 		Verbose: verbose, Out: os.Stdout, Err: os.Stderr, Config: config.Load(p.Root)})
+	if code == mvstest.ExitOK || code == mvstest.ExitFailed {
+		if c := after(p, "test", map[string]any{"kind": "mvs", "passed": code == mvstest.ExitOK}); c != exitOK {
+			return c
+		}
+	}
+	return code
 }
 
 func anyTables(v any) []map[string]any {
@@ -720,6 +932,9 @@ func cmdDeploy(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	if code := before(p, "deploy", *verbose, *dry); code != exitOK {
+		return code
+	}
 	t, err := toolchain.Find()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
@@ -730,9 +945,21 @@ func cmdDeploy(args []string) int {
 		names = append(names, m.Name)
 	}
 	pt, _ := rawTable(p.Raw, "deploy")["target"].(string)
-	return deploy.Run(deploy.Options{Root: root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
+	code := deploy.Run(deploy.Options{Root: root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
 		Modules: names, Target: *target, ProjectTarget: pt, Only: mods, DryRun: *dry, Verbose: *verbose,
 		Out: os.Stdout, Err: os.Stderr, Config: config.Load(root)})
+	if code != exitOK {
+		return code
+	}
+	lib := *target
+	if lib == "" {
+		lib = pt
+	}
+	deployed := names
+	if len(mods) > 0 {
+		deployed = mods
+	}
+	return after(p, "deploy", map[string]any{"library": lib, "modules": deployed, "dry_run": *dry})
 }
 
 func rawTable(m map[string]any, key string) map[string]any {
@@ -759,11 +986,37 @@ func cmdDeps(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	// [tools] are pinned and staged with the dependencies
+	p, err := project.Load(root)
+	if err != nil {
+		return fail(err)
+	}
+	ts, err := tools.Declared(p.Raw)
+	if err != nil {
+		return fail(err)
+	}
+	for _, t := range ts {
+		if _, err := tools.Ensure(root, t, tools.Options{Update: *update, Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }}); err != nil {
+			return fail(err)
+		}
+	}
 	return exitOK
 }
 
 func fail(err error) int {
+	lastErr = err
 	fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
+	var xe *ext.Error
+	var te *tools.Error
+	if errors.As(err, &xe) {
+		if xe.Config {
+			return exitConfig
+		}
+		return exitBuild
+	}
+	if errors.As(err, &te) {
+		return 3
+	}
 	var ce *project.ConfigError
 	var be *build.Error
 	var de *deps.Error

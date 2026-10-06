@@ -17,6 +17,8 @@ mbt check
 mbt migrate [--dry-run]
 mbt release VERSION [--next V]
 mbt prerelease
+mbt run [NAME] [-v] [--dry-run] [-- ARGS...]
+mbt clean | distclean
 mbt compiledb
 mbt doctor
 ```
@@ -73,4 +75,16 @@ against their SHA256 list. `MBT_NO_SWITCH=1` keeps the running one. mbt
 releases itself on a `v3.*` tag (`.github/workflows/mbt-release.yml`): macOS
 and Linux on arm64 and amd64, Windows on amd64.
 
-Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks).
+**Extensions.** An `mbt.toml` project may carry Lua 5.5 in `mbt/init.lua`
+(modules in `mbt/lua/`); `~/.mbt/init.lua` is yours (`internals/mbt-3-extensions.md`).
+`mbt.hook` runs before and after build, test, package, dist, deploy and
+release (and on failure); `mbt.task` declares inputs and outputs and runs
+before a command, skipped while up to date; `mbt.command` becomes `mbt run
+NAME`. Lua sees only `ctx` -- `exec` (argv, no shell), `tool` (`[tools]`,
+SHA-256-pinned), `fs` (inside the project), `log` -- under a CPU and a memory
+limit; with `--dry-run` nothing is run or written. Measured: httpd's webroot
+as a task and mvsMF's desktop upload as a command reproduce `make webroot` and
+`make deploy-desktop-dry`.
+
+Not yet: plugins, targets (`~/.mbt/targets.toml`), the console chain,
+`mbt test --tso`.
