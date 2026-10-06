@@ -373,7 +373,9 @@ mbt.command("bad", function(ctx) ctx.mvs.request { path = "zosmf/x" } end)`})
 	f.calls = nil
 	e = v.mustLoad(t, func(o *Options) {
 		o.DryRun = true
-		o.Target = func() (map[string]any, error) { return map[string]any{"name": "lab", "mvsmf": map[string]any{"user": "IBMUSER"}}, nil }
+		o.Target = func() (map[string]any, error) {
+			return map[string]any{"name": "lab", "mvsmf": map[string]any{"user": "IBMUSER"}}, nil
+		}
 		o.MVS = func() (MVS, error) { return f, nil }
 	})
 	if err := e.After("deploy", nil); err != nil {
