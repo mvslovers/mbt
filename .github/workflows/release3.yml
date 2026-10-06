@@ -42,19 +42,20 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: mbt from source
         if: inputs.mbt_ref != ''
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: mvslovers/mbt
           ref: ${{ inputs.mbt_ref }}
           path: .mbt-src
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         if: inputs.mbt_ref != ''
         with:
           go-version-file: .mbt-src/go.mod
+          cache-dependency-path: .mbt-src/go.sum
       - name: Build mbt
         if: inputs.mbt_ref != ''
         run: |
@@ -121,7 +122,7 @@ jobs:
 
       - name: Cache toolchain
         id: tc-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local
           key: cc370-${{ runner.os }}-${{ env.TC_KEY }}
