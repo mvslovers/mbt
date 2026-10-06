@@ -452,3 +452,60 @@ func (c *Client) Request(method, path, contentType string, body []byte) (int, []
 	}
 	return 200, data, nil
 }
+
+// Delivery says what became of an operator command on one channel.
+type Delivery int
+
+const (
+	// Delivered: the channel took the command and answered.
+	Delivered Delivery = iota
+	// NotDelivered: certainly not issued (no connection, an HTTP error) --
+	// another channel may try.
+	NotDelivered
+	// Unknown: sent, but no answer (a timeout after the request went out) --
+	// it may have run; trying again could run it twice.
+	Unknown
+)
+
+// Console issues an operator command through mvsMF's console API
+// (PUT /zosmf/restconsoles/consoles/<name>) and returns its response lines.
+func (c *Client) Console(name, cmd string, timeout time.Duration) ([]string, Delivery, error) {
+	body, _ := json.Marshal(map[string]string{"cmd": cmd})
+	addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
+	req, err := http.NewRequest("PUT", "http://"+addr+"/zosmf/restconsoles/consoles/"+name, bytes.NewReader(body))
+	if err != nil {
+		return nil, NotDelivered, err
+	}
+	if c.token != "" {
+		req.Header.Set("Cookie", "LtpaToken2="+c.token)
+	} else {
+		req.Header.Set("Authorization", "Basic "+c.auth)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("User-Agent", "mbt/3")
+	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	if err != nil {
+		var oe *net.OpError
+		if errors.As(err, &oe) && oe.Op == "dial" {
+			return nil, NotDelivered, errf("mvsMF console: no connection to %s: %v", addr, oe.Err)
+		}
+		return nil, Unknown, errf("mvsMF console: %q sent, no answer: %v", cmd, err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, NotDelivered, errf("mvsMF console: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+	}
+	var r map[string]any
+	if err := json.Unmarshal(data, &r); err != nil {
+		return nil, Delivered, nil // issued; the answer is not readable
+	}
+	text, _ := r["cmd-response"].(string)
+	var lines []string
+	for _, l := range strings.FieldsFunc(text, func(c rune) bool { return c == '\r' || c == '\n' }) {
+		if strings.TrimSpace(l) != "" {
+			lines = append(lines, strings.TrimRight(l, " "))
+		}
+	}
+	return lines, Delivered, nil
+}
