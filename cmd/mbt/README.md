@@ -115,4 +115,15 @@ mvsMF (`D T` from the command line and from Lua); the Hercules channel
 (`/cgi-bin/api/v1/syslog`, taken from Hercules' source) only against a
 stand-in -- mvsdev has no web console reachable.
 
-Not yet: plugins, `mbt test --tso`.
+**Plugins.** `[plugins] "owner/repo" = "^1"` in `mbt.toml`; `mbt deps`
+resolves the newest release in range, fetches its asset
+`<repo>-<version>-plugin.tar.gz` (`plugin.toml` with `api` and `exec`,
+`init.lua`, `lua/`), pins its SHA-256 in `mbt.lock` as `plugin:owner/repo`
+and stages it in `.mbt/plugins/`; a build uses only what is staged. Plugins
+load before the project's Lua (`require("owner/repo")`,
+`require("owner/repo/mod")`), and `ctx.exec` from plugin code runs only the
+programs its `plugin.toml` declares. `.mbt/deps.local.toml [override]`
+points a plugin at a working copy. Ranges now also take `^1`, `^1.4`,
+`^0.3` (cargo's rule).
+
+Not yet: `mbt test --tso`.

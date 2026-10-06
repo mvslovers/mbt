@@ -309,6 +309,17 @@ func (e *Engine) exec(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
 	if len(argv) == 0 {
 		return nil, errors.New("ctx.exec: empty argv")
 	}
+	// a plugin runs only the programs it declared (plugin.toml exec)
+	if p := e.pluginOf(where(t, k)); p != nil {
+		prog := strings.TrimSuffix(filepath.Base(argv[0]), ".exe")
+		allowed := false
+		for _, x := range p.Exec {
+			allowed = allowed || x == prog
+		}
+		if !allowed {
+			return nil, fmt.Errorf("ctx.exec: plugin %s may run only %s (plugin.toml exec), not %s", p.Key, strings.Join(p.Exec, ", "), prog)
+		}
+	}
 	check := true
 	if v := tb.Get(rt.StringValue("check")); !v.IsNil() {
 		check = rt.Truth(v)
