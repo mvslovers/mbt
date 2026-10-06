@@ -25,6 +25,7 @@ import (
 	"github.com/mvslovers/mbt/internal/build"
 	"github.com/mvslovers/mbt/internal/compiledb"
 	"github.com/mvslovers/mbt/internal/config"
+	"github.com/mvslovers/mbt/internal/console"
 	"github.com/mvslovers/mbt/internal/deploy"
 	"github.com/mvslovers/mbt/internal/deps"
 	"github.com/mvslovers/mbt/internal/dist"
@@ -85,7 +86,7 @@ commands:
                                       run a command or task of mbt/init.lua; without NAME: list them
   clean                               remove build/ and dist/ (keeps staged deps)
   distclean                           clean, and remove .mbt/ (deps, tools, state; keeps mbt.lock)
-  target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | import .env --name NAME
+  target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME
                                       the MVS systems in ~/.mbt/targets.toml
   version                             print mbt's version
 
@@ -477,6 +478,14 @@ func exts(p *project.Project, verbose, dry bool) (*ext.Engine, error) {
 				return nil, lastErrOr("no mvsMF session")
 			}
 			return c, nil
+		},
+		Console: func(cmd string) ([]string, string, error) {
+			ch, err := consoleChain(p.Root, selectedTarget)
+			if err != nil {
+				return nil, "", err
+			}
+			r, err := ch.Send(cmd)
+			return r.Lines, r.Channel, err
 		}})
 	if err != nil {
 		return nil, err
@@ -602,6 +611,37 @@ func connect(root, name string, login bool) (*config.Config, *mvsmf.Client, int)
 	}
 	session, sessionTarget, sessionCfg = c, t, cfg
 	return cfg, c, exitOK
+}
+
+// consoleChain is the target's console order: mvsMF through the session,
+// the Hercules web console with its own credentials.
+func consoleChain(root, name string) (*console.Chain, error) {
+	t, err := chooseTarget(root, name)
+	if err != nil {
+		return nil, err
+	}
+	ch := &console.Chain{Log: func(s string) { fmt.Fprintf(os.Stderr, "[mbt] WARNING: %s\n", s) }}
+	for _, c := range t.Console {
+		switch c {
+		case "mvsmf":
+			ch.Channels = append(ch.Channels, &console.MVSMF{Client: func() (*mvsmf.Client, error) {
+				_, cl, code := connect(root, name, true)
+				if code != exitOK {
+					return nil, lastErrOr("no mvsMF session")
+				}
+				return cl, nil
+			}})
+		case "hercules":
+			pw := ""
+			if t.Hercules.Password.Set() {
+				if pw, err = t.Hercules.Password.Resolve(); err != nil {
+					return nil, err
+				}
+			}
+			ch.Channels = append(ch.Channels, &console.Hercules{URL: t.Hercules.URL, User: t.Hercules.User, Password: pw})
+		}
+	}
+	return ch, nil
 }
 
 // closeSession logs off; it runs at the end of every command and on Ctrl-C.
@@ -737,6 +777,37 @@ func cmdTarget(args []string) int {
 			}
 		}
 		return exitOK
+	case "console":
+		// mbt target console [NAME] -- CMD...
+		rest := args[1:]
+		name, cmd := "", []string{}
+		for i, a := range rest {
+			if a == "--" {
+				cmd = rest[i+1:]
+				if i > 0 {
+					name = rest[0]
+				}
+				break
+			}
+		}
+		if len(cmd) == 0 {
+			fmt.Fprintln(os.Stderr, "[mbt] usage: mbt target console [NAME] -- COMMAND")
+			return exitConfig
+		}
+		selectedTarget = name
+		ch, err := consoleChain(root, name)
+		if err != nil {
+			return fail(err)
+		}
+		r, err := ch.Send(strings.Join(cmd, " "))
+		if err != nil {
+			return fail(err)
+		}
+		fmt.Printf("[mbt] console (%s): %s\n", r.Channel, strings.Join(cmd, " "))
+		for _, l := range r.Lines {
+			fmt.Println("  " + l)
+		}
+		return exitOK
 	case "import":
 		fl := flag.NewFlagSet("target import", flag.ContinueOnError)
 		name := fl.String("name", "", "the new target's name")
@@ -761,7 +832,7 @@ func cmdTarget(args []string) int {
 		}
 		return exitOK
 	}
-	fmt.Fprintln(os.Stderr, "[mbt] usage: mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | import .env --name NAME")
+	fmt.Fprintln(os.Stderr, "[mbt] usage: mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME")
 	return exitConfig
 }
 

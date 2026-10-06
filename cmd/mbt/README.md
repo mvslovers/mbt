@@ -19,7 +19,7 @@ mbt release VERSION [--next V]
 mbt prerelease
 mbt run [NAME] [-v] [--dry-run] [-- ARGS...]
 mbt clean | distclean
-mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | import .env --name NAME
+mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME
 mbt compiledb
 mbt doctor
 ```
@@ -103,4 +103,16 @@ mbt 2 `.env` into a target. Lua gets `ctx.target()` (no passwords) and
 ping, info; a deploy through the session (member list checked) and
 `test --mvs` with ftpd, 170 PASS (JOB01551), as before.
 
-Not yet: plugins, the console chain, `mbt test --tso`.
+**Console.** Operator commands go through the target's console chain
+(`[target.X.console] order`, default mvsMF, then Hercules when the target
+has it): `mbt target console [NAME] -- CMD` on the command line,
+`ctx.console(cmd)` in Lua (reply lines, channel). The next channel is tried
+only when the previous one certainly did not deliver (no connection, an
+HTTP error); a command sent without an answer may have run and is never
+sent again. mvsMF's console API checks no authorization (mvsmf#347): any
+user who can log on can issue any command. Measured on mvsdev through
+mvsMF (`D T` from the command line and from Lua); the Hercules channel
+(`/cgi-bin/api/v1/syslog`, taken from Hercules' source) only against a
+stand-in -- mvsdev has no web console reachable.
+
+Not yet: plugins, `mbt test --tso`.

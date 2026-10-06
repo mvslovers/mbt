@@ -36,6 +36,7 @@ type callInfo struct {
 //	ctx.tool(name)         a [tools] entry: fetched, pinned, its path
 //	ctx.fs.read/write/exists/mkdir/remove/list   inside the project only
 //	ctx.target()           the selected MVS system (no passwords)
+//	ctx.console(cmd)       an operator command -> reply lines, channel
 //	ctx.mvs.request{ method, path, body, content_type } -> status, body
 //	ctx.mvs.token()        the session token, for an external program (env!)
 func (e *Engine) ctx(ci callInfo) rt.Value {
@@ -95,6 +96,25 @@ func (e *Engine) ctx(ci callInfo) rt.Value {
 			return nil, fmt.Errorf("ctx.target: %v", err)
 		}
 		return k.PushingNext1(t.Runtime, toLua(info)), nil
+	})
+	e.fn(c, "console", 1, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
+		cmd, err := k.StringArg(0)
+		if err != nil {
+			return nil, err
+		}
+		if e.o.DryRun {
+			e.o.Log("[mbt] (dry run) would issue: " + cmd)
+			return k.PushingNext(t.Runtime, toLua([]string{}), rt.StringValue("")), nil
+		}
+		if e.o.Console == nil {
+			return nil, errors.New("ctx.console: no MVS target in this command")
+		}
+		lines, ch, err := e.o.Console(cmd)
+		if err != nil {
+			return nil, fmt.Errorf("ctx.console: %v", err)
+		}
+		e.o.Log(fmt.Sprintf("[mbt] console (%s): %s", ch, cmd))
+		return k.PushingNext(t.Runtime, toLua(nonNil(lines)), rt.StringValue(ch)), nil
 	})
 	mvs := rt.NewTable()
 	session := func() (MVS, error) {
