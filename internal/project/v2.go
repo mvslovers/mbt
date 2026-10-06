@@ -16,6 +16,12 @@ func LoadV2(root, file string) (*Project, error) {
 	if _, err := toml.DecodeFile(filepath.Join(root, file), &raw); err != nil {
 		return nil, configErr("%s: %v", file, err)
 	}
+	return fromRaw(root, file, raw)
+}
+
+// fromRaw builds the model from a v2-shaped table: a v2 project.toml as
+// decoded, or an mbt.toml translated by LoadV3.
+func fromRaw(root, file string, raw map[string]any) (*Project, error) {
 	p := &Project{Root: root, File: file, Raw: raw}
 	proj := table(raw, "project")
 	p.Name = str(proj, "name", "unknown")

@@ -1,8 +1,8 @@
 // Package project holds mbt's model of a project and the loaders that fill it.
 //
-// One model, several front ends: the v2 project.toml now (the differential
-// comparison against mbt v2 runs on unchanged v2 project files), mbt.toml
-// schema 3 once that schema is settled.  Everything after loading works on the
+// One model, two front ends: the v2 project.toml (the differential
+// comparison against mbt v2 runs on unchanged v2 project files) and mbt.toml,
+// schema 3 (internals/mbt-3-schema.md).  Everything after loading works on the
 // model only.
 package project
 
@@ -70,8 +70,14 @@ type Project struct {
 	Internal    []string // its sources
 	// Warnings are shown to the user on every build.
 	Warnings []string
-	// Raw is the whole parsed file, for the stages not modelled yet.
+	// Raw is the whole parsed file, for the stages not modelled yet.  For an
+	// mbt.toml it is the file translated into the v2 shape.
 	Raw map[string]any
+	// Schema is 2 for a project.toml, 3 for an mbt.toml.
+	Schema int
+	// DistError, when set, is why the SMP package cannot be built from this
+	// version (a patch release without an explicit FMID).
+	DistError string
 }
 
 // ConfigError is an invalid project file: nothing is built (exit 2).
