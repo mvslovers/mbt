@@ -15,6 +15,8 @@ mbt deploy [--target DSN] [--module M]... [--dry-run] [-v]
 mbt test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
 mbt check
 mbt migrate [--dry-run]
+mbt release VERSION [--next V]
+mbt prerelease
 mbt compiledb
 mbt doctor
 ```
@@ -57,5 +59,18 @@ Requests go out with Go's standard HTTP/1.1 client (mbt 2 forced HTTP/1.0).
 `mbt doctor` checks what `make doctor` checks; its configuration table
 masks `MVS_PASS`, which mbt 2 printed in clear.
 
-Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks),
-`release`, the launcher.
+`mbt release` and `mbt prerelease` do what `make release` / `make
+prerelease` do; in an `mbt.toml` only `[project] version` moves, and a
+patch release with a derived FMID is refused. Tested end to end on
+mvslovers/mbt-sandbox with `build3.yml` and `release3.yml`, the reusable
+workflows for `mbt.toml` projects.
+
+**Launcher.** Every mbt is also the launcher (design §5): when `mbt.toml`
+pins `[toolchain] mbt = "3.0"` (any 3.0.x) or `"3.0.2"` and the running mbt
+is another, the matching one under `~/.mbt/versions/` runs instead,
+downloaded from the mvslovers/mbt releases first if needed and checked
+against their SHA256 list. `MBT_NO_SWITCH=1` keeps the running one. mbt
+releases itself on a `v3.*` tag (`.github/workflows/mbt-release.yml`): macOS
+and Linux on arm64 and amd64, Windows on amd64.
+
+Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks).
