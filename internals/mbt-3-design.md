@@ -157,7 +157,8 @@ as `[toolchain] mbt`, so workflow and tool can no longer drift apart.
   `[internal]` where a project declares it, but the native host-test build
   (`make test-host`) compiles only the listed sources — which is why the lists
   exist. The host build has to get the same archive for this to work.
-- **Defaults instead of boilerplate:** `startup = "crt1"`, `system = "Z038"`,
+- **Defaults instead of boilerplate:** a C program needs no `startup` (the
+  CRT comes out of `libc.a` since libc370 2.3.0, mbt#158), `system = "Z038"`,
   `prereq = []`, `accept_fmid = true`, the DEV deploy library and the SMP
   library names (`<PROD>.LINKLIB`, `<PROD>.A…`, staging) follow the convention
   unless overridden.
@@ -1135,7 +1136,7 @@ on in its project file instead of copying workflow YAML.
   cannot be reproduced (`internals/v2-baseline.md`, measured 2026-10-05).
   Commands that touch MVS are compared against a local stand-in for mvsMF
   (requests, submitted JCL, console), then run once on a real system. The
-  scripts are `internals/acceptance/` (#165).
+  scripts are `internals/acceptance/` (#165, merged).
 - **Behaviour to carry over, each with a test:** a failed recipe leaves no
   output behind (as370 writes a deck even at RC 8, and a later build would
   link it); header dependency tracking; the build stamp only rewritten when
@@ -1189,18 +1190,21 @@ on in its project file instead of copying workflow YAML.
 2. ~~Settle the project file and the launcher~~ — **decided** (2026-10-05):
    TOML in `mbt.toml` plus an optional `mbt.lua` (section 6), and the
    launcher with `[toolchain] mbt` (section 5). The schema 3 details are
-   settled while step 3 implements them.
+   settled (2026-10-06): `internals/mbt-3-schema.md`.
 3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
    package/dist, deploy, tests, targets, IDE integration.
-   Accepted by the differential comparison. Before that comparison the v2
-   baseline is recorded again: it was taken with cc370 1.1.1 and libc370
-   2.1.0, and since then cc370 1.3.0 changed the eyecatcher in front of every
-   `main`, libc370 2.3.0 moved the C startup into `libc.a`, and mbt 2.2.0
-   (#158) links it from there.
+   Accepted by the differential comparison (core: #165, merged 2026-10-06).
+   Before that comparison the v2 baseline is recorded again: it was taken
+   with cc370 1.1.1 and libc370 2.1.0, and since then cc370 1.3.0 changed the
+   eyecatcher in front of every `main`, libc370 2.3.0 moved the C startup
+   into `libc.a`, and mbt 2.2.0 (#158) links it from there.
+   Schema 3 and `mbt migrate` come in this step rather than step 4: building
+   a migrated project against its own `project.toml` build is the acceptance
+   of the schema.
 4. Toolchain management, **project tasks** (section 9: `[tools]` and a task
-   a project runs as part of its build), `mbt migrate`, then migrate the
-   projects one by one. Tasks come before the migration because a project
-   needs them to migrate at all: httpd builds its webroot image with a
+   a project runs as part of its build), then migrate the projects one by
+   one with `mbt migrate` (step 3). Tasks come before the migration because a
+   project needs them to migrate at all: httpd builds its webroot image with a
    pinned `ufsd-utils` in its own Makefile (`make webroot`), which mbt 3
    cannot run otherwise (found in #165). PTF packaging (section 6.4) comes
    here too, after its measurements: step 3 ports v2's `++FUNCTION` path
