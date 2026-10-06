@@ -483,6 +483,54 @@ FMIDs *and* throwaway module names, as for `TTST…`):
    removal job has to name?
 4. Which prefix the PTF ids use (question 12).
 
+#### USERMODs to IBM elements — **Proposed** (2026-10-06)
+
+The third SYSMOD type the ecosystem ships. A project that patches IBM
+elements -- brexx370's TSO integration `ZMG0001` (IKJCT430 and IKJCT437 in
+`SYS1.CMDLIB(EXEC)`, FMID `EBB1102`), rexx370's `ZMG0002`/`ZMG0003` -- ships a
+`++USERMOD` with `++VER … FMID(<the owning IBM FMID>)`, never a FUNCTION of
+its own (root context: prefix `ZMG`, object decks only, KB `MVS-SMP-0004`).
+Today each project builds the stream with its own scripts and attaches it to
+the GitHub release by hand, where a re-pushed prerelease tag deletes it again.
+
+| | FUNCTION / PTF | USERMOD |
+|---|---|---|
+| owner of the elements | the product's own FMID | an IBM FMID, named by the project |
+| id | derived from the version | assigned by hand (`ZMG…`), one per change set |
+| elements | load modules, bound by mbt | object decks, **not** linked: SMP APPLY links them against the installed module |
+| shipped with | the SMP install package | its own stream (`<id>.smp`, EBCDIC FB80 for SMPPTFIN) plus its install and remove jobs |
+
+What mbt does:
+
+```toml
+[usermod.ZMG0001]
+fmid  = "EBB1102"                                   # the IBM FMID that owns the elements
+mcs   = "tso/usermod/ZMG0001.mcs"                   # ++USERMOD, ++VER, one ++MOD per deck
+decks = ["tso/IKJCT430.ASM", "tso/IKJCT437.ASM"]    # assembled, never linked
+jobs  = ["tso/jcl/ZMG01*.jcl"]                      # check, backup, receive, apply, restore
+```
+
+- **Assemble** the decks with the clock pinned, so the same source gives the
+  same deck. Their IBM macros (mvs38src, about 59 MB) are an input the
+  project names; committed decks with a rebuild check are the fallback where
+  CI cannot have them.
+- **Write the stream** and check it before it is shipped -- the checks
+  brexx370's `usermod.py` runs today become mbt's: MCS lines at most 72
+  columns and encodable in CP037, every deck whole 80-byte cards ending in
+  `END`, no card starting with `++`, every `++MOD` followed by its deck,
+  exactly one `++USERMOD` and one `++VER`.
+- **Publish** the stream and a zip of the jobs into `dist/`, so the release
+  workflow carries them like every other artifact and a re-pushed
+  prerelease keeps them.
+- **Unchanged and still true:** `RESTORE` clears the inventory but leaves
+  CSECTs the usermod added in the load module (KB `MVS-SMP-0005`).
+
+Acceptance: `ZMG0001.smp` as built by brexx370's scripts today is the golden
+file; mbt must write it byte for byte (brexx370 files the issue with the
+layout and the file). Built with the project tasks of phasing step 4: until
+then a project builds the stream in a task of its own and puts it into
+`dist/`.
+
 ## 7. Targets instead of `.env` — **Proposed**
 
 MVS systems get names and live in a per-user configuration that is never
@@ -1208,7 +1256,8 @@ on in its project file instead of copying workflow YAML.
    pinned `ufsd-utils` in its own Makefile (`make webroot`), which mbt 3
    cannot run otherwise (found in #165). PTF packaging (section 6.4) comes
    here too, after its measurements: step 3 ports v2's `++FUNCTION` path
-   unchanged, because the differential comparison accepts exactly that.
+   unchanged, because the differential comparison accepts exactly that. So
+   do USERMODs (section 6.4), which need nothing from the PTF measurements.
 5. Bonus, once the core stands: Lua extensions beyond tasks, MCP server,
    workspaces, `lint`, `size`, `smp verify`, languages, native backends and
    foreign build systems.
