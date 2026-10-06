@@ -88,6 +88,16 @@ type Options struct {
 	// Console issues an operator command through the target's console chain
 	// and returns the reply lines and the channel that delivered it.
 	Console func(cmd string) ([]string, string, error)
+	// Plugins are loaded before the project's Lua, in this order.
+	Plugins []Plugin
+}
+
+// Plugin is a staged plugin as the engine loads it.
+type Plugin struct {
+	Key  string   // owner/repo: require("owner/repo")
+	Dir  string   // holds init.lua and lua/
+	API  int      // the Lua API it was written for
+	Exec []string // the programs it may run through ctx.exec
 }
 
 // MVS is the mvsMF session as Lua reaches it.
@@ -150,6 +160,11 @@ func Load(o Options) (*Engine, error) {
 		o.Memory = 256 << 20
 	}
 	e := &Engine{o: o, hooks: map[string][]hook{}, commands: map[string]*command{}, done: map[string]bool{}, loaded: map[string]rt.Value{}}
+	for _, p := range o.Plugins {
+		if p.API != API {
+			return nil, cfgErr("plugin %s is written for Lua API %d; this mbt offers API %d -- use a release of the plugin for API %d", p.Key, p.API, API, API)
+		}
+	}
 	files := []string{filepath.Join(o.Root, "mbt", "init.lua")}
 	if o.Home != "" {
 		files = append(files, filepath.Join(o.Home, "init.lua"))
@@ -160,10 +175,15 @@ func Load(o Options) (*Engine, error) {
 			present = append(present, f)
 		}
 	}
-	if len(present) == 0 {
+	if len(present) == 0 && len(o.Plugins) == 0 {
 		return e, nil
 	}
 	e.runtime()
+	for _, p := range o.Plugins {
+		if err := e.loadPlugin(p); err != nil {
+			return nil, err
+		}
+	}
 	for _, f := range present {
 		if err := e.loadFile(f, e.label(f)); err != nil {
 			return nil, err
@@ -247,6 +267,50 @@ func (e *Engine) limited(f func() error) error {
 
 var modRE = regexp.MustCompile(`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*$`)
 
+// pluginModRE: "owner/repo" or "owner/repo/name.sub".
+var pluginModRE = regexp.MustCompile(`^([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(/([a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)*))?$`)
+
+// loadPlugin runs a plugin's init.lua; what it returns is the module.
+func (e *Engine) loadPlugin(p Plugin) error {
+	path := filepath.Join(p.Dir, "init.lua")
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return cfgErr("plugin %s: %v", p.Key, err)
+	}
+	e.sources = append(e.sources, path)
+	chunk, err := e.r.CompileAndLoadLuaChunk("plugin:"+p.Key+"/init.lua", src, rt.TableValue(e.r.GlobalEnv()))
+	if err != nil {
+		return cfgErr("plugin %s: %s", p.Key, luaMsg(err))
+	}
+	var v rt.Value
+	if err := e.limited(func() error {
+		var err error
+		v, err = rt.Call1(e.r.MainThread(), rt.FunctionValue(chunk))
+		return err
+	}); err != nil {
+		return cfgErr("plugin %s: %s", p.Key, luaMsg(err))
+	}
+	if v.IsNil() {
+		v = rt.BoolValue(true)
+	}
+	e.loaded[p.Key] = v
+	return nil
+}
+
+// pluginOf names the plugin a Lua source label belongs to ("" for none).
+func (e *Engine) pluginOf(label string) *Plugin {
+	if !strings.HasPrefix(label, "plugin:") {
+		return nil
+	}
+	rest := strings.TrimPrefix(label, "plugin:")
+	for i := range e.o.Plugins {
+		if strings.HasPrefix(rest, e.o.Plugins[i].Key+"/") {
+			return &e.o.Plugins[i]
+		}
+	}
+	return nil
+}
+
 // require loads <name> from mbt/lua/, then ~/.mbt/lua/; a module is loaded
 // once.
 func (e *Engine) require(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
@@ -257,11 +321,41 @@ func (e *Engine) require(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !modRE.MatchString(name) {
-		return nil, fmt.Errorf("require %q: not a module name (lower case, dots: a.b.c)", name)
-	}
 	if v, ok := e.loaded[name]; ok {
 		return c.PushingNext1(t.Runtime, v), nil
+	}
+	if m := pluginModRE.FindStringSubmatch(name); m != nil && strings.Contains(name, "/") {
+		for _, p := range e.o.Plugins {
+			if p.Key != m[1] {
+				continue
+			}
+			if m[3] == "" {
+				break // the plugin itself is loaded first, so it is in e.loaded
+			}
+			rel := strings.ReplaceAll(m[3], ".", "/") + ".lua"
+			src, err := os.ReadFile(filepath.Join(p.Dir, "lua", rel))
+			if err != nil {
+				return nil, fmt.Errorf("require %q: plugin %s has no lua/%s", name, p.Key, rel)
+			}
+			e.sources = append(e.sources, filepath.Join(p.Dir, "lua", rel))
+			chunk, err := e.r.CompileAndLoadLuaChunk("plugin:"+p.Key+"/lua/"+rel, src, rt.TableValue(e.r.GlobalEnv()))
+			if err != nil {
+				return nil, err
+			}
+			v, err := rt.Call1(t, rt.FunctionValue(chunk))
+			if err != nil {
+				return nil, err
+			}
+			if v.IsNil() {
+				v = rt.BoolValue(true)
+			}
+			e.loaded[name] = v
+			return c.PushingNext1(t.Runtime, v), nil
+		}
+		return nil, fmt.Errorf("require %q: no such plugin -- declare it in [plugins] of mbt.toml", m[1])
+	}
+	if !modRE.MatchString(name) {
+		return nil, fmt.Errorf("require %q: not a module name (lower case, dots: a.b.c; a plugin: owner/repo)", name)
 	}
 	rel := strings.ReplaceAll(name, ".", "/") + ".lua"
 	dirs := []string{filepath.Join(e.o.Root, "mbt", "lua")}

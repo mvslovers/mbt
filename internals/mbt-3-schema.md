@@ -213,8 +213,21 @@ project loads Lua -- in a v2 project, `mbt/` is still the submodule.
 
 ## Reserved, not implemented yet
 
-`[rule."*.ext"]`, `[files."<glob>"]`, `[lang.*]` (design §10), `[plugins]`
-(extensions §6), `[usermod.*]` (design §6.4).
+`[rule."*.ext"]`, `[files."<glob>"]`, `[lang.*]` (design §10),
+`[usermod.*]` (design §6.4).
+
+## `[plugins]`
+
+```toml
+[plugins]
+"mvslovers/mbt-ufs" = "^0.1"
+```
+
+`"owner/repo" = "<range>"`. The release asset `<repo>-<version>-plugin.tar.gz`
+holds `plugin.toml` (`api = 1`, `exec = ["program", ...]`), `init.lua` and
+`lua/`. Pinned in `mbt.lock` as `plugin:owner/repo`, staged by `mbt deps` in
+`.mbt/plugins/owner/repo/`; `.mbt/deps.local.toml [override]` points one at
+a working copy.
 
 ## `mbt migrate`
 
