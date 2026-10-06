@@ -99,9 +99,9 @@ Only `ctx` — no `os`, no `io`, no network of its own:
 | | |
 |---|---|
 | `ctx.project` | read-only: name, version, modules, tests |
-| `ctx.target` | the selected system: hosts, ports, user — **never a password** |
-| `ctx.console(cmd)` | an operator command; returns the reply lines (section 3) |
-| `ctx.mvs` | the mvsMF session: submit, upload, download, and `ctx.mvs.request{…}` for any mvsMF endpoint |
+| `ctx.target()` | the selected system: hosts, ports, user — **never a password** |
+| `ctx.console(cmd)` | an operator command; returns the reply lines and the channel that delivered it (section 3) |
+| `ctx.mvs` | the mvsMF session: `ctx.mvs.request{ method, path, body }` for any mvsMF endpoint (returns status and body), `ctx.mvs.token()` |
 | `ctx.exec{argv}` | run a program — an argv list, **no shell** |
 | `ctx.tool(name)` | a host tool from `[tools]`, fetched and SHA-256-pinned in `mbt.lock` |
 | `ctx.fs` | files, inside the project only |
@@ -132,7 +132,7 @@ way in, and needs none.
 uses the token for its own calls and the hooks', and logs off (`DELETE`) on
 success, failure, a failed hook or Ctrl-C. Lua never sees the password: it uses
 `ctx.mvs.request{…}`, to which mbt attaches the token, or — to hand the session
-to an external program such as curl or the Zowe CLI — `ctx.mvs.token`, passed in
+to an external program such as curl or the Zowe CLI — `ctx.mvs.token()`, passed in
 the environment, never as an argument. If mbt is killed outright, httpd expires
 the session by itself (by default after 30 idle minutes, at most 8 hours). As a
 side effect, the logon is checked once per run instead of once per request.
@@ -195,6 +195,8 @@ order = ["mvsmf", "hercules"]
 - **`mbt target info [NAME] [--wait SEC]`** logs on and shows what answers (mvsMF
   version and system, Hercules details). Ping green but info red means the system
   is up and the logon is wrong.
+- **`mbt target console [NAME] -- CMD`** issues an operator command through
+  the chain -- what a stuck TSO session needs (`C U=<userid>`).
 - **`mbt target list`**, **`mbt target import .env --name NAME`** (turns an
   existing `.env` into a target).
 - Commands that need MVS **do not wait**: if mvsMF does not answer, they say so
