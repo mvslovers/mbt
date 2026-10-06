@@ -57,9 +57,11 @@ commands:
   deps [--update]                     stage dependencies as pinned in mbt.lock
   module-data [--all]                 check for writable data in RENT/AC(1) modules
   package                             build, then write the release artifacts to dist/
+  dist                                re-render the SMP install package alone
   test [--only NAME]... [-v]          build and run the dual tests on the host
   test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
                                       build the test modules and run them on MVS
+  check                               every test suite: the host first, then MVS
   deploy [--target DSN] [--module M]... [--dry-run] [-v]
                                       pack the built modules and RECEIVE them on MVS
   compiledb                           write compile_commands.json for clangd
@@ -82,6 +84,13 @@ func run(args []string) int {
 		return cmdModdata(args[1:])
 	case "package":
 		return cmdPackage(args[1:])
+	case "dist":
+		return cmdDist()
+	case "check":
+		if code := cmdTest(nil); code != exitOK {
+			return code
+		}
+		return cmdTest([]string{"--mvs"})
 	case "test":
 		return cmdTest(args[1:])
 	case "deploy":
@@ -175,6 +184,49 @@ func doBuild(all, tests bool, jobs int, verbose bool, only []string) (*project.P
 	return p, exitOK
 }
 
+// runDist builds the SMP installation package when the project declares a
+// [distribution]; the load XMIT must already be in dist/.
+func runDist(p *project.Project, mtime time.Time) int {
+	d, ok := p.Raw["distribution"].(map[string]any)
+	if !ok || len(d) == 0 {
+		return exitOK
+	}
+	var mods []dist.Module
+	for _, m := range p.Modules {
+		mods = append(mods, dist.Module{Name: m.Name, Aliases: m.Aliases})
+	}
+	err := dist.Build(p.Raw, p.Name, p.Version, mods, dist.Options{
+		Root: p.Root, DistDir: "dist", BuildDir: "build", Mtime: mtime,
+		Log: func(s string) { fmt.Printf("[mbt] %s\n", s) },
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
+		return exitConfig
+	}
+	return exitOK
+}
+
+// cmdDist: make dist -- re-render the SMP package alone, from the load XMIT
+// a previous package left in dist/ (the inner loop for a samplib or JCL edit).
+func cmdDist() int {
+	root, _ := os.Getwd()
+	p, err := project.LoadV2(root, "project.toml")
+	if err != nil {
+		return fail(err)
+	}
+	if d, ok := p.Raw["distribution"].(map[string]any); !ok || len(d) == 0 {
+		fmt.Println("[mbt] No [distribution] section in project.toml -- nothing to build")
+		return exitOK
+	}
+	var mtime time.Time
+	if e := os.Getenv("SOURCE_DATE_EPOCH"); e != "" {
+		if sec, err := strconv.ParseInt(e, 10, 64); err == nil {
+			mtime = time.Unix(sec, 0).UTC()
+		}
+	}
+	return runDist(p, mtime)
+}
+
 // cmdPackage: build the modules and the library, then write dist/ (v2's
 // `make package`).  SOURCE_DATE_EPOCH, when set, stamps the tarball.
 func cmdPackage(args []string) int {
@@ -197,19 +249,8 @@ func cmdPackage(args []string) int {
 	if err := pkg.Run(p, o); err != nil {
 		return fail(err)
 	}
-	if d, ok := p.Raw["distribution"].(map[string]any); ok && len(d) > 0 {
-		var mods []dist.Module
-		for _, m := range p.Modules {
-			mods = append(mods, dist.Module{Name: m.Name, Aliases: m.Aliases})
-		}
-		err := dist.Build(p.Raw, p.Name, p.Version, mods, dist.Options{
-			Root: p.Root, DistDir: "dist", BuildDir: "build", Mtime: o.Mtime,
-			Log: func(s string) { fmt.Printf("[mbt] %s\n", s) },
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "[mbt] ERROR: %v\n", err)
-			return exitConfig
-		}
+	if code := runDist(p, o.Mtime); code != exitOK {
+		return code
 	}
 	fmt.Println("[mbt] Package complete -> dist/")
 	return exitOK

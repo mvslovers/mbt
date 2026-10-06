@@ -9,9 +9,11 @@ mbt build [--all] [--tests] [-j N] [-v] [NAME...]
 mbt deps [--update]
 mbt module-data [--all] [--raw]
 mbt package
+mbt dist
 mbt test [--only NAME]... [-v]
 mbt deploy [--target DSN] [--module M]... [--dry-run] [-v]
 mbt test --mvs [--only NAME]... [--no-deploy] [--target DSN] [-v]
+mbt check
 mbt compiledb
 mbt doctor
 ```
@@ -31,13 +33,17 @@ after its tag moved on.
 runs the module-data check before it links, as mbt 2 does; their output is
 mbt 2's. `mbt package` writes the same load XMIT, lib tarball and SMP installation
 package (install and allocation jobs, SYSMOD, source library XMITs).
+`mbt dist` re-renders the SMP package alone from the load XMIT already in
+`dist/`, as `make dist` does.
 
 `mbt test` builds and runs the dual tests on the host, with mbt 2's table
 and summary.
 
 `mbt deploy` and `mbt test --mvs` send the same requests and JCL as
 `make deploy` and `make test-mvs`, and print the same result (measured
-against a local stand-in for mvsMF; not yet run against a real system).
+against a local stand-in for mvsMF, then run against mvsdev: ftpd deploy
+JOB01485, test --mvs JOB01487, 170 PASS as under mbt 2).
+`mbt check` is `make check`: the host tests, then the MVS tests.
 `mbt compiledb` writes the same `compile_commands.json` (mbt's own include
 directory aside: `.mbt/include` instead of the submodule's).
 Requests go out with Go's standard HTTP/1.1 client (mbt 2 forced HTTP/1.0).
