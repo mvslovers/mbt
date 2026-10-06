@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -62,6 +63,7 @@ func Convert(root string) (*Result, error) {
 		return nil, fmt.Errorf("project.toml: %v", err)
 	}
 	c.planTests()
+	c.makefile()
 	if rawTable(raw, "deploy") == nil && len(rawList(raw, "module")) > 0 {
 		c.notice("no [deploy] target: mbt deploy goes to %s.DEV.LINKLIB by convention now (mbt 2 used {HLQ}.%s.{VRM}.LINKLIB)", c.name, c.name)
 	}
@@ -93,6 +95,33 @@ func Convert(root string) (*Result, error) {
 	text := c.render(s.Trailer)
 	return &Result{Text: text, Notices: c.notices}, nil
 }
+
+// makefile names what a Makefile does beyond including mbt: that work has
+// to move into [task.*] / [tools] (or mbt mvs up/down) before the Makefile
+// can go.
+func (c *converter) makefile() {
+	data, err := os.ReadFile(filepath.Join(c.root, "Makefile"))
+	if err != nil {
+		return
+	}
+	var targets []string
+	extra := false
+	for _, l := range strings.Split(string(data), "\n") {
+		t := strings.TrimSpace(l)
+		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "MBT_ROOT") || strings.HasPrefix(t, "include $(MBT_ROOT)") {
+			continue
+		}
+		extra = true
+		if m := makeTargetRE.FindStringSubmatch(l); m != nil && m[1] != ".PHONY" {
+			targets = append(targets, m[1])
+		}
+	}
+	if extra {
+		c.notice("the Makefile does more than include mbt (targets: %s) -- move that into [task.*] and [tools] of mbt.toml (mbt mvs up/down replaces run-mvs/stop-mvs) before removing it", strings.Join(targets, ", "))
+	}
+}
+
+var makeTargetRE = regexp.MustCompile(`^([A-Za-z0-9_.-]+)\s*:([^=]|$)`)
 
 // fixturesBefore counts the fixtures of earlier tests (the scan numbers
 // [[test.fixture]] across the whole file).

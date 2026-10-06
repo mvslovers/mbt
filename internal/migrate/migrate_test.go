@@ -139,3 +139,20 @@ func TestCheckCatchesADifference(t *testing.T) {
 		t.Errorf("a changed rent passed the check: %v", err)
 	}
 }
+
+func TestMakefileNote(t *testing.T) {
+	root := tree(t)
+	os.WriteFile(filepath.Join(root, "Makefile"), []byte("MBT_ROOT := mbt\ninclude $(MBT_ROOT)/mk/mbt.mk\nBUILD_ID := x\nwebroot: $(IMG)\n.PHONY: webroot\n"), 0o644)
+	res, err := Convert(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Join(res.Notices, "\n"); !strings.Contains(n, "(targets: webroot)") {
+		t.Errorf("notes:\n%s", n)
+	}
+	os.WriteFile(filepath.Join(root, "Makefile"), []byte("# two lines\nMBT_ROOT := mbt\ninclude $(MBT_ROOT)/mk/mbt.mk\n"), 0o644)
+	res, _ = Convert(root)
+	if strings.Contains(strings.Join(res.Notices, "\n"), "Makefile") {
+		t.Errorf("a plain Makefile got a note: %v", res.Notices)
+	}
+}

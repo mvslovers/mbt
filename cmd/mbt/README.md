@@ -17,6 +17,9 @@ mbt check
 mbt migrate [--dry-run]
 mbt release VERSION [--next V]
 mbt prerelease
+mbt run NAME [-v] [-- ARGS...]
+mbt mvs up | down
+mbt clean | distclean
 mbt compiledb
 mbt doctor
 ```
@@ -73,4 +76,17 @@ against their SHA256 list. `MBT_NO_SWITCH=1` keeps the running one. mbt
 releases itself on a `v3.*` tag (`.github/workflows/mbt-release.yml`): macOS
 and Linux on arm64 and amd64, Windows on amd64.
 
-Not yet: project steps outside mbt (httpd's `make webroot`: needs tasks).
+**Tasks and tools.** `[task.NAME]` in `mbt.toml` declares a project step
+mbt does not do itself -- argv lists, no shell -- that runs before a phase
+(`before = ["package"]`) or through `mbt run NAME`; `[tools]` pins the host
+tools it uses (GitHub release assets, SHA-256 in `mbt.lock`). Measured on
+httpd: the webroot task (was `make webroot`) builds an image with the same
+contents as mbt 2's (listing and file content; only timestamps differ). Of
+the 13 package entries, 9 are identical and the other 4 differ for known reasons:
+the image, the install JCL (modules in name order, schema 3) and the load
+XMIT twice -- httpd.o and httpcons.o carry the build stamp, and a migrated
+copy is dirty; on
+mvsMF, `mbt run deploy-desktop -- --dry-run` prints what `make
+deploy-desktop-dry` printed. `mbt mvs up` / `down` replace the `run-mvs` /
+`stop-mvs` Makefile targets (docker; tested against a stand-in, not a real
+docker). `mbt clean` / `distclean` as `make clean` / `distclean`.

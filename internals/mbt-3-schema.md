@@ -184,10 +184,66 @@ own (root `CLAUDE.md`, "A DELETE never touches the predecessor's data set").
 |---|---|---|
 | `version_files` | `[]` | same, without `VERSION` |
 
+## `[tools]` — host tools from GitHub releases
+
+```toml
+[tools]
+ufsd-utils = { repo = "mvslovers/ufsd-utils", version = "1.0.1" }
+```
+
+| key | default | |
+|---|---|---|
+| `repo` | required | `owner/repo` on GitHub |
+| `version` | required | the release `v<version>` |
+| `asset` | `{name}-{os}-{arch}.tar.gz` | the release asset for this platform; `{name}`, `{version}`, `{os}` (darwin, linux, windows), `{arch}` (amd64, arm64) |
+| `bin` | `{name}-{os}-{arch}` | the member of a `.tar.gz`/`.zip` asset that is the tool (an asset of another kind is the tool itself) |
+
+Pinned like a dependency: the asset's SHA-256 goes into `mbt.lock` as
+`"tool:<name>"` on the first fetch. A later fetch of the same version with
+another SHA is refused until `mbt deps --update` moves the pin. Staged at
+`.mbt/tools/<name>-<version>/<name>` by `mbt deps`, or when a task first
+needs it.
+
+## `[task.<NAME>]` — project steps mbt does not do itself
+
+```toml
+[task.webroot]
+description = "the webroot UFS image, from static/"
+inputs  = ["static"]
+outputs = ["build/webroot/httpd-webroot.img"]
+before  = ["package", "dist"]
+run = [
+  ["{tool:ufsd-utils}", "create", "{out}", "--size", "1M", "--blksize", "4096"],
+  ["{tool:ufsd-utils}", "cp", "-r", "static/", "{out}:/"],
+]
+```
+
+| key | default | |
+|---|---|---|
+| `run` | required | a list of commands, each an argv list -- **no shell**: a pipe, a redirect or `$VAR` is not interpreted |
+| `before` | `[]` | the phases it runs ahead of: `build`, `test`, `package`, `dist`, `deploy`. Without it the task runs only through `mbt run <NAME>` |
+| `inputs` | `[]` | files, directories (everything below them) and globs (`*`, `?`, `**`) |
+| `outputs` | `[]` | files the task writes |
+| `env` | `{}` | variables set unless the environment already sets them (make's `?=`) |
+| `description` | — | shown by `mbt run` without a name |
+
+Placeholders in `run`: `{out}` (the first output), `{root}`, `{tool:NAME}` (a
+`[tools]` entry), and an element `"{args}"`, which stands for the arguments
+of `mbt run NAME -- ARGS...`.
+
+With inputs and outputs, a task is skipped while its outputs are newer than
+every input and the tools it uses, and its definition is unchanged. Outputs
+are removed before a run and after a failed one. A task runs at most once per
+mbt command, whatever phases name it. Phase tasks show their commands' output
+on failure or with `-v`; `mbt run` shows it as it comes.
+
+Logic -- loops, conditions -- belongs in an `mbt.lua` later (design §9); a
+task in `mbt.toml` stays data.
+
 ## Reserved, not implemented yet
 
-`[rule."*.ext"]`, `[files."<glob>"]`, `[lang.*]` (design §10), `[tools]` and
-tasks (design §9, step 4).
+`[rule."*.ext"]`, `[files."<glob>"]`, `[lang.*]` (design §10), `[usermod.*]`
+(design §6.4), `mbt.lua` (design §9).
 
 ## `mbt migrate`
 
@@ -195,4 +251,6 @@ Reads `project.toml`, writes `mbt.toml` beside it, and removes `project.toml`
 and `VERSION`. `--dry-run` prints the new file instead. Comments travel with
 the key or table they stand above; multi-line values are copied verbatim, so
 comments inside a source list survive. The Makefile and the `mbt` submodule
-are left to the migrating PR (design §16).
+are left to the migrating PR (design §16); when the Makefile does more than
+include mbt, migrate names its targets, which become `[task.*]` / `[tools]`
+(or `mbt mvs up/down` for `run-mvs`/`stop-mvs`) in that PR.

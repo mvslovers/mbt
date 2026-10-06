@@ -36,7 +36,7 @@ func LoadV3(root, file string) (*Project, error) {
 }
 
 var v3Keys = map[string][]string{
-	"":             {"schema", "project", "toolchain", "dependencies", "build", "lib", "internal", "module", "tests", "test", "deploy", "distribution", "smp", "release"},
+	"":             {"schema", "project", "toolchain", "dependencies", "build", "lib", "internal", "module", "tests", "test", "deploy", "distribution", "smp", "release", "tools", "task"},
 	"project":      {"name", "version", "kind"},
 	"toolchain":    {"cc370", "libc370", "mbt"},
 	"build":        {"include", "cflags", "asflags", "host"},
@@ -189,6 +189,13 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 		out["distribution"], distErr = dist, msg
 	} else if table(in, "smp") != nil {
 		return nil, "", configErr("mbt.toml: [smp] without [distribution] -- nothing would be packaged")
+	}
+
+	// checked where they are used (internal/tools, internal/tasks)
+	for _, k := range []string{"tools", "task"} {
+		if t := table(in, k); t != nil {
+			out[k] = t
+		}
 	}
 
 	rel := table(in, "release")
