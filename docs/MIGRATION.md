@@ -190,9 +190,11 @@ A project with none of them has no lock file, under mbt 2 as under mbt 3.
   SHA, so a locked prerelease stays buildable after its tag has moved.
 - **`mbt deploy --linklib DSN`** names a load library to deploy into instead
   of `[deploy] target`. `--target` now names an MVS *system* (section 5).
-  The default `[deploy] target` is `<NAME>.DEV.LINKLIB`. Writing it out
-  anyway documents which library a started task's `STEPLIB` has to name. A
-  library project without load modules has nothing to deploy, and says so.
+  The default `[deploy] target` is `<NAME>.DEV.LINKLIB`, so a project
+  writes it only when it wants another library, or when its name is longer
+  than a qualifier's 8 characters: then mbt refuses to guess a shortened
+  name and asks for one. A library project without load modules has nothing
+  to deploy, and says so.
 - **`mbt deploy --dry-run` needs no password**: it packs and reports, and
   logs on to nothing.
 - **`mbt doctor` masks the password** in its configuration table.

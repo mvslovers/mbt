@@ -148,6 +148,11 @@ name.
 | key | default | from v2 |
 |---|---|---|
 | `target` | `<NAME>.DEV.LINKLIB` | `deploy.target` |
+
+A default built from a project name longer than 8 characters (or otherwise
+no qualifier) is refused with the key to set: `[deploy] target`, and in the
+same way `[smp] lklib` / `target` / `distlib` and `[distribution.library.*]
+target`. mbt does not shorten a library name a started task has to name.
 | `test_target` | — | `test_deploy.target` |
 
 ## `[distribution]`

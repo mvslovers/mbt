@@ -123,6 +123,8 @@ func TestLoadV3Errors(t *testing.T) {
 		"is 11 characters":     {func(s string) string { return strings.Replace(s, `exclude = ["test/helper.c"]`, "", 1) + "" }},
 		"no previous minor":    {func(s string) string { return strings.Replace(s, "1.4.0-dev", "2.0.0-dev", 1) }},
 		"lists other sources":  {func(s string) string { return s + "[test.TSTA]\nsources = [\"test/helper.c\"]\n" }},
+		// a DEV library from a name longer than a qualifier: refused, not cut
+		"set [deploy] target": {func(s string) string { return strings.Replace(s, `name = "ufsd"`, `name = "ufsdextra10"`, 1) }},
 	}
 	for want, c := range cases {
 		root := v3Tree(t, c.edit(v3Base))

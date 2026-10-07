@@ -173,6 +173,9 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 	target := str(dep, "target", "")
 	if target == "" && len(mods) > 0 {
 		target = upper + ".DEV.LINKLIB"
+		if err := derivedDSN("[deploy] target", target); err != nil {
+			return nil, "", err
+		}
 	}
 	if target != "" {
 		out["deploy"] = map[string]any{"target": target}
@@ -479,7 +482,13 @@ func v3Distribution(in, d map[string]any, upper string, v version.Version) (map[
 			if err := checkKeys(l, "library", fmt.Sprintf("[distribution.library.%s]", quoteKey(dir))); err != nil {
 				return nil, "", err
 			}
-			t := str(l, "target", upper+"."+strings.ToUpper(path.Base(dir)))
+			t := str(l, "target", "")
+			if t == "" {
+				t = upper + "." + strings.ToUpper(path.Base(dir))
+				if err := derivedDSN(fmt.Sprintf("[distribution.library.%s] target", quoteKey(dir)), t); err != nil {
+					return nil, "", err
+				}
+			}
 			list = append(list, map[string]any{"dir": dir, "target": t})
 		}
 		out["library"] = list
@@ -493,6 +502,13 @@ func v3Distribution(in, d map[string]any, upper string, v version.Version) (map[
 		return nil, "", err
 	}
 	smp := SMPDefaults(upper)
+	for _, k := range []string{"lklib", "target", "distlib"} {
+		if _, set := s[k]; !set {
+			if err := derivedDSN("[smp] "+k, smp[k].(string)); err != nil {
+				return nil, "", err
+			}
+		}
+	}
 	for k, x := range s {
 		if k != "prefix" {
 			smp[k] = x
@@ -576,4 +592,27 @@ func EffectiveCFlags(f []string) []string {
 		}
 	}
 	return append(inc, rest...)
+}
+
+// derivedDSN refuses a data set name mbt derived from the project name when
+// it is none: a qualifier is 1-8 characters, A-Z 0-9 @ # $ and -, not
+// starting with a digit or -. A started task names these libraries in its
+// STEPLIB, so mbt does not shorten one quietly; the project names it.
+func derivedDSN(key, dsn string) error {
+	for _, q := range strings.Split(dsn, ".") {
+		ok := len(q) >= 1 && len(q) <= 8 && !strings.ContainsAny(q[:1], "0123456789-")
+		for _, r := range q {
+			if !(r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("@#$-", r)) {
+				ok = false
+			}
+		}
+		if !ok {
+			why := fmt.Sprintf("qualifier %s is not 1-8 characters of A-Z 0-9 @ # $ -", q)
+			if len(q) > 8 {
+				why = fmt.Sprintf("qualifier %s is %d characters, at most 8", q, len(q))
+			}
+			return configErr("mbt.toml: %s: the default %s is no data set name (%s) -- set %s", key, dsn, why, key)
+		}
+	}
+	return nil
 }
