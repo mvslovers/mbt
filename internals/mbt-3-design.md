@@ -1262,28 +1262,33 @@ on in its project file instead of copying workflow YAML.
    `mbt-3-extensions.md`), and the
    launcher with `[toolchain] mbt` (section 5). The schema 3 details are
    settled (2026-10-06): `internals/mbt-3-schema.md`.
-3. Go core for the cc370/as370/ld370 host path: build engine, dependencies,
-   package/dist, deploy, tests, targets, IDE integration.
-   Accepted by the differential comparison (core: #165, merged 2026-10-06).
-   Before that comparison the v2 baseline is recorded again: it was taken
-   with cc370 1.1.1 and libc370 2.1.0, and since then cc370 1.3.0 changed the
-   eyecatcher in front of every `main`, libc370 2.3.0 moved the C startup
-   into `libc.a`, and mbt 2.2.0 (#158) links it from there.
-   Schema 3 and `mbt migrate` come in this step rather than step 4: building
-   a migrated project against its own `project.toml` build is the acceptance
-   of the schema.
-4. Toolchain management, **project tasks** (section 9: `[tools]` and a task
-   a project runs as part of its build), then migrate the projects one by
-   one with `mbt migrate` (step 3). Tasks come before the migration because a
-   project needs them to migrate at all: httpd builds its webroot image with a
-   pinned `ufsd-utils` in its own Makefile (`make webroot`), which mbt 3
-   cannot run otherwise (found in #165). PTF packaging (section 6.4) comes
-   here too, after its measurements: step 3 ports v2's `++FUNCTION` path
-   unchanged, because the differential comparison accepts exactly that. So
-   do USERMODs (section 6.4), which need nothing from the PTF measurements.
-5. Bonus, once the core stands: Lua extensions beyond tasks, MCP server,
-   workspaces, `lint`, `size`, `smp verify`, languages, native backends and
-   foreign build systems.
+3. ~~Go core for the cc370/as370/ld370 host path~~ — **done** (2026-10-06):
+   build engine, dependencies, package/dist, deploy, tests (host and
+   `--mvs`), `compiledb`, `doctor`, schema 3 with `mbt migrate`, release and
+   prerelease, and the launcher (#165, #167). Accepted by the differential
+   comparison: every ported project built by v2 and v3 side by side on the
+   same staged dependencies, byte-identical in all eight (633 outputs,
+   `internals/acceptance/diff23.py`). Schema 3 and `mbt migrate` came in this step rather than step 4,
+   because building a migrated project against its own `project.toml` build
+   is the acceptance of the schema.
+4. Tasks and the migration of the projects.
+   - ~~Project tasks and `[tools]`~~ — **done** (2026-10-07, #170). They came
+     first because a project needs them to migrate at all: httpd builds its
+     webroot image with a pinned `ufsd-utils` (`make webroot`), now the
+     `mvslovers/mbt-ufs` plugin.
+   - **Migrate the projects one by one** with `mbt migrate` and the
+     differential comparison — **open**. crypto370 is the pilot (2026-10-06);
+     the other ten are still on mbt 2.
+   - PTF packaging (section 6.4, #93) after its measurements, and USERMODs
+     (#168) — **open**. Step 3 ported v2's `++FUNCTION` path unchanged,
+     because the differential comparison accepts exactly that.
+5. Bonus.
+   - ~~Brought forward and done~~ (2026-10-07, `mbt-3-extensions.md`): Lua
+     5.5 hooks, tasks and commands (#170), targets with one mvsMF session per
+     run (#176), the console chain mvsMF → Hercules (#172, #178), plugins
+     (#174), a TN3270 client (#173) and `mbt test --tso` (#177).
+   - Open: MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
+     native backends and foreign build systems, a Homebrew formula.
 
 ## Appendix A — open mbt v2 issues, sorted (2026-10-03)
 
