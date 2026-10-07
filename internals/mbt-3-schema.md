@@ -62,8 +62,10 @@ Unchanged: `"owner/repo" = "<semver range>"`.
 **`include/` is on the include path by convention** when the project has
 one: first, before the directories `include` lists, which add to it. Naming
 `include` in the list keeps it where the list puts it. mbt's own flags
-`-O1 -Wall -Wextra -Werror` lead every compile line, so `cflags` does not
-repeat them.
+`-O1 -Wall -Wextra -Werror` lead every cc370 compile line, and
+`-Wall -Wextra -Werror` the host build of the tests (`mbt test`), so
+`cflags` does not repeat them. A host compiler that needs one relaxed gets
+a `-Wno-…` in `[build.host] cflags`, which comes after them.
 
 The compile line is mbt's own flags, then `-I` for `include/` and for each
 `include`, then `cflags`. `mbt migrate` moves every `-I` pair of the v2

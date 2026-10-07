@@ -562,8 +562,11 @@ func IncludeDirs(root string, listed []string) []string {
 // DefaultInclude is the include directory every C project gets.
 const DefaultInclude = "include"
 
-// DefaultCFlags lead every compile line, before the project's own.
-var DefaultCFlags = []string{"-O1", "-Wall", "-Wextra", "-Werror"}
+// DefaultCFlags lead every cc370 compile line, before the project's own.
+var DefaultCFlags = append([]string{"-O1"}, DefaultWarnings...)
+
+// DefaultWarnings lead the host build of an mbt.toml project's tests too.
+var DefaultWarnings = []string{"-Wall", "-Wextra", "-Werror"}
 
 // EffectiveCFlags is a project's cflags as the compiler sees them, for
 // comparing two of them: the -I dirs first, in their order (their position
