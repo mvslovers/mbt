@@ -1203,6 +1203,9 @@ func cmdTest(args []string) int {
 		c.Tests = append(c.Tests, hosttest.Test{Name: name, Host: !set || h,
 			Sources: project.RawStrs(t, "sources"), Excludes: project.RawStrs(t, "exclude")})
 	}
+	if err := build.CheckStaged(root, p.Raw); err != nil {
+		return fail(err)
+	}
 	ok, err := hosttest.Run(c, hosttest.Options{Root: root, BuildDir: "build", IncludeDir: ".mbt/include",
 		Only: only, Verbose: *verbose, Out: os.Stdout})
 	if err != nil {
