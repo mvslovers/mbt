@@ -103,7 +103,7 @@ func TestConvert(t *testing.T) {
 		"schema = 3\n\n# ufsd -- the file comment\n[project]\n",
 		"kind = \"application\"",
 		"# why 2.4.0\nlibc370",
-		"include = [\"include\", \"client\"]\ncflags = [\"-Wall\"]  # warnings on",
+		"[build]\ninclude = [\"include\", \"client\"]\n\n",
 		"[build.host]\ncflags = [\"-Wextra\"]",
 		"# -- modules --\n[module.UFSD]\nrent = true          # checked: no writable data",
 		"  # the helper, kept apart\n",
@@ -154,5 +154,48 @@ func TestMakefileNote(t *testing.T) {
 	res, _ = Convert(root)
 	if strings.Contains(strings.Join(res.Notices, "\n"), "Makefile") {
 		t.Errorf("a plain Makefile got a note: %v", res.Notices)
+	}
+}
+
+// What mbt 3 does by itself is left out: the warning flags, and include/
+// where the convention puts it (first, and present on disk).
+func TestBuildDefaultsLeftOut(t *testing.T) {
+	for _, c := range []struct {
+		cflags, want, note string
+		noInclude, differs bool
+	}{
+		{cflags: `["-I", "include", "-Wall", "-Werror"]`, want: "", note: "left out -Wall -Werror"},
+		{cflags: `["-I", "include", "-I", "x", "-Wall", "-DY"]`, want: "[build]\ninclude = [\"x\"]\ncflags = [\"-DY\"]\n", note: "left out -Wall"},
+		{cflags: `["-I", "x", "-I", "include"]`, want: "[build]\ninclude = [\"x\", \"include\"]\n"},
+		{cflags: `["-Wno-unused", "-Wall"]`, want: "[build]\ncflags = [\"-Wno-unused\", \"-Wall\"]\n", noInclude: true},
+		// include/ on disk that mbt 2 did not use: the default would add it,
+		// and the check says so instead of writing a different build
+		{cflags: `["-DY"]`, want: "[build]\ncflags = [\"-DY\"]\n", differs: true},
+	} {
+		root := t.TempDir()
+		if !c.noInclude {
+			os.Mkdir(filepath.Join(root, "include"), 0o755)
+		}
+		os.MkdirAll(filepath.Join(root, "src"), 0o755)
+		os.WriteFile(filepath.Join(root, "src", "a.c"), []byte("int main(void){return 0;}\n"), 0o644)
+		os.WriteFile(filepath.Join(root, "project.toml"), []byte("[project]\nname = \"p\"\nversion = \"1.0.0-dev\"\ntype = \"application\"\n\n[build]\ncflags = "+c.cflags+"\n\n[[module]]\nname = \"P\"\nrent = false\nreus = false\nsources = [\"src/a.c\"]\n"), 0o644)
+		res, err := Convert(root)
+		if err != nil {
+			t.Fatalf("%s: %v", c.cflags, err)
+		}
+		if diffs, err := Check(root, res.Text); err != nil || (len(diffs) > 0) != c.differs {
+			t.Errorf("%s: check %v %v", c.cflags, diffs, err)
+		}
+		got := ""
+		if i := strings.Index(res.Text, "[build]"); i >= 0 {
+			got = res.Text[i:]
+			got = got[:strings.Index(got, "\n\n")+1]
+		}
+		if got != c.want {
+			t.Errorf("%s:\ngot  %q\nwant %q", c.cflags, got, c.want)
+		}
+		if n := strings.Join(res.Notices, "\n"); c.note != "" && !strings.Contains(n, c.note) {
+			t.Errorf("%s: notes %q", c.cflags, n)
+		}
 	}
 }

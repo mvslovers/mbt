@@ -122,7 +122,7 @@ func (b *Builder) CFlags() []string { return b.cflags() }
 // cflags is CFLAGS as mk/mbt.mk builds it: the defaults, the project's
 // [build] cflags, every dependency's include dir, mbt's headers, .mbt.
 func (b *Builder) cflags() []string {
-	f := []string{"-O1", "-Wall", "-Wextra", "-Werror"}
+	f := append([]string{}, project.DefaultCFlags...)
 	f = append(f, strings.Fields(strings.Join(b.P.CFlags, " "))...)
 	for _, d := range b.depIncludes() {
 		f = append(f, "-I", d)

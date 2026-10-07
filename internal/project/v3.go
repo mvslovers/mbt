@@ -3,6 +3,7 @@ package project
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -120,7 +121,7 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 		return nil, "", err
 	}
 	var cflags []any
-	for _, dir := range strs(build, "include") {
+	for _, dir := range IncludeDirs(root, strs(build, "include")) {
 		cflags = append(cflags, "-I", dir)
 	}
 	for _, f := range strs(build, "cflags") {
@@ -523,4 +524,56 @@ func v3Distribution(in, d map[string]any, upper string, v version.Version) (map[
 	}
 	out["smp"] = smp
 	return out, distErr, nil
+}
+
+// IncludeDirs is the include path of an mbt.toml: the project's include/
+// first, by convention, when it exists and the list does not name it already;
+// then [build] include, which adds to it.
+func IncludeDirs(root string, listed []string) []string {
+	var out []string
+	named := false
+	for _, d := range listed {
+		if filepath.Clean(d) == DefaultInclude {
+			named = true
+		}
+	}
+	if st, err := os.Stat(filepath.Join(root, DefaultInclude)); err == nil && st.IsDir() && !named {
+		out = append(out, DefaultInclude)
+	}
+	return append(out, listed...)
+}
+
+// DefaultInclude is the include directory every C project gets.
+const DefaultInclude = "include"
+
+// DefaultCFlags lead every compile line, before the project's own.
+var DefaultCFlags = []string{"-O1", "-Wall", "-Wextra", "-Werror"}
+
+// EffectiveCFlags is a project's cflags as the compiler sees them, for
+// comparing two of them: the -I dirs first, in their order (their position
+// among other flags changes nothing, their order among themselves does), a
+// repeated -I dropped; then the rest, without -Wall/-Wextra/-Werror, which
+// DefaultCFlags set already -- unless a -Wno... comes before them, after
+// which a repeat re-enables something.
+func EffectiveCFlags(f []string) []string {
+	var inc, rest []string
+	seen := map[string]bool{}
+	wno := false
+	for i := 0; i < len(f); i++ {
+		switch x := f[i]; {
+		case x == "-I" && i+1 < len(f):
+			i++
+			if d := filepath.Clean(f[i]); !seen[d] {
+				seen[d] = true
+				inc = append(inc, "-I", f[i])
+			}
+		case strings.HasPrefix(x, "-Wno"):
+			wno = true
+			rest = append(rest, x)
+		case (x == "-Wall" || x == "-Wextra" || x == "-Werror") && !wno:
+		default:
+			rest = append(rest, x)
+		}
+	}
+	return append(inc, rest...)
 }
