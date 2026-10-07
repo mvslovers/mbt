@@ -94,8 +94,13 @@ What you will notice after migrating:
   load modules themselves do not change.
 - **`rent` and `reus` must be stated on every module.** `norent = true` becomes
   `rent = false`.
-- **`[build] cflags`** loses its `-I` pairs to a new `include` list. The
-  compile line stays the same.
+- **`[build]` shrinks to what is project-specific.** `include/` is on the
+  include path by convention, and `-Wall -Wextra -Werror` are mbt's own
+  defaults. `mbt migrate` leaves all three out (with a `NOTE`, and without
+  the comment above the flags, which likely explained them). Other `-I`
+  pairs move to `include = [...]`, which adds to `include/`. The object
+  decks stay byte-identical. A project migrated before this can simply
+  delete `include = ["include"]` and those three flags.
 - **Tests are discovered.** Every `test/**/*.c` and `test/**/*.asm` is a
   test, named after its file in upper case (`test/mvs/tstgctx.c` is
   `TSTGCTX`). A `[test.NAME]` entry is needed only where a test differs from

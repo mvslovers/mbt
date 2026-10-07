@@ -59,10 +59,19 @@ Unchanged: `"owner/repo" = "<semver range>"`.
 | `cflags` | `[]` | the rest of `build.cflags`, in order |
 | `asflags` | `[]` | `build.asflags` |
 
-The compile line is mbt's own flags, then `-I` for each `include`, then
-`cflags` — the order v2 produced when the `-I` pairs led its `cflags`.
-`mbt migrate` keeps the v2 list in `cflags` unchanged where an `-I` pair
-does not lead it, so the command line stays identical.
+**`include/` is on the include path by convention** when the project has
+one: first, before the directories `include` lists, which add to it. Naming
+`include` in the list keeps it where the list puts it. mbt's own flags
+`-O1 -Wall -Wextra -Werror` lead every compile line, so `cflags` does not
+repeat them.
+
+The compile line is mbt's own flags, then `-I` for `include/` and for each
+`include`, then `cflags`. `mbt migrate` moves every `-I` pair of the v2
+`cflags` into `include`, leaves out `include/` where it stood first, and
+leaves out `-Wall`, `-Wextra` and `-Werror` (kept after a `-Wno…`, where a
+repeat re-enables something), with a `NOTE` and without the comment above
+them. Its check compares the flags as the compiler sees them: `-I` order
+among themselves, the rest in order.
 
 ### `[build.host]` — the native test build
 

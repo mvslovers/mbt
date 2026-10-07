@@ -299,7 +299,9 @@ func (c *converter) block(b *block, idx int) (*block, error) {
 	return nil, fmt.Errorf("project.toml: [%s] has no place in schema 3 -- convert it by hand", b.Path)
 }
 
-// build splits leading "-I", dir pairs of cflags into include.
+// build splits leading "-I", dir pairs of cflags into include, and leaves
+// out what mbt 3 does by itself: -Wall/-Wextra/-Werror (its default flags)
+// and include/ (its default include directory).
 func (c *converter) build(b *block) *block {
 	ob := c.emit(b.Lead, "[build]")
 	for _, e := range b.Entries {
@@ -307,27 +309,97 @@ func (c *converter) build(b *block) *block {
 			verbatim(ob, e)
 			continue
 		}
-		flags := strList(rawTable(c.raw, "build")["cflags"])
-		var inc []string
-		i := 0
-		for i+1 < len(flags) && flags[i] == "-I" {
-			inc = append(inc, flags[i+1])
-			i += 2
+		orig := strList(rawTable(c.raw, "build")["cflags"])
+		flags := withoutDefaultWarnings(orig)
+		// every -I pair goes to include, in order (where it stood among the
+		// other flags changes nothing); include/ is left out where the
+		// convention puts it anyway: first
+		var inc, rest []string
+		for i := 0; i < len(flags); i++ {
+			if flags[i] == "-I" && i+1 < len(flags) {
+				d := flags[i+1]
+				if len(inc) > 0 || filepath.Clean(d) != project.DefaultInclude || !isDir(filepath.Join(c.root, project.DefaultInclude)) {
+					inc = append(inc, d)
+				}
+				i++
+				continue
+			}
+			rest = append(rest, flags[i])
 		}
-		if len(inc) == 0 || len(e.Lines) > 1 && hasComment(e.Lines[1:]) {
+		if len(rest) == len(orig) || len(e.Lines) > 1 && hasComment(e.Lines[1:]) {
 			verbatim(ob, e)
 			continue
 		}
 		comment := inlineComment(e.Lines[len(e.Lines)-1])
-		add(ob, e.Lead, []string{"include = " + tomlList(inc)})
-		if rest := flags[i:]; len(rest) > 0 {
-			add(ob, nil, []string{withComment("cflags = "+tomlList(rest), comment)})
-		} else if comment != "" {
-			ob.Entries[len(ob.Entries)-1].Lines[0] += "  " + comment
+		lead := e.Lead
+		if len(flags) < len(orig) {
+			c.notice("[build] cflags: left out %s -- mbt sets -Wall -Wextra -Werror itself", strings.Join(dropped(orig, flags), " "))
+			// a comment above them most likely explains them: it goes too
+			if hasComment(lead) || comment != "" {
+				c.notice("[build] cflags: dropped its comment with them -- restore what still applies")
+				lead, comment = nil, ""
+			}
 		}
+		if len(inc) > 0 {
+			add(ob, lead, []string{"include = " + tomlList(inc)})
+			lead = nil
+		}
+		switch {
+		case len(rest) > 0:
+			add(ob, lead, []string{withComment("cflags = "+tomlList(rest), comment)})
+		case len(inc) > 0 && comment != "" && len(flags) == len(orig):
+			// all of cflags was include dirs: the comment is about them
+			ob.Entries[len(ob.Entries)-1].Lines[0] += "  " + comment
+		case hasComment(append(append([]string{}, lead...), comment)):
+			c.notice("[build] cflags: dropped with its comment -- only mbt's defaults were left")
+		}
+	}
+	if len(ob.Entries) == 0 {
+		if hasComment(b.Lead) {
+			c.notice("[build]: dropped with its comment -- only mbt's defaults were left")
+		}
+		if n := len(c.out); n > 0 && c.out[n-1] == ob {
+			c.out = c.out[:n-1] // emit placed it already
+		}
+		return nil
 	}
 	return ob
 }
+
+// withoutDefaultWarnings is flags without the warning flags mbt sets anyway
+// (project.EffectiveCFlags' rule), keeping everything else and its order.
+func withoutDefaultWarnings(flags []string) []string {
+	var out []string
+	wno := false
+	for _, f := range flags {
+		if strings.HasPrefix(f, "-Wno") {
+			wno = true
+		}
+		if !wno && (f == "-Wall" || f == "-Wextra" || f == "-Werror") {
+			continue
+		}
+		out = append(out, f)
+	}
+	return out
+}
+
+func dropped(orig, kept []string) []string {
+	n := map[string]int{}
+	for _, k := range kept {
+		n[k]++
+	}
+	var d []string
+	for _, o := range orig {
+		if n[o] > 0 {
+			n[o]--
+		} else {
+			d = append(d, o)
+		}
+	}
+	return d
+}
+
+func isDir(p string) bool { st, err := os.Stat(p); return err == nil && st.IsDir() }
 
 func (c *converter) smp(b *block) (*block, error) {
 	smp := rawTable(rawTable(c.raw, "distribution"), "smp")
@@ -638,7 +710,7 @@ func compare(a, b *project.Project) []string {
 	diff("name", a.Name, b.Name)
 	diff("version", a.Version, b.Version)
 	diff("type", a.Type, b.Type)
-	diff("cflags", a.CFlags, b.CFlags)
+	diff("cflags", project.EffectiveCFlags(a.CFlags), project.EffectiveCFlags(b.CFlags))
 	diff("asflags", a.ASFlags, b.ASFlags)
 	diff("lib", a.Lib, b.Lib)
 	diff("internal", a.Internal, b.Internal)
