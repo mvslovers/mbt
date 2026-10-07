@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
@@ -186,7 +187,7 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 
 	distErr := ""
 	if d := table(in, "distribution"); d != nil {
-		dist, msg, err := v3Distribution(in, d, upper, v)
+		dist, msg, err := v3Distribution(root, in, d, upper, v)
 		if err != nil {
 			return nil, "", err
 		}
@@ -460,7 +461,7 @@ func SMPDefaults(upper string) map[string]any {
 	}
 }
 
-func v3Distribution(in, d map[string]any, upper string, v version.Version) (map[string]any, string, error) {
+func v3Distribution(root string, in, d map[string]any, upper string, v version.Version) (map[string]any, string, error) {
 	if err := checkKeys(d, "distribution", "[distribution]"); err != nil {
 		return nil, "", err
 	}
@@ -534,6 +535,15 @@ func v3Distribution(in, d map[string]any, upper string, v version.Version) (map[
 				return nil, "", configErr("mbt.toml: [smp]: %s.0.0 has no previous minor to delete -- set delete explicitly ([] for a first level)", fmt.Sprint(v.Major))
 			}
 			smp["delete"] = []any{del}
+			// a patch of the previous minor released under its own FMID
+			// (explicit, until mbt builds PTFs) owns the modules now: deleting
+			// the minor's id would leave it in place, and SMP would install
+			// nothing at RC 0 (the "NOT SEL" wall)
+			if v.Patch == 0 && distErr == "" {
+				if pt := ReleasedPatches(root, v.Major, v.Minor-1); len(pt) > 0 {
+					distErr = fmt.Sprintf("%s was released after %d.%d.0 (tag %s): if it shipped under an FMID of its own, %s.0 must delete that one, not the derived %s -- set [smp] delete explicitly", strings.TrimPrefix(pt[len(pt)-1], "v"), v.Major, v.Minor-1, pt[len(pt)-1], fmt.Sprintf("%d.%d", v.Major, v.Minor), del)
+				}
+			}
 		}
 	} else if _, explicit := s["delete"]; !explicit {
 		smp["delete"] = []any{}
@@ -623,4 +633,28 @@ func derivedDSN(key, dsn string) error {
 		}
 	}
 	return nil
+}
+
+// ReleasedPatches lists the release tags vX.Y.Z (Z > 0, no prerelease) of
+// the minor X.Y in root's git repository, oldest first. A checkout without
+// tags (a shallow CI clone) lists none, so the check bites where releases
+// are made: mbt release and mbt package run locally first.
+var ReleasedPatches = func(root string, major, minor int) []string {
+	out, err := exec.Command("git", "-C", root, "tag", "-l", fmt.Sprintf("v%d.%d.*", major, minor)).Output()
+	if err != nil {
+		return nil
+	}
+	var tags []string
+	for _, t := range strings.Fields(string(out)) {
+		v, err := version.Parse(strings.TrimPrefix(t, "v"))
+		if err == nil && v.Patch > 0 && v.Pre == "" {
+			tags = append(tags, t)
+		}
+	}
+	sort.Slice(tags, func(i, j int) bool {
+		a, _ := version.Parse(strings.TrimPrefix(tags[i], "v"))
+		b, _ := version.Parse(strings.TrimPrefix(tags[j], "v"))
+		return version.Compare(a, b) < 0
+	})
+	return tags
 }
