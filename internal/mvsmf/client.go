@@ -311,6 +311,13 @@ func ParseSpoolRC(spool string) (int, string) {
 // DatasetExists searches by a prefix (at most two qualifiers, for MVS/CE)
 // and looks for the exact name.
 func (c *Client) DatasetExists(dsn string) bool {
+	_, ok := c.DatasetVolume(dsn)
+	return ok
+}
+
+// DatasetVolume says whether dsn is cataloged and on which volume ("" when
+// the listing does not say).
+func (c *Client) DatasetVolume(dsn string) (string, bool) {
 	parts := strings.Split(dsn, ".")
 	n := len(parts) - 1
 	if n > 2 {
@@ -321,19 +328,18 @@ func (c *Client) DatasetExists(dsn string) bool {
 	}
 	m, _, err := c.jsonDo("GET", "/restfiles/ds?dslevel="+strings.Join(parts[:n], "."), nil)
 	if err != nil {
-		return false
+		return "", false
 	}
 	items, _ := m["items"].([]any)
 	for _, it := range items {
 		im, _ := it.(map[string]any)
 		if strings.TrimSpace(strOr(im["dsname"], "")) == dsn {
-			return true
+			return strings.TrimSpace(strOr(im["vol"], "")), true
 		}
 	}
-	return false
+	return "", false
 }
 
-// CreateDataset allocates a dataset; space is [unit, primary, secondary(,dirblk)].
 func (c *Client) CreateDataset(dsn, dsorg, recfm string, lrecl, blksize int, space []any, unit, volume string) error {
 	body := map[string]any{"dsorg": dsorg, "alcunit": space[0], "primary": space[1], "secondary": space[2],
 		"recfm": recfm, "lrecl": lrecl, "blksize": blksize, "unit": unit}

@@ -40,9 +40,12 @@ type Options struct {
 	ProjectTarget      string   // [deploy] target
 	Only               []string // --module
 	DryRun, Verbose    bool
-	Out, Err           io.Writer
-	Config             *config.Config
-	Client             *mvsmf.Client // nil: from Config
+	// Volume is where RECEIVE puts the library: the one an existing library
+	// sits on (set by Run), else the target's
+	Volume   string
+	Out, Err io.Writer
+	Config   *config.Config
+	Client   *mvsmf.Client // nil: from Config
 }
 
 var notQualifier = regexp.MustCompile(`[^A-Z0-9@#$]`)
@@ -199,8 +202,16 @@ func Run(o Options) int {
 		if err := c.UploadBinary(staging, data); err != nil {
 			return err
 		}
-		if c.DatasetExists(target) {
-			o.log("Deleting existing %s (replace)...", target)
+		if vol, ok := c.DatasetVolume(target); ok {
+			// RECEIVE puts the library back where it was: an APF entry names
+			// dsname and volume, and a library moved to the target's volume
+			// would lose its authorization without a word
+			if vol != "" {
+				o.Volume = vol
+				o.log("Deleting existing %s on %s (replace; RECEIVE puts it back on %s)...", target, vol, vol)
+			} else {
+				o.log("Deleting existing %s (replace)...", target)
+			}
 			if err := c.DeleteDataset(target); err != nil {
 				return err
 			}
@@ -238,7 +249,10 @@ func (e *ReceiveError) Error() string { return e.Headline }
 // spool goes to spoolPath (relative to the project root).
 func Receive(o *Options, c *mvsmf.Client, xmitDSN, target, spoolPath string, n int) error {
 	jc := mvsmf.Jobcard("MBTDEPL", o.Config.JobClass(), o.Config.MsgClass(), "MBT DEPLOY")
-	vol := o.Config.Volume()
+	vol := o.Volume
+	if vol == "" {
+		vol = o.Config.Volume()
+	}
 	cmd := fmt.Sprintf(" RECEIVE INDSN('%s') -\n  DATASET('%s')", xmitDSN, target)
 	if vol != "" {
 		cmd += fmt.Sprintf(" -\n  VOLUME('%s')", vol)
