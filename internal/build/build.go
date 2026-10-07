@@ -147,6 +147,9 @@ type step struct {
 
 // Run builds what Options select.
 func (b *Builder) Run() error {
+	if err := CheckStaged(b.P.Root, b.P.Raw); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(b.abs(b.O.BuildDir), 0o755); err != nil {
 		return err
 	}
