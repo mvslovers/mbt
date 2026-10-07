@@ -235,6 +235,36 @@ password = { keychain = "mbt/lab" }     # macOS Keychain, or secret-tool on Linu
 password = { cmd = ["pass", "show", "mvs/lab"] }
 ```
 
+**Storing the password in the keychain.** `keychain = "NAME"` looks the
+password up by service name; the account is not part of the lookup. Create
+the entry once, **in an interactive terminal**: the prompt needs one, and
+run from a script or a non-interactive shell the entry ends up empty
+without an error.
+
+macOS (Keychain):
+
+```sh
+security add-generic-password -s mbt/lab -a IBMUSER -w      # prompts twice
+security add-generic-password -U -s mbt/lab -a IBMUSER -w   # -U: change an existing entry
+```
+
+Linux (Secret Service, `secret-tool` from libsecret-tools):
+
+```sh
+secret-tool store --label='mbt lab' service mbt/lab          # prompts once
+```
+
+Then check it:
+
+```sh
+mbt target info lab          # logs on with the stored password
+```
+
+An empty entry is reported as `password: keychain mbt/lab is empty` rather
+than as a failed logon. One entry can serve several sections: `[mvsmf]`
+and `[tn3270]` may name the same `keychain` when the user is the same. macOS
+may ask once whether `security` may read the entry; answer "Always Allow".
+
 Then check the connection:
 
 ```sh
