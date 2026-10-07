@@ -1,6 +1,7 @@
 package target
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -103,40 +104,88 @@ func Wait(t *Target, wait time.Duration, sleep func(time.Duration)) (Probe, time
 	}
 }
 
-// HerculesInfo logs on to the Hercules web console (HTTP Basic, if the
-// target has credentials) and reports the status and the server it names.
+// HerculesInfo logs on to the Hercules web console (HTTP Basic) and reports
+// what it names about itself, as the mvsMF line does: the Hercules version
+// and build date (/cgi-bin/api/v1/version) and how many 3270 devices have a
+// client (/cgi-bin/api/v1/devices) -- the ones mbt test --tso competes for.
 func HerculesInfo(e *Endpoint, timeout time.Duration) Probe {
 	p := Probe{Access: "hercules", Addr: e.URL}
-	req, err := http.NewRequest("GET", strings.TrimRight(e.URL, "/")+"/", nil)
-	if err != nil {
-		p.Detail = err.Error()
-		return p
-	}
+	pw := ""
 	if e.User != "" {
-		pw, err := e.Password.Resolve()
-		if err != nil {
+		var err error
+		if pw, err = e.Password.Resolve(); err != nil {
 			p.Detail = err.Error()
 			return p
 		}
-		req.SetBasicAuth(e.User, pw)
 	}
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
-	if err != nil {
+	get := func(path string, v any) (int, error) {
+		req, err := http.NewRequest("GET", strings.TrimRight(e.URL, "/")+path, nil)
+		if err != nil {
+			return 0, err
+		}
+		if e.User != "" {
+			req.SetBasicAuth(e.User, pw)
+		}
+		resp, err := (&http.Client{Timeout: timeout}).Do(req)
+		if err != nil {
+			return 0, err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			io.Copy(io.Discard, resp.Body)
+			return resp.StatusCode, nil
+		}
+		return 200, json.NewDecoder(resp.Body).Decode(v)
+	}
+	var ver struct {
+		Version   string `json:"hercules_version"`
+		BuildDate string `json:"build_date"`
+	}
+	code, err := get("/cgi-bin/api/v1/version", &ver)
+	switch {
+	case err != nil && code == 0:
 		p.Detail = "no answer: " + short(err)
 		return p
+	case code == 401 && e.User == "":
+		p.Detail = "answering, but it asks for a logon and no user configured (HTTP 401)"
+		return p
+	case code == 401:
+		p.Detail = fmt.Sprintf("answering, but the logon as %s was refused (HTTP 401)", e.User)
+		return p
+	case code != 200:
+		p.Detail = fmt.Sprintf("answering, HTTP %d on /cgi-bin/api/v1/version", code)
+		return p
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
-	switch {
-	case resp.StatusCode == 401:
-		p.Detail = "answering, but the logon was refused (HTTP 401)"
-	case resp.StatusCode >= 400:
-		p.Detail = fmt.Sprintf("answering, HTTP %d", resp.StatusCode)
-	default:
-		p.OK = true
-		p.Detail = "logged on"
-		if s := resp.Header.Get("Server"); s != "" {
-			p.Detail += " -- " + s
+	p.OK = true
+	if e.User != "" {
+		p.Detail = fmt.Sprintf("logged on as %s (HTTP 200)", e.User)
+	} else {
+		p.Detail = "answering without a logon (HTTP 200)"
+	}
+	if ver.Version != "" {
+		p.Detail += " -- Hercules " + ver.Version
+		if d := strings.Join(strings.Fields(ver.BuildDate), " "); d != "" {
+			p.Detail += ", built " + d
+		}
+	}
+	var dev struct {
+		Devices []struct {
+			Type   string `json:"devtype"`
+			Status string `json:"status"`
+		} `json:"devices"`
+	}
+	if code, err := get("/cgi-bin/api/v1/devices", &dev); code == 200 && err == nil {
+		all, open := 0, 0
+		for _, d := range dev.Devices {
+			if d.Type == "3270" {
+				all++
+				if strings.TrimSpace(d.Status) == "open" {
+					open++
+				}
+			}
+		}
+		if all > 0 {
+			p.Detail += fmt.Sprintf("; 3270 terminals: %d of %d connected", open, all)
 		}
 	}
 	return p
