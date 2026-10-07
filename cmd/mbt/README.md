@@ -13,6 +13,7 @@ mbt dist
 mbt test [--only NAME]... [-v]
 mbt deploy [--target NAME] [--linklib DSN] [--module M]... [--dry-run] [-v]
 mbt test --mvs [--only NAME]... [--no-deploy] [--target NAME] [--linklib DSN] [-v]
+mbt test --tso [--only NAME]... [--target NAME] [-v]
 mbt check
 mbt migrate [--dry-run]
 mbt release VERSION [--next V]
@@ -126,4 +127,16 @@ programs its `plugin.toml` declares. `.mbt/deps.local.toml [override]`
 points a plugin at a working copy. Ranges now also take `^1`, `^1.4`,
 `^0.3` (cargo's rule).
 
-Not yet: `mbt test --tso`.
+**Interactive tests.** `mbt test --tso` runs every `test/tso/*.lua` in a TSO
+session of its own, over TN3270 (`internal/tn3270`, a client in Go -- no
+s3270, no Python) as the target's `[tn3270]` user. A test returns
+`function(t)`: `t:logon()`, `t:type(s):enter()`, `t:pf(n)`, `t:pa(n)`,
+`t:clear()`, `t:tab()`, `t:expect(text, { timeout = s })`, `t:screen()`,
+`t:text()`, `t:cursor()`; `t.testlib` names the test library `mbt test
+--mvs` deploys. A failed expect fails the test with the screen it saw, and
+the session is logged off whatever happens. Not yet run against a system as
+a command: the client passed 18 logon/TIME/logoff cycles on MVS/CE (#173);
+the Lua side is tested against a stand-in session.
+
+Not yet: `--shared-session`, deploying the test modules from `--tso` itself
+(run `mbt test --mvs` first).
