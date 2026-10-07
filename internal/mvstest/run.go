@@ -96,7 +96,7 @@ func Run(o Options) int {
 		tests = append(tests, t.Name)
 	}
 	if len(tests) == 0 {
-		o.fail("no built test modules in %s/ (run 'make test' first)", o.BuildDir)
+		o.fail("no built test modules in %s/ (run 'mbt build --tests' first)", o.BuildDir)
 		return ExitConfig
 	}
 	v, err := version.Parse(o.Version)

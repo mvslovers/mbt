@@ -66,8 +66,14 @@ mbt migrate               # write mbt.toml, remove project.toml and VERSION
 along**: each comment travels with the key or table it stands above. Before
 writing anything, mbt loads the new file and compares it with the old one.
 If they differ in anything but the intended changes, nothing is written.
-It prints a `NOTE` for anything it drops (for example the comments of a
-`[release]` table that held only `VERSION`).
+
+The intended changes are the ones listed below. Beyond those, mbt prints a
+`NOTE` (on stderr, so `mbt migrate --dry-run > mbt.toml` stays a valid file)
+when it has to drop a comment, for example the comments of a `[release]`
+table that held only `version_files = ["VERSION"]`, and when the `Makefile`
+does more than include mbt: it names those targets, which have to move
+before the Makefile can go (section 6). Dropping `VERSION` itself is one of
+the intended changes and gets no `NOTE`.
 
 Then pin the mbt the project is built with:
 
@@ -96,7 +102,11 @@ What you will notice after migrating:
   that: more sources, a `parm`, fixtures. Defaults for all tests go in
   `[tests]`, and files under `test/` that are not tests go in
   `[tests] exclude`. `mbt migrate` keeps every source list that differs from
-  the discovered default, so the test load modules stay identical.
+  the discovered default, so the test load modules stay identical. A source
+  file under `test/` that mbt 2 did not build as a test (a host-only test
+  program, say) lands in `[tests] exclude`, so the migrated project builds
+  exactly what it built before. Remove it from the list once it should become
+  a test.
 - **The version lives in `[project] version` only.** `VERSION` is gone, and
   nothing reads it any more.
 - **The FMID can be derived.** `[smp] prefix = "TUFS"` and version 1.4.0 give
@@ -113,20 +123,31 @@ not pick one.
 
 ## 3. Remove the submodule and the Makefile
 
-In the same change:
+In the same change, remove the Makefile and the submodule in **one**
+command:
 
 ```sh
-git rm Makefile
-git rm mbt                     # the submodule
-git rm .gitmodules             # if mbt was its only entry
+git rm Makefile mbt .gitmodules            # mbt was the only submodule
+git rm Makefile mbt                        # there are others: keep .gitmodules
+```
+
+`git rm mbt` already removes mbt's entry from `.gitmodules` and stages that.
+So a second, separate `git rm .gitmodules` fails with "the following file has
+changes staged in the index". Then clear what git keeps of the submodule
+outside the tree:
+
+```sh
 rm -rf .git/modules/mbt
+git config --remove-section submodule.mbt
 ```
 
 `.gitignore` should keep `.mbt/` (staged dependencies, tools, plugins and
 build state) and `build/`, `dist/`. In mbt 3 the directory `mbt/` is yours:
 it holds the project's Lua (section 6), so do not ignore it.
 
-**Commit `mbt.lock`**, as before.
+**Commit `mbt.lock`** as before, once there is one: `mbt deps` writes it
+only when the project declares `[dependencies]`, `[tools]` or `[plugins]`.
+A project with none of them has no lock file, under mbt 2 as under mbt 3.
 
 ---
 
@@ -162,7 +183,10 @@ it holds the project's Lua (section 6), so do not ignore it.
   SHA, so a locked prerelease stays buildable after its tag has moved.
 - **`mbt deploy --linklib DSN`** names a load library to deploy into instead
   of `[deploy] target`. `--target` now names an MVS *system* (section 5).
-  The default `[deploy] target` is `<NAME>.DEV.LINKLIB`.
+  The default `[deploy] target` is `<NAME>.DEV.LINKLIB`. A library project
+  without load modules has nothing to deploy, and says so.
+- **`mbt deploy --dry-run` needs no password**: it packs and reports, and
+  logs on to nothing.
 - **`mbt doctor` masks the password** in its configuration table.
 
 Developing against an unreleased dependency works as before:
@@ -173,8 +197,10 @@ Developing against an unreleased dependency works as before:
 ## 5. MVS systems: from `.env` to targets
 
 mbt 3 keeps the MVS systems you work with in one file per machine,
-`~/.mbt/targets.toml` (`MBT_HOME` moves the directory). Turn an existing
-`.env` into a target once:
+`~/.mbt/targets.toml` (`MBT_HOME` moves the directory). **This is not part
+of migrating a project.** You do it once per machine, before or after any
+migration. Until then mbt reads the mbt 2 settings (`MBT_MVS_*`, a project's
+`.env`) and warns on every run. Turn an existing `.env` into a target:
 
 ```sh
 mbt target import .env --name lab
@@ -203,7 +229,7 @@ password = { keychain = "mbt/lab" }     # macOS Keychain, or secret-tool on Linu
 password = { cmd = ["pass", "show", "mvs/lab"] }
 ```
 
-Then check the connection and remove `.env` from the project:
+Then check the connection:
 
 ```sh
 mbt target list
@@ -212,8 +238,12 @@ mbt target info lab          # logs on to mvsMF
 ```
 
 `--target NAME` picks a system for `deploy` and `test --mvs`. Without it, mbt
-uses the default target, or the only one. A project that still has a
-`.env` keeps working, with a warning.
+uses the default target, or the only one.
+
+For the project, this means: `.env` stays git-ignored and can be deleted
+once a target exists. **Remove `.env.example`**. It documents mbt 2
+variables that mbt 3 no longer reads. Point the README at
+`mbt target import` instead.
 
 A target can carry more than mvsMF. All of these are optional:
 
@@ -378,14 +408,26 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
 2. `mbt migrate --dry-run`, read it, then `mbt migrate`.
 3. Add `[toolchain] mbt = "3.0"`.
 4. `git rm Makefile mbt .gitmodules`, keep `.mbt/` in `.gitignore`.
-5. `mbt target import .env --name <name>` once per machine, then drop `.env`
-   from the project.
+5. Remove `.env.example`, and point the README at targets. Creating a target
+   (`mbt target import .env --name <name>`) is per machine and can come
+   later.
 6. Move Makefile extras to `mbt/init.lua`, a plugin or `[tools]`.
 7. Replace `build.yml` / `release.yml` with the mbt 3 workflows.
-8. `mbt deps`, `mbt build --all`, `mbt test`, and `mbt deploy --dry-run`.
+8. `mbt deps`, `mbt build --all`, `mbt test`, and `mbt deploy --dry-run`
+   (which says "nothing to deploy" for a library).
 9. Optional, and worth it: compare with mbt 2. Build the same commit with
    mbt 2 in a second checkout and compare `dist/` and `build/`. Object
-   decks carry the assembly date, load modules the link time, so compare
-   builds from the same day and expect those bytes to differ.
+   decks carry the assembly date, and load modules the link time. Pin both
+   on both sides to make the comparison byte for byte:
+
+   ```sh
+   export ASMDATE=10/07/26 ASMTIME=12.00 LDDATE=26280 LDTIME=120000
+   ```
+
+   Without them, build both on the same day and expect those bytes to
+   differ: two per object deck, two per load module. A `.tar.gz` differs
+   anyway, because mbt 2 and mbt 3 write the archive differently (owner,
+   timestamps, order, no macOS `._*` entries in mbt 3's). Compare what is
+   unpacked from it.
 10. Rewrite `make …` to `mbt …` in the README and other docs.
 11. `mbt deploy`: the first live deploy.

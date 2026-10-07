@@ -352,7 +352,10 @@ func (b *Builder) runAll(steps []step) error {
 			}
 		}()
 	}
+	// the label is printed as the step is handed out, so the log follows
+	// the order of the steps however the workers interleave
 	for _, s := range todo {
+		b.announce(s)
 		work <- s
 	}
 	close(work)
@@ -367,12 +370,15 @@ func (b *Builder) runAll(steps []step) error {
 	return first
 }
 
-func (b *Builder) exec(s step) error {
+func (b *Builder) announce(s step) {
 	if b.O.Verbose {
 		b.say("%s", strings.Join(s.argv, " "))
 	} else {
 		b.say("%s", s.label)
 	}
+}
+
+func (b *Builder) exec(s step) error {
 	if s.kind == "ar" {
 		os.Remove(b.abs(s.out)) // `ar rc` would keep members of an older build
 	}
