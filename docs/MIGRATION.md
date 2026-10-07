@@ -501,8 +501,8 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
    unpacked from it.
 10. Rewrite `make …` to `mbt …` in the README and other docs, and in
     `mbt.toml` itself, whose comments came over from `project.toml` as
-    they were. A project
-    that ships a library also tells its consumers how to depend on it.
+    they were. A project that ships a library also tells its consumers
+    how to depend on it.
     Name both forms while they are on both: `[dependencies]` in their
     `project.toml` with `make deps`, or in their `mbt.toml` with `mbt deps`.
 11. `mbt deploy`: the first live deploy.
