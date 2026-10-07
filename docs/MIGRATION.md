@@ -220,6 +220,12 @@ user     = "IBMUSER"
 password = "…"             # from MBT_MVS_PASS
 ```
 
+`import` takes what the `.env` says. For what it leaves out (HLQ, volume,
+job classes, host, port, user) it takes the values mbt 2 actually used: from
+the environment (`MBT_MVS_*`, `MBT_JES_*`) or `~/.mbt/config.toml`. It
+prints each value it took that way. A password from the environment is not
+copied into the file.
+
 A password written into the file is accepted only while nobody else can read
 it (`chmod 600`, which `import` sets). Better, name where it comes from:
 

@@ -842,6 +842,24 @@ func cmdTarget(args []string) int {
 		if err != nil {
 			return fail(err)
 		}
+		// mbt 2 merged the environment and ~/.mbt/config.toml under the
+		// .env; what the file leaves out comes from there, as mbt 2 used it
+		// (the password excepted: one from the environment stays there)
+		out := config.Outside()
+		var filled []string
+		for _, k := range []string{"mvs.host", "mvs.port", "mvs.user", "mvs.hlq", "mvs.deps_volume", "jes.jobclass", "jes.msgclass"} {
+			e := config.EnvName(k)
+			if _, ok := env[e]; ok {
+				continue
+			}
+			if v, src := out.Source(k); src != "default" && v != "" {
+				env[e] = v
+				filled = append(filled, fmt.Sprintf("%s = %s (from %s)", e, v, src))
+			}
+		}
+		for _, f := range filled {
+			fmt.Printf("[mbt] not in %s, taken as mbt 2 used it: %s\n", fl.Arg(0), f)
+		}
 		shown, skipped, err := target.Import(target.Home(), *name, env)
 		if err != nil {
 			return fail(err)
