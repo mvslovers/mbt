@@ -10,7 +10,14 @@ what the stub returns as the RECEIVE job's spool (default: COND CODE 0000);
 a JCL-error spool exercises the failure path.  Compared: the request
 transcripts (repeated status polls collapsed; v2 sleeps between them), the
 submitted JCL, and the console lines (as a set: Python buffers stdout).
+
+Intended differences, left out of the comparison: mbt 3 opens one mvsMF
+session per run (POST and DELETE /zosmf/services/authenticate), and says
+that it falls back to the mbt 2 settings because there is no targets.toml.
+MBT_HOME points at an empty directory, so a real ~/.mbt/targets.toml can
+never redirect the run to a real system.
 """
+import tempfile
 import os, socket, subprocess, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
 mbt3, d = os.path.abspath(sys.argv[1]), sys.argv[2]
@@ -27,12 +34,13 @@ def run(cmd, tag):
         if os.path.exists(f): os.remove(f)
     stub = subprocess.Popen([sys.executable, os.path.join(here, "stub_mvsmf.py"), str(port), log] + spool)
     time.sleep(1)
-    env = dict(os.environ, MBT_MVS_HOST="127.0.0.1", MBT_MVS_PORT=str(port), MBT_MVS_USER="STUBUSR",
+    env = dict(os.environ, MBT_HOME=tempfile.mkdtemp(), MBT_MVS_HOST="127.0.0.1", MBT_MVS_PORT=str(port), MBT_MVS_USER="STUBUSR",
                MBT_MVS_PASS="stubpass", MBT_MVS_HLQ="STUBHLQ", LDDATE="26276", LDTIME="120000")
     r = subprocess.run(cmd, cwd=d, env=env, shell=True, capture_output=True, text=True)
     stub.terminate(); stub.wait()
-    lines = [l for l in (r.stdout + r.stderr).splitlines() if not l.startswith("make") and not l.startswith("[cc370]") and not l.startswith("[ld370]") and not l.startswith("[ar370]") and not l.startswith("[as370]") and "Tests built" not in l and "writable data" not in l and "module-data" not in l and not l.startswith("[mbt] A module") and not l.startswith("[mbt] An ac") and "libc370 " not in l and "Build complete" not in l]
+    lines = [l for l in (r.stdout + r.stderr).splitlines() if not l.startswith("make") and not l.startswith("[cc370]") and not l.startswith("[ld370]") and not l.startswith("[ar370]") and not l.startswith("[as370]") and "Tests built" not in l and "writable data" not in l and "module-data" not in l and not l.startswith("[mbt] A module") and not l.startswith("[mbt] An ac") and "libc370 " not in l and "Build complete" not in l and "using the mbt 2 settings" not in l]
     reqs = open(log).read().splitlines() if os.path.exists(log) else []
+    reqs = [l for l in reqs if "/zosmf/services/authenticate" not in l]
     collapsed = [l for i, l in enumerate(reqs) if i == 0 or l != reqs[i - 1]]
     jcl = open(log + ".jcl").read() if os.path.exists(log + ".jcl") else ""
     return sorted(lines), collapsed, jcl

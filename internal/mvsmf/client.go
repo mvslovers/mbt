@@ -31,9 +31,10 @@ func errf(format string, a ...any) error { return &Error{fmt.Sprintf(format, a..
 
 // Client is one mvsMF endpoint.
 type Client struct {
-	host string
-	port int
-	auth string
+	host  string
+	port  int
+	auth  string
+	token string // the LtpaToken2 of a session (Login), sent instead of Basic
 	// Sleep is the poll delay; tests replace it so a stub run does not wait.
 	Sleep func(time.Duration)
 }
@@ -87,7 +88,11 @@ func (c *Client) do(r request) ([]byte, error) {
 	if err != nil {
 		return nil, errf("bad request %s %s: %v", r.method, r.path, err)
 	}
-	req.Header.Set("Authorization", "Basic "+c.auth)
+	if c.token != "" {
+		req.Header.Set("Cookie", "LtpaToken2="+c.token)
+	} else {
+		req.Header.Set("Authorization", "Basic "+c.auth)
+	}
 	req.Header.Set("Accept", r.accept)
 	req.Header.Set("User-Agent", "mbt/3")
 	if r.body != nil {
@@ -381,4 +386,69 @@ func (c *Client) Status(path string) (int, error) {
 		return code, nil
 	}
 	return 0, err
+}
+
+// Login opens a session: one logon (POST /zosmf/services/authenticate with
+// the credentials), then every request carries the LtpaToken2 cookie
+// instead of the password. Logout ends it; httpd also expires an idle
+// session by itself (SESSION_TIMEOUT, 30 minutes by default).
+func (c *Client) Login() error {
+	addr := net.JoinHostPort(c.host, strconv.Itoa(c.port))
+	req, err := http.NewRequest("POST", "http://"+addr+"/zosmf/services/authenticate", nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Basic "+c.auth)
+	req.Header.Set("X-CSRF-ZOSMF-HEADER", "")
+	req.Header.Set("User-Agent", "mbt/3")
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
+	if err != nil {
+		return errf("Connection failed to %s: %v", addr, err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode == 401 {
+		return errf("logon to mvsMF at %s refused (HTTP 401): user or password wrong", addr)
+	}
+	if resp.StatusCode != 200 {
+		return errf("logon to mvsMF at %s: HTTP %d", addr, resp.StatusCode)
+	}
+	for _, ck := range resp.Cookies() {
+		if ck.Name == "LtpaToken2" && ck.Value != "" {
+			c.token = ck.Value
+			return nil
+		}
+	}
+	return errf("logon to mvsMF at %s: no LtpaToken2 cookie in the answer", addr)
+}
+
+// Token is the session token ("" without a session).
+func (c *Client) Token() string { return c.token }
+
+// Logout ends the session (DELETE /zosmf/services/authenticate); without
+// one it does nothing.
+func (c *Client) Logout() error {
+	if c.token == "" {
+		return nil
+	}
+	_, err := c.do(request{method: "DELETE", path: "/services/authenticate", timeout: 10 * time.Second})
+	c.token = ""
+	return err
+}
+
+// Request is any mvsMF call within the session: path below /zosmf, an
+// optional body; it returns the HTTP status and the body.
+func (c *Client) Request(method, path, contentType string, body []byte) (int, []byte, error) {
+	data, err := c.do(request{method: method, path: path, contentType: contentType, body: body})
+	if err != nil {
+		var me *Error
+		if errors.As(err, &me) {
+			var code int
+			if _, scanErr := fmt.Sscanf(me.Msg, "HTTP %d", &code); scanErr == nil {
+				return code, nil, err
+			}
+		}
+		return 0, nil, err
+	}
+	return 200, data, nil
 }

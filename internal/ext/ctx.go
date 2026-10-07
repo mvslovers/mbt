@@ -35,6 +35,9 @@ type callInfo struct {
 //	ctx.exec{argv..., env = {}, check = true} -> output, exit code
 //	ctx.tool(name)         a [tools] entry: fetched, pinned, its path
 //	ctx.fs.read/write/exists/mkdir/remove/list   inside the project only
+//	ctx.target()           the selected MVS system (no passwords)
+//	ctx.mvs.request{ method, path, body, content_type } -> status, body
+//	ctx.mvs.token()        the session token, for an external program (env!)
 func (e *Engine) ctx(ci callInfo) rt.Value {
 	c := rt.NewTable()
 	set := func(k string, v rt.Value) { c.Set(rt.StringValue(k), v) }
@@ -82,6 +85,66 @@ func (e *Engine) ctx(ci callInfo) rt.Value {
 		}
 		return k.PushingNext1(t.Runtime, rt.StringValue(p)), nil
 	})
+
+	e.fn(c, "target", 0, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
+		if e.o.Target == nil {
+			return nil, errors.New("ctx.target: no MVS target in this command")
+		}
+		info, err := e.o.Target()
+		if err != nil {
+			return nil, fmt.Errorf("ctx.target: %v", err)
+		}
+		return k.PushingNext1(t.Runtime, toLua(info)), nil
+	})
+	mvs := rt.NewTable()
+	session := func() (MVS, error) {
+		if e.o.MVS == nil {
+			return nil, errors.New("ctx.mvs: no MVS target in this command")
+		}
+		return e.o.MVS()
+	}
+	e.fn(mvs, "request", 1, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
+		tb, err := k.TableArg(0)
+		if err != nil {
+			return nil, errors.New(`ctx.mvs.request wants a table: { method = "GET", path = "/restfiles/ds?dslevel=X" }`)
+		}
+		method, path := tstr(tb, "method"), tstr(tb, "path")
+		if method == "" {
+			method = "GET"
+		}
+		if !strings.HasPrefix(path, "/") {
+			return nil, fmt.Errorf("ctx.mvs.request: path %q must start with / (below /zosmf)", path)
+		}
+		ctype := tstr(tb, "content_type")
+		var body []byte
+		if b, ok := tb.Get(rt.StringValue("body")).TryString(); ok {
+			body = []byte(b)
+			if ctype == "" {
+				ctype = "application/json"
+			}
+		}
+		if e.o.DryRun && method != "GET" {
+			e.o.Log(fmt.Sprintf("[mbt] (dry run) would send %s %s", method, path))
+			return k.PushingNext(t.Runtime, rt.IntValue(0), rt.StringValue("")), nil
+		}
+		m, err := session()
+		if err != nil {
+			return nil, err
+		}
+		code, data, err := m.Request(method, path, ctype, body)
+		if err != nil && code == 0 {
+			return nil, fmt.Errorf("ctx.mvs.request %s %s: %v", method, path, err)
+		}
+		return k.PushingNext(t.Runtime, rt.IntValue(int64(code)), rt.StringValue(string(data))), nil
+	})
+	e.fn(mvs, "token", 0, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
+		m, err := session()
+		if err != nil {
+			return nil, err
+		}
+		return k.PushingNext1(t.Runtime, rt.StringValue(m.Token())), nil
+	})
+	set("mvs", rt.TableValue(mvs))
 
 	fs := rt.NewTable()
 	e.fn(fs, "read", 1, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
