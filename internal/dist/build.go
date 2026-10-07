@@ -75,7 +75,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(out, loadXMIT)); err != nil {
-		return errf("%s not found -- the load library XMIT is built by 'make package' and must exist before the package is assembled", filepath.Join(o.DistDir, loadXMIT))
+		return errf("%s not found -- the load library XMIT is built by 'mbt package' and must exist before the package is assembled", filepath.Join(o.DistDir, loadXMIT))
 	}
 
 	// ---- the shipped source libraries ----

@@ -77,8 +77,19 @@ func (s Secret) Source() string {
 	return "none"
 }
 
-// Resolve returns the password.
+// Resolve returns the password. One that a source (environment, keychain,
+// command) yields empty is an error naming that source: an entry stored from
+// a non-interactive shell comes out empty without a word, and the logon that
+// follows fails with a 401 that does not say why.
 func (s Secret) Resolve() (string, error) {
+	v, err := s.resolve()
+	if err == nil && v == "" && (s.Env != "" || s.Keychain != "" || len(s.Cmd) > 0) {
+		return "", errf("password: %s is empty", s.Source())
+	}
+	return v, err
+}
+
+func (s Secret) resolve() (string, error) {
 	switch {
 	case s.Env != "":
 		v, ok := os.LookupEnv(s.Env)

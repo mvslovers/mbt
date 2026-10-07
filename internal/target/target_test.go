@@ -207,3 +207,19 @@ func TestPing(t *testing.T) {
 		t.Error("waited for nothing and found it")
 	}
 }
+
+// An empty secret from a source is an error that names the source: a
+// keychain entry stored from a non-interactive shell is empty, and the 401
+// that follows does not say why.
+func TestEmptySecretNamed(t *testing.T) {
+	t.Setenv("MBT_EMPTY_PW", "")
+	if _, err := (Secret{Env: "MBT_EMPTY_PW", set: true}).Resolve(); err == nil || !strings.Contains(err.Error(), "env MBT_EMPTY_PW") || !strings.Contains(err.Error(), "empty") {
+		t.Errorf("env: %v", err)
+	}
+	if _, err := (Secret{Cmd: []string{"printf", ""}, set: true}).Resolve(); err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Errorf("cmd: %v", err)
+	}
+	if pw, err := (Secret{Cmd: []string{"printf", "pw\n"}, set: true}).Resolve(); pw != "pw" || err != nil {
+		t.Errorf("cmd ok: %q %v", pw, err)
+	}
+}

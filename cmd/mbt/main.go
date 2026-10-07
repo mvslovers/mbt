@@ -343,7 +343,7 @@ func cmdMigrate(args []string) int {
 		return fail(err)
 	}
 	for _, n := range res.Notices {
-		fmt.Printf("[mbt] NOTE: %s\n", n)
+		fmt.Fprintf(os.Stderr, "[mbt] NOTE: %s\n", n) // stderr: --dry-run output stays a valid mbt.toml
 	}
 	if len(diffs) > 0 {
 		for _, d := range diffs {
@@ -610,9 +610,13 @@ func connect(root, name string, login bool) (*config.Config, *mvsmf.Client, int)
 	if err != nil {
 		return nil, nil, fail(err)
 	}
-	pw, err := t.MVSMF.Password.Resolve()
-	if err != nil {
-		return nil, nil, fail(err)
+	// without a logon (a dry run) the password is not needed, so it is not
+	// asked for: a keychain prompt or an unset variable must not stop it
+	pw := ""
+	if login {
+		if pw, err = t.MVSMF.Password.Resolve(); err != nil {
+			return nil, nil, fail(err)
+		}
 	}
 	cfg := config.Fixed(map[string]string{"mvs.host": host, "mvs.port": strconv.Itoa(port), "mvs.user": t.MVSMF.User,
 		"mvs.pass": pw, "mvs.hlq": t.HLQ, "mvs.deps_volume": t.Volume, "jes.jobclass": t.JobClass, "jes.msgclass": t.MsgClass})
@@ -837,6 +841,24 @@ func cmdTarget(args []string) int {
 		env, err := target.ReadDotenv(fl.Arg(0))
 		if err != nil {
 			return fail(err)
+		}
+		// mbt 2 merged the environment and ~/.mbt/config.toml under the
+		// .env; what the file leaves out comes from there, as mbt 2 used it
+		// (the password excepted: one from the environment stays there)
+		out := config.Outside()
+		var filled []string
+		for _, k := range []string{"mvs.host", "mvs.port", "mvs.user", "mvs.hlq", "mvs.deps_volume", "jes.jobclass", "jes.msgclass"} {
+			e := config.EnvName(k)
+			if _, ok := env[e]; ok {
+				continue
+			}
+			if v, src := out.Source(k); src != "default" && v != "" {
+				env[e] = v
+				filled = append(filled, fmt.Sprintf("%s = %s (from %s)", e, v, src))
+			}
+		}
+		for _, f := range filled {
+			fmt.Printf("[mbt] not in %s, taken as mbt 2 used it: %s\n", fl.Arg(0), f)
 		}
 		shown, skipped, err := target.Import(target.Home(), *name, env)
 		if err != nil {
@@ -1197,6 +1219,34 @@ func anyTables(v any) []map[string]any {
 	return nil
 }
 
+// doctorCC370 reports the installed cc370 and holds it against [toolchain]
+// cc370 when that names a release: older is a warning, since a release is
+// built with the pinned one and a local build only approximates it.
+func doctorCC370(want string) {
+	out, err := exec.Command("cc370", "--version").Output()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[mbt] WARNING: cc370 --version: %v\n", err)
+		return
+	}
+	f := strings.Fields(string(out)) // "cc370 1.4.0 (2821ebb), based on GCC 3.4.6"
+	if len(f) < 2 {
+		fmt.Fprintf(os.Stderr, "[mbt] WARNING: cannot read cc370's version from %q\n", strings.TrimSpace(string(out)))
+		return
+	}
+	have, herr := version.Parse(f[1])
+	pin, perr := version.Parse(strings.TrimPrefix(want, "v"))
+	switch {
+	case want == "" || perr != nil:
+		fmt.Printf("[mbt] cc370 %s (no release pinned in [toolchain] cc370)\n", f[1])
+	case herr != nil:
+		fmt.Fprintf(os.Stderr, "[mbt] WARNING: cc370 %s: not a version to compare with [toolchain] cc370 = %s\n", f[1], want)
+	case version.Compare(have, pin) < 0:
+		fmt.Fprintf(os.Stderr, "[mbt] WARNING: cc370 %s is older than [toolchain] cc370 = %s, which release builds use\n", f[1], want)
+	default:
+		fmt.Printf("[mbt] cc370 %s (>= %s)\n", f[1], want)
+	}
+}
+
 // cmdDoctor: make doctor.  One deliberate difference: the configuration
 // table masks MVS_PASS, which mbt 2 printed in clear.
 func cmdDoctor() int {
@@ -1215,16 +1265,28 @@ func cmdDoctor() int {
 	if err != nil {
 		bad("%v", err)
 	} else {
-		var missing []string
+		// libc370's files, then cc370's: the compiler's prologue macros and
+		// its runtime live in the same sysroot, and replacing a directory
+		// there to install one of them silently drops the other's
+		var missing, missingCC []string
 		for _, f := range []string{"libc.a", "crtm.o"} {
 			if _, err := os.Stat(filepath.Join(t.LibcDir, f)); err != nil {
 				missing = append(missing, f)
 			}
 		}
+		for _, f := range []string{"macros/pdptop.copy", "macros/pdpprlg.macro", "macros/pdpepil.macro", "lib/libcc370rt.a"} {
+			if _, err := os.Stat(filepath.Join(t.Sysroot, f)); err != nil {
+				missingCC = append(missingCC, f)
+			}
+		}
 		if len(missing) > 0 {
-			bad("sysroot %s incomplete, missing: %s", t.Sysroot, strings.Join(missing, ", "))
-		} else {
-			fmt.Printf("[mbt] sysroot: %s (libc.a + crtm.o OK)\n", t.Sysroot)
+			bad("sysroot %s incomplete, missing libc370's %s -- reinstall libc370", t.Sysroot, strings.Join(missing, ", "))
+		}
+		if len(missingCC) > 0 {
+			bad("sysroot %s incomplete, missing cc370's %s -- reinstall cc370 (nothing assembles without its macros)", t.Sysroot, strings.Join(missingCC, ", "))
+		}
+		if len(missing)+len(missingCC) == 0 {
+			fmt.Printf("[mbt] sysroot: %s (libc370: libc.a, crtm.o; cc370: macros, libcc370rt.a OK)\n", t.Sysroot)
 		}
 	}
 	p, perr := project.Load(root)
@@ -1243,6 +1305,13 @@ func cmdDoctor() int {
 		default:
 			fmt.Printf("[mbt] %s\n", msg)
 		}
+		wantCC := ""
+		if perr == nil {
+			if tc, ok := p.Raw["toolchain"].(map[string]any); ok {
+				wantCC, _ = tc["cc370"].(string)
+			}
+		}
+		doctorCC370(strings.TrimSpace(wantCC))
 	}
 	if perr != nil {
 		fmt.Fprintf(os.Stderr, "[mbt] WARNING: project file not loaded, skipping MVS checks (%v)\n", perr)
@@ -1322,6 +1391,11 @@ func cmdDeploy(args []string) int {
 	p, err := project.Load(root)
 	if err != nil {
 		return fail(err)
+	}
+	if len(p.Modules) == 0 {
+		// a library project: its archive is a release asset, not a load module
+		fmt.Printf("[mbt] nothing to deploy: %s builds no load modules (kind = %q)\n", p.Name, p.Type)
+		return exitOK
 	}
 	selectedTarget = *targetName
 	if code := before(p, "deploy", *verbose, *dry); code != exitOK {

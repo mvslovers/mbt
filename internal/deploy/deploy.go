@@ -122,7 +122,7 @@ func Run(o Options) int {
 		built = keep
 	}
 	if len(built) == 0 {
-		o.fail("no built modules in %s/ (run 'make' or 'make <module>' first)", o.BuildDir)
+		o.fail("no built modules in %s/ (run 'mbt build' or 'mbt build <module>' first)", o.BuildDir)
 		return ExitConfig
 	}
 	target := o.Target

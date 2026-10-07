@@ -63,6 +63,20 @@ func Load(root string) *Config {
 	return c
 }
 
+// Outside reads what mbt 2 merged besides a project's .env: the environment
+// and ~/.mbt/config.toml.  target import fills from it what the .env file
+// leaves out, so the imported target is the one mbt 2 actually used.
+func Outside() *Config {
+	c := &Config{dotenv: map[string]string{}, global: map[string]any{}}
+	if home, err := os.UserHomeDir(); err == nil {
+		toml.DecodeFile(filepath.Join(home, ".mbt", "config.toml"), &c.global)
+	}
+	return c
+}
+
+// EnvName is the MBT_* variable of a dotted key ("mvs.hlq" -> MBT_MVS_HLQ).
+func EnvName(key string) string { return envMap[key] }
+
 // Get resolves a dotted key; Source says where it came from.
 func (c *Config) Get(key string) string { v, _ := c.Source(key); return v }
 
