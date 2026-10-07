@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -55,6 +56,40 @@ const (
 	exitMVS      = 4
 	exitInternal = 99
 )
+
+// buildInfo is the commit and date the binary was built from, as Go records
+// them from git (" (d762ac6, 2026-10-07)"; "+dirty" for uncommitted
+// changes): a prerelease keeps its version while its tag moves, so the
+// version alone does not say whether a fix is in.
+func buildInfo() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	var rev, at, dirty string
+	for _, s := range bi.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			rev = s.Value
+		case "vcs.time":
+			at = s.Value
+		case "vcs.modified":
+			if s.Value == "true" {
+				dirty = "+dirty"
+			}
+		}
+	}
+	if rev == "" {
+		return ""
+	}
+	if len(rev) > 7 {
+		rev = rev[:7]
+	}
+	if len(at) >= 10 {
+		at = ", " + at[:10]
+	}
+	return " (" + rev + dirty + at + ")"
+}
 
 // mbtVersion is set by the release build: -ldflags "-X main.mbtVersion=3.0.1".
 var mbtVersion = "3.0.0-dev"
@@ -125,7 +160,22 @@ func run(args []string) int {
 	return code
 }
 
+// noArgs are the commands that take no arguments: anything after them is
+// refused rather than ignored -- "mbt doctor --help" must not run doctor
+// (which logs on to MVS) instead of printing help.
+var noArgs = map[string]bool{"clean": true, "distclean": true, "ci-info": true, "dist": true,
+	"check": true, "compiledb": true, "doctor": true, "version": true, "--version": true}
+
 func dispatch(args []string) int {
+	if noArgs[args[0]] && len(args) > 1 {
+		switch args[1] {
+		case "-h", "--help", "help":
+			usage()
+			return exitOK
+		}
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: mbt %s takes no arguments (got %s)\n", args[0], strings.Join(args[1:], " "))
+		return exitConfig
+	}
 	switch args[0] {
 	case "run":
 		return cmdRun(args[1:])
@@ -167,7 +217,7 @@ func dispatch(args []string) int {
 	case "doctor":
 		return cmdDoctor()
 	case "version", "--version":
-		fmt.Println("mbt", mbtVersion)
+		fmt.Println("mbt", mbtVersion+buildInfo())
 		return exitOK
 	case "help", "-h", "--help":
 		usage()

@@ -55,7 +55,7 @@ jobs:
           tar -xzf "dist/mbt-$VER-linux-amd64.tar.gz" -C /tmp
           got=$(MBT_NO_SWITCH=1 /tmp/mbt-$VER-linux-amd64/mbt version)
           echo "$got"
-          [ "$got" = "mbt $VER" ]
+          case "$got" in "mbt $VER"|"mbt $VER ("*) ;; *) exit 1 ;; esac
 
       - name: Publish
         env:

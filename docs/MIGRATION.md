@@ -142,7 +142,9 @@ git config --remove-section submodule.mbt
 ```
 
 `.gitignore` should keep `.mbt/` (staged dependencies, tools, plugins and
-build state) and `build/`, `dist/`. In mbt 3 the directory `mbt/` is yours:
+build state) and `build/`, `dist/`. Lines for mbt 2's own leftovers
+(`.build-warnings`, `*.jcl`, `contrib/`) can go, along with the files
+themselves if a working copy still holds them. In mbt 3 the directory `mbt/` is yours:
 it holds the project's Lua (section 6), so do not ignore it.
 
 **Commit `mbt.lock`** as before, once there is one: `mbt deps` writes it
@@ -183,8 +185,9 @@ A project with none of them has no lock file, under mbt 2 as under mbt 3.
   SHA, so a locked prerelease stays buildable after its tag has moved.
 - **`mbt deploy --linklib DSN`** names a load library to deploy into instead
   of `[deploy] target`. `--target` now names an MVS *system* (section 5).
-  The default `[deploy] target` is `<NAME>.DEV.LINKLIB`. A library project
-  without load modules has nothing to deploy, and says so.
+  The default `[deploy] target` is `<NAME>.DEV.LINKLIB`. Writing it out
+  anyway documents which library a started task's `STEPLIB` has to name. A
+  library project without load modules has nothing to deploy, and says so.
 - **`mbt deploy --dry-run` needs no password**: it packs and reports, and
   logs on to nothing.
 - **`mbt doctor` masks the password** in its configuration table.
@@ -465,5 +468,8 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
    anyway, because mbt 2 and mbt 3 write the archive differently (owner,
    timestamps, order, no macOS `._*` entries in mbt 3's). Compare what is
    unpacked from it.
-10. Rewrite `make …` to `mbt …` in the README and other docs.
+10. Rewrite `make …` to `mbt …` in the README and other docs. A project
+    that ships a library also tells its consumers how to depend on it.
+    Name both forms while they are on both: `[dependencies]` in their
+    `project.toml` with `make deps`, or in their `mbt.toml` with `mbt deps`.
 11. `mbt deploy`: the first live deploy.
