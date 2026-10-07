@@ -1,724 +1,391 @@
-# Migrating to mbt v2 (cc370 host build)
+# Migrating from mbt 2 to mbt 3
 
-mbt **v2** replaces the v1 *remote* build (cross-compile on the host, then
-assemble + link on MVS via JCL/mvsMF) with a *host* build: compile,
-assemble, link and package run entirely on the host with the **cc370**
-toolchain (`cc370` / `as370` / `ld370` / `ar370`). MVS is only touched by
-`make deploy`, which uploads the finished load library and RECEIVEs it.
+mbt 3 is one program, `mbt`, installed on your machine. It replaces the mbt 2
+git submodule, the two-line `Makefile` and the `make` targets. The build does
+not change: the same cc370 toolchain runs the same steps and writes the same
+object decks, archives and load modules. Measured on every project ported to
+mbt 2, the outputs of mbt 3 are byte-identical to mbt 2's.
 
-| | v1 (legacy) | v2 |
+What changes is everything around the build:
+
+| | mbt 2 | mbt 3 |
 |---|---|---|
-| Compile | `c2asm370` (`.c`→`.s`) | `cc370` (`.c`→`.o`) |
-| Assemble / link | upload to MVS, IFOX00 + IEWL via JCL | `as370` / `ld370` on the host |
-| MVS round-trip per build | yes (every module) | no |
-| Makefile include | `mk/legacy/core.mk` | `mk/mbt.mk` |
-| Config generator | `scripts/legacy/mbtconfig.py` | `scripts/mbtconfig.py` |
-| `project.toml` | dataset + `[[link.module]]` blocks | `[[module]]` + glob `sources` |
+| The tool | git submodule `mbt/` + `Makefile` | the `mbt` program on your `PATH` |
+| Which mbt a project uses | the submodule commit | `[toolchain] mbt` in `mbt.toml` |
+| Project file | `project.toml` + `VERSION` | `mbt.toml` (schema 3) |
+| Commands | `make <target>` | `mbt <command>` |
+| MVS systems | `.env` in each project | `~/.mbt/targets.toml`, one per machine |
+| Extra build steps | Makefile rules | Lua in `mbt/init.lua`, or a plugin |
+| CI | `build.yml` / `release.yml` | `build3.yml` / `release3.yml` |
 
-The shared Python package (`scripts/mbt/`) — config, mvsMF client, JCL,
-versioning — is used by both.
+This guide takes a project from mbt 2 to mbt 3. The project should build with
+mbt 2 first. The v1-to-v2 guide this file used to hold is kept at
+[v2.2.0](https://github.com/mvslovers/mbt/blob/v2.2.0/docs/MIGRATION.md).
 
 ---
 
-## 1. Quick start
+## 1. Install mbt
 
-A v2 project's `Makefile` is two lines:
-
-```make
-MBT_ROOT := mbt
-include $(MBT_ROOT)/mk/mbt.mk
-```
-
-Everything else is described in `project.toml`. Then:
+mbt 3 is published as a GitHub release of
+[mvslovers/mbt](https://github.com/mvslovers/mbt/releases), for macOS and
+Linux (arm64 and amd64) and Windows (amd64). It is a single binary with no
+dependencies. Until 3.0.0 is out, the release is the prerelease
+`v3.0.0-dev`:
 
 ```sh
-make                 # build all production modules
-make <module>        # build one module (lowercase name, e.g. make ufsd)
-make test            # build test modules
-make lib             # build the static library
-make package         # create release tarballs in dist/
-make deploy          # pack modules -> XMIT -> upload -> RECEIVE into the LINKLIB
-make doctor          # check toolchain + MVS connectivity
-make help            # list targets
-
-VERBOSE=1 make       # echo full cc370/as370/ld370/ar370 commands
+gh release download v3.0.0-dev -R mvslovers/mbt \
+   -p 'mbt-3.0.0-dev-darwin-arm64.tar.gz' -p 'mbt-3.0.0-dev-sha256.txt'
+shasum -a 256 -c --ignore-missing mbt-3.0.0-dev-sha256.txt
+tar -xzf mbt-3.0.0-dev-darwin-arm64.tar.gz
+install mbt-3.0.0-dev-darwin-arm64/mbt ~/.local/bin/mbt     # any directory on PATH
+mbt version
 ```
+
+Pick the archive for your platform: `darwin-arm64`, `darwin-amd64`,
+`linux-amd64`, `linux-arm64` or `windows-amd64` (a `.zip`).
+
+**You install mbt once, not per project.** When a project pins another
+version (`[toolchain] mbt`, section 2), the installed mbt fetches that
+version into `~/.mbt/versions/`, checks it against the release's SHA-256
+list and runs it instead. `MBT_NO_SWITCH=1` keeps the one you started.
+
+The cc370 toolchain (`cc370`, `as370`, `ld370`, `ar370`) and the libc370
+sysroot stay what they were: installed on your machine and on your `PATH`.
+`mbt doctor` checks both.
 
 ---
 
-## 2. `project.toml` reference (v2)
-
-A complete example (ufsd):
-
-```toml
-[project]
-name    = "ufsd"
-version = "1.0.0-dev"
-type    = "application"          # application | library | module
-
-[build]
-cflags  = ["-I", "include"]      # extra cc370 flags (appended to -O1)
-# asflags = ["..."]              # extra as370 flags (optional)
-
-# ── Load modules ─────────────────────────────────────────
-# Every [[module]]/[[test]] name becomes a PDS member and a PGM= in the
-# generated JCL, so it must be a valid member name: 1..8 characters from
-# A-Z 0-9 @ # $, not starting with a digit.  `make` rejects anything else
-# before it builds.  ([lib] name is a host archive, not a member -- no rule.)
-[[module]]
-name    = "UFSD"                 # a C program: the CRT comes out of libc.a
-sources = ["src/ufsd*.c"]        # glob(s), expanded on the host
-exclude = ["src/ufsdclnp.c", "src/ufsd#ssi.c"]
-
-[[module]]
-name    = "UFSDSSIR"
-entry   = "UFSDSSIR"             # non-default entry point
-startup = false                  # no C runtime startup (LINK_NOCRT)
-sources = ["src/ufsd#ssi.c", "src/ufsd#buf.c"]
-
-[[module]]
-name    = "UFSDCLNP"             # all defaults: entry=@@CRT0
-sources = ["src/ufsdclnp.c"]
-
-# ── Tests (built by `make test`) ─────────────────────────
-[[test]]
-name    = "LIBUFTST"
-sources = ["client/libufstst.c", "client/libufs.c"]
-
-# ── Static library (built by `make lib`) ─────────────────
-[lib]
-name    = "libufs"
-sources = ["client/libufs.c"]
-headers = ["include/libufs.h", "include/ufsdrc.h"]
-
-# ── Release (used by `make release` / `prerelease`) ──────
-[release]
-version_files = ["VERSION"]
-
-# ── Deploy (optional) ────────────────────────────────────
-# [deploy]
-# target = "IBMUSER.UFSD.LINKLIB"   # overrides the default DSN
-
-# ── Dependencies (optional; `make deps`) ─────────────────
-# [dependencies]
-# "mvslovers/crent370" = ">=1.0.6"
-
-# ── Toolchain (optional; release CI only) ────────────────
-# [toolchain]
-# libc370 = "1.0.2"                 # bare version -> tag v1.0.2
-# cc370   = "main"                  # cc370 has no releases yet
-```
-
-### `[project]`
-
-| Key | Required | Meaning |
-|-----|----------|---------|
-| `name` | yes | Project name; lowercase, used in default DSNs. |
-| `version` | yes | SemVer; encoded to MVS VRM for DSNs (`1.0.0-dev` → `V1R0M0D`). |
-| `type` | no | `application` (default), `library`, or `module`. `runtime` was removed (#21) and is rejected. |
-
-### `[build]`
-
-| Key | Meaning |
-|-----|---------|
-| `cflags` | List of extra `cc370` flags, appended to the default `-O1`. |
-| `asflags` | List of extra `as370` flags (optional). |
-
-Note: `CFLAGS`/`ASFLAGS`/`LDFLAGS` are set with `:=` in `mk/mbt.mk`, so a
-host `LDFLAGS`/`CFLAGS` in the environment does **not** leak into the
-cross-build. Override on the command line if needed (`make CFLAGS=-O0`).
-
-### Build provenance — `<buildstamp.h>`
-
-Every `make` regenerates `.mbt/buildstamp.h` and puts `.mbt` on the include
-path, so a banner can name the exact build it is:
-
-```c
-#include <buildstamp.h>
-
-wtof("%s %s (%s) STARTING", MBT_PROJECT, MBT_VERSION, MBT_COMMIT);
-if (MBT_COMMIT_DIRTY)
-    wtof("BUILT FROM A MODIFIED WORKING TREE");
-```
-
-| Macro | Value |
-|-------|-------|
-| `MBT_PROJECT` | `[project] name` |
-| `MBT_VERSION` | `[project] version` |
-| `MBT_COMMIT` | Short commit of the **project** checkout, with a `-dirty` suffix when the tree has uncommitted *tracked* changes; `unknown` outside a git checkout (a source tarball). |
-| `MBT_COMMIT_DIRTY` | The same signal as `0`/`1`, for code that reports it separately. |
-
-**Use this instead of injecting the commit as a cflag.** A
-`-DCOMMIT="$(shell git rev-parse --short HEAD)"` in `[build] cflags` bakes
-the hash into whichever object holds the banner, and make recompiles that
-object only when its source or a tracked header changes — so a build made
-after a commit still prints the *previous* hash. As a header it is a
-tracked prerequisite (via `-MMD`), so a new commit recompiles exactly the
-translation units that include it.
-
-The file is rewritten only when a value actually changes, so an unchanged
-commit recompiles nothing. It deliberately carries no build timestamp —
-that would differ on every run and recompile the including TU forever.
-`.mbt/` is generated; do not commit it.
-
-### `[[module]]` (production load module, repeatable)
-
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `name` | — | MVS member name (1–8 chars). |
-| `sources` | — | Glob pattern(s), expanded on the host. |
-| `exclude` | `[]` | Glob pattern(s) removed from `sources`. |
-| `entry` | `@@CRT0` | Entry point symbol. |
-| `startup` | — | Normally left out. `false`: no C runtime (own `entry`); `"crtm"`: the nested startup. See below. |
-| `dep_startup` | — | `true`: `@@START` comes from a dependency (a CGI module); `false`: libc370's. Required when a dependency defines `@@START`. See below. |
-| `aliases` | `[]` | Alias names for the module (IEWL `ALIAS`), e.g. `["REXX", "RX"]`. |
-| `ac` | `0` | APF authorization code (`SETCODE AC(n)`). |
-| `rent` | — | `true`: the module is reentrant (RENT); `false`: it is not. Undeclared: whatever ld370 defaults to. |
-| `reus` | — | `true` / `false`: serially reusable (REUS). Undeclared: ld370's default. |
-| `refr` | `false` | `true`: refreshable (REFR). |
-
-`aliases` gives the load module extra directory entries that point at the same
-member, passed to ld370 as `--alias`. Each is a member name (1–8 chars, same
-rule as `name`) and must not repeat any module name or other alias in the
-project -- `make` rejects that. ld370 enters an alias at the external symbol of
-that name if the module has one, otherwise at the module's entry point, so an
-alias that happens to name a function inside the module starts *there*.
-`make deploy` and `make test-mvs` carry the aliases. `make package` declares
-them to SMP as `TALIAS(...)` on the module's `++MOD`: without that, SMP copies
-the module and silently leaves its aliases behind, and every step still ends RC
-0 (measured, #112). An upgrade with `delete` moves them onto the new module. A
-release that *drops* an alias is not measured -- in the target library it would
-most likely survive, pointing at the deleted module -- so check #115 before
-removing one.
-Changing `aliases` does not by itself relink the module -- `make clean` first.
-
-`rent`, `reus` and `refr` set the load module's attributes (cc370#100). **Declare
-them.** A declared attribute is passed to ld370 in both directions (`rent =
-true` → `--rent`, `rent = false` → `--norent`), so the module does not depend on
-ld370's default -- *neither* RENT nor REUS, IEWL's default, since cc370 1.2.0
-(RENT+REUS before). `norent = true` / `noreus = true` are the old
-spelling: still accepted, with a warning.
-
-`rent = true` is a promise that the module holds **no writable data**. cc370
-keeps a C static or a non-const global in the module itself, and a RENT module
-is one copy for every task that LINKs it -- measured on mvsdev with three of
-httpd's workers in one copy of a CGI module (cc370#100). Before linking, `make`
-scans the C sources of every module (`mbtmoddata.py`): writable data in a
-`rent = true` module stops the build; in a module that is RENT only by ld370's
-default, or `ac = 1` (key-0 storage when fetched authorized), it is a warning.
-`__stklen` is exempt -- libc370's startup reads it, nothing writes it.
-The scan sees each file as cc370 compiles it for MVS: `make` runs it through
-`cc370 -E` with the project's `CFLAGS` first, so a host-only branch (`#ifndef
-__MVS__`) is not counted. A `static const struct { ... } tbl[]` is read as const.
-Headers count: a static defined in a project header -- `mbtcheck.h`'s test
-counters among them -- is reported against the header, once per module however
-many sources include it; system headers are not scanned. Data in the
-`[internal]` sources is reported whenever any module may be RENT, because which
-modules autocall pulls it into is not yet known (#152).
-Run it on its own with `make module-data`; `make module-data
-MODDATA_ARGS=--all` lists every warning instead of three per module. Called by
-hand without the `CFLAGS`, the script scans the raw text and says so.
-
-#### Which startup a module gets
-
-**The entry decides.** Since libc370 2.3.0 the C runtime startup (`@@CRT0`)
-is a member of `libc.a`, and since cc370 1.2.0 ld370 pulls an entry nothing
-references out of the archive by its name (cc370#107). So a C program names no
-startfile: `entry` defaults to `@@CRT0`, and that is all it takes (#158).
-
-| Module | `entry` | `startup` | Linked with |
-|--------|---------|-----------|-------------|
-| C program (the common case) | `@@CRT0` (default) | leave it out | the CRT from `libc.a` |
-| self-contained module (an SSI router, an assembler routine) | its own | `false` | no CRT; still `-lc` for runtime routines |
-| C module entered from a running C program on the same TCB (LINK/XCTL/LOAD), reusing the caller's runtime | `@@CRT0` | `"crtm"` | `crtm.o` -- the one startup object still installed beside `libc.a` |
-| own startup | `@@CRT0` | leave it out | an object in `sources` that defines `@@CRT0`: an explicit object beats the archive, so libc's is never pulled |
-
-The thread driver (`CTHREAD`) is a member of its own, linked when the program
-uses the thread API; the CRT then IDENTIFYs it. There is no "with or without
-threads" choice any more.
-
-`startup = "crt0"` and `"crt1"` are still accepted and mean the same as
-leaving the key out -- `make` says so once per project. Any other value is an
-error (it used to fall back to crt0 without a word). On a sysroot whose
-`libc.a` predates libc370 2.3.0 (no `@@CRT0` member), mbt still links that
-sysroot's `crt0.o`/`crt1.o` as before, and says so; cc370 older than 1.2.0
-with a 2.3.0 `libc.a` is an error at link time.
-
-**Drop the key together with a `[toolchain] libc370` pin of 2.3.0 or newer.**
-On an older `libc.a` the two startfiles are not the same: `crt0` IDENTIFYs the
-thread driver at startup and `crt1` does not, and a module without the key
-falls back to `crt0`. A module that said `"crt1"` and loses the key would then
-gain an IDENTIFY it never had -- and a server that issues its own (ftpd,
-httpd) a second one. The pin makes such a sysroot fail before anything is
-built.
-
-#### Which `@@START` a module gets (`dep_startup`)
-
-The CRT calls `@@START`, the C-level startup, and autocall takes it from the
-first archive that defines one. libc370 is searched **ahead of** the
-dependencies, so every module and test gets libc370's `@@START` (#62).
-A CGI module needs its server's instead -- httpd's CGI launcher, shipped in
-httpd's archive -- and says so:
-
-```toml
-[[module]]
-name        = "MVSMF"
-dep_startup = true      # @@START from a dependency (httpd's CGI launcher)
-sources     = ["src/*.c"]
-```
-
-When a dependency archive defines `@@START`, **every** `[[module]]` (except
-`startup = false`) has to set `dep_startup`, `true` or `false`; `make` stops
-with exit 2 otherwise and names the module and the archive. Left alone, the
-module would quietly get libc370's `@@START` and still build green -- a CGI
-module without its HTTP header. Tests are not asked: they take libc370's
-`@@START` unless they set `dep_startup = true`. A module that defines
-`@@START` in its own `sources` gets that one either way.
-
-### `[[test]]` (repeatable)
-
-Same fields as `[[module]]`, except `aliases`. Built only by `make test`,
-never by `make`, and never deployed.
-
-### `[lib]`
-
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `name` | project name | Archive name → `build/<name>.a`. |
-| `sources` | — | Glob(s) for the archive members. Omit for a headers-only export. |
-| `headers` | `[]` | Public headers shipped in the `-lib` release tarball. |
-
-A `[lib]` with `headers` **but no `sources`** is a *headers-only* export: no
-`.a` is built or shipped — the `-lib` tarball carries `include/` alone.
-Use this when the public API is reached at **runtime** rather than linked —
-e.g. httpd, whose CGI programs call `http_*` through a callback table the
-server fills in, so consumers compile against the headers and link nothing.
-
-### `[internal]` — shared-code archive for multi-module projects
-
-Most projects give each `[[module]]` a `sources` glob and let the linker pull
-the C runtime from `-lc`. That breaks down when **several modules share a body
-of code that cannot be globbed into each** — the classic case is a project
-where every module root defines its own `main()`, so globbing all sources into
-every module is doubly-defined at link.
-
-`[internal]` solves this. Its `sources` are compiled and archived into
-`build/<project>int.a`, and **every module (and test) autocalls that archive**.
-Each `[[module]]` then lists only its own root source(s); the linker pulls the
-shared rest from the archive **by autocall** — referenced members only, so each
-load module stays minimal (important on MVS).
-
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `sources` | — | Glob(s) compiled into the internal archive. |
-| `exclude` | `[]` | Glob(s) removed from `sources`. |
-
-```toml
-[internal]
-sources = ["src/*.c", "credentials/src/*.c"]   # -> build/<project>int.a
-
-[[module]]
-name    = "HTTPJES2"
-sources = ["src/cgistart.c", "src/httpjes2.c"] # roots only; rest via autocall
-```
-
-This is the v2 re-expression of v1's NCALIB autocall (in v1, `c_dirs` fed the
-NCALIB, which *was* the autocall library). Unlike `[lib]` — a public
-deliverable shipped in the release tarball — the internal archive is never
-packaged or shipped; it exists only to compose this project's own modules.
-A project may have both: `[internal]` for module composition and a curated
-`[lib]` for external consumers.
-
-A module root listed in `sources` is also a member of the internal archive
-(its glob covers the whole tree). That is harmless: the explicit object
-satisfies the symbol, and autocall skips the archive copy — no doubly-defined.
-
-#### Why the roots must be explicit (and which root)
-
-It is tempting to drop the explicit root and let autocall pull *everything*
-from the archive. That does **not** work, and the failure is silent. cc370
-compiles each translation unit to an unnamed **Private Code** section that
-exports only a few `LD` labels; a TU with `main()` exports `@@START`, the C
-entry the CRT (`@@CRT0`) references **strongly**. In a project where
-several TUs have `main()` (a server plus N CGI programs, say), the internal
-archive contains **multiple** `@@START` definitions. Autocall then satisfies
-the CRT's `@@START` reference from the *first* archive member that defines it
-— which may not be the root you intended. The link succeeds (RC=0, no
-unresolved references), but the load module carries the **wrong entry** and
-faults at run time.
-
-Listing the intended root as an explicit `sources` object pins *that* TU's
-`@@START` (and its other symbols) **before** autocall runs, so the module
-gets the entry you meant. This is exactly what v1's `[[link.module]] include`
-list did. It also means the seeded root must be the one that actually defines
-the entry: seed the wrong sibling and you get the silent wrong-entry module
-above. (See mvslovers/cc370#8 for a proposed linker diagnostic.)
-
-If a TU belongs in the shared archive but must never be autocalled as an
-entry — e.g. a CGI launcher that also defines `@@START` but is only ever a
-per-module root — `exclude` it from `[internal]` so its `@@START` can never
-shadow another module's:
-
-```toml
-[internal]
-sources = ["src/*.c"]
-exclude = ["src/cgistart.c"]   # a per-module root + shipped in [lib], not an autocall member
-```
-
-### `[release]`
-
-| Key | Meaning |
-|-----|---------|
-| `version_files` | Files whose version string is bumped on release (e.g. `VERSION`). |
-
-### `[deploy]` (optional)
-
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `target` | `{HLQ}.{PROJECT}.{VRM}.LINKLIB` | Target load library DSN. `{PROJECT}` is the name cut to a valid 8-character qualifier (`crypto370` → `CRYPTO37`). |
-
-The default for ufsd 1.0.0-dev is `IBMUSER.UFSD.V1R0M0D.LINKLIB`
-(`HLQ` from `.env`/`MBT_MVS_HLQ`, default `IBMUSER`). Override here, or
-per run with `make deploy ARGS="--target ..."`.
-
-### `[dependencies]` (optional)
-
-`"owner/repo" = ">=x.y.z"`. Resolved/downloaded by `make deps` (the v2
-dependency fetcher; not yet implemented — see roadmap).
-
-### `[toolchain]` (optional)
-
-Which cc370 / libc370 the project is built with.
-
-| Key | Default | Meaning |
-|-----|---------|---------|
-| `cc370` | `main` | git ref for the compiler + tools. |
-| `libc370` | `main` | git ref for the sysroot (headers, `libc.a`, `crtm.o`). |
-
-A bare semver names a release and resolves to its tag — `libc370 = "1.0.2"`
-checks out `v1.0.2`. Any other value is already a git ref and is used as
-given: a branch (`main`), a `v`-prefixed tag (`v1.0.2`), or a commit SHA.
-An unknown key is a hard error, so a typo cannot quietly leave the release
-floating on `main`.
-
-Why it exists: libc370 stamps its own version into every module it is linked
-into (`src/clib/@@ver.c`), so a release built against the tip of libc370
-`main` announces a `-dev` C runtime at STC startup — and nothing records
-which toolchain produced the published artifact, although `mbt.lock` pins
-every `[dependencies]` entry by version *and* SHA256.
-
-#### Where it applies
-
-The declaration states one thing — *this project is built with libc370
-X.Y.Z* — which CI reproduces exactly and a working copy need only satisfy:
-
-| Context | `libc370` is | Sysroot older | Sysroot newer |
-|---------|--------------|---------------|---------------|
-| `release.yml` | the tag to check out | — | — |
-| `make`, `make lib`, `make test` | the **minimum** the sysroot must hold | build fails | fine |
-| `make release`, `make prerelease` | the same | fails | **warns** |
-| `make doctor` | reported and judged | check fails | fine |
-| `build.yml` | **ignored** — always builds against `main` | — | — |
-
-`build.yml` stays on `main` on purpose: a PR built against the tip of the
-toolchain is what catches a cc370/libc370 regression before it reaches a
-consumer. The cost of the asymmetry is that a release exercises a toolchain
-combination no PR build did — keep the pin reasonably current.
-
-A sysroot **older** than the declaration is always an error: the pinned
-runtime demonstrably was not what the build linked against.
-
-A sysroot **newer** than it is normal — you track libc370 `main` and pin the
-current stable — so it is fine for a build. On a release it earns one warning:
-
-```
-[mbt] WARNING: tagging against libc370 1.0.2, but this build used 1.0.3-dev;
-      release CI will build with 1.0.2 -- untested here
-```
-
-That is the whole extent of it. `make release` / `prerelease` only bump, tag
-and push; `release.yml` then checks out the pin and rebuilds, so your sysroot
-never reaches the published artifact. Requiring an exact local match would
-force a downgrade before every release for a mismatch CI catches by itself.
-The pin is what makes a release correct, not your machine.
-
-Nothing is checked when no version is declared, or when the value is a branch
-or SHA rather than a version — there is then nothing to compare. So an
-existing project changes behaviour only once it pins deliberately.
-
-#### How the installed version is found
-
-libc370 installs no version marker: the sysroot is `include/`, `macros/`,
-`lib/{libc.a,crt*.o}` and nothing else, and the installed `clibver.h` only
-declares `libc370_version()`. mbt reads the build stamp out of `libc.a`
-instead, EBCDIC-encoded because it is a target string constant:
-
-```
-LIBC370 1.0.2-dev (5c0deeb)
-```
-
-An unreadable stamp is a **warning, never a build failure** — libc370's
-spelling of it has changed before, and a future change must not stop every
-project in the ecosystem from building.
-
-The check runs from a stamp file (`.mbt/libc370-checked`) keyed on `libc.a`
-and `project.toml`, so it costs nothing until the sysroot is reinstalled or
-the declaration changes, and never runs for `clean` / `help` / targets that
-build no objects.
-
-`cc370` has no releases yet, so leave it at `main` (or omit it) until it
-does. Only `libc370` is compared against the sysroot; there is no version to
-read out of the compiler.
-
-**Bump the `mbt` submodule before you declare the section.** Both readings
-live in the submodule — the local check in `mk/mbt.mk`, the resolver in
-`scripts/mbttoolchain.py` — while `release.yml` is resolved from `mbt@main`
-independently of it. An older checkout simply has neither, so nothing would
-be checked or pinned. Declaring `[toolchain]` with a submodule that predates
-the resolver fails the release with a message saying so, rather than
-publishing an artifact that quietly ignored the pin. A project that declares
-nothing is unaffected either way.
-
----
-
-## 3. v1 → v2 `project.toml` mapping
-
-| v1 | v2 |
-|----|----|
-| `[build] cflags = ["-std=gnu99", "-I./include"]` | `[build] cflags = ["-I", "include"]` (no host C-standard flags) |
-| `[build.sources] c_dirs = [...]` | per-module `sources` globs (dirs are derived) |
-| `[mvs.build.datasets.*]` (SOURCE/OBJECT/NCALIB/LOAD) | **removed** — no MVS datasets at build time |
-| `[mvs.install.*]` | `[deploy] target` (optional) |
-| `[link] autocall = false` | **removed** — `ld370` links with `-lc` |
-| `[[link.module]] include = ["@@CRT1", ...]` | `[[module]] sources = [...]` (the CRT comes out of `libc.a`) |
-| `[[link.module]] entry = "@@CRT0"` | `[[module]] entry = "@@CRT0"` (same; default) |
-| `[[link.module]] options = ["RENT", ...]` | **removed** — handled by the toolchain |
-| test as a `[[link.module]]` | `[[test]]` |
-| `[artifacts] headers = true, header_files = [...]` | `[lib] headers = [...]` (headers-only, no `sources`) + `make package` |
-
-The biggest change: you no longer list NCALIB members to `include`; you
-list **source globs** and let the host linker pull the C runtime from
-`-lc`. Dataset/space/RECFM blocks disappear entirely.
-
-**Multi-module projects that shared an NCALIB** (every `[[link.module]]`
-`include`-d a couple of roots and autocalled the rest from the project's own
-NCALIB) map the NCALIB to an `[internal]` archive: put the shared source globs
-in `[internal] sources`, and give each `[[module]]` only its root source(s).
-The autocall semantics carry over unchanged — see [`[internal]`](#internal--shared-code-archive-for-multi-module-projects).
-
----
-
-## 4. Deploy
-
-`make deploy` packs the **built** modules and RECEIVEs them into one
-LINKLIB. The module set follows what is in `build/`:
+## 2. Convert the project file
 
 ```sh
-make ufsd && make deploy     # LINKLIB with just UFSD
-make && make deploy          # LINKLIB with all modules
-make deploy ARGS="--dry-run" # pack locally, touch no MVS
+mbt migrate --dry-run     # print the new mbt.toml, change nothing
+mbt migrate               # write mbt.toml, remove project.toml and VERSION
 ```
 
-Mechanics: each module is linked to a per-module **IEBCOPY unload**
-(`build/NAME.iebcopy`) that carries its PDS2 directory (entry point +
-module length). `ld370 --pack` combines the unloads into one LINKLIB
-**XMIT**; deploy uploads it, **deletes** the target LINKLIB (TSO RECEIVE
-will not merge into an existing dataset), and RECEIVEs the new one.
+`mbt migrate` reads `project.toml` and writes `mbt.toml`. **Your comments come
+along**: each comment travels with the key or table it stands above. Before
+writing anything, mbt loads the new file and compares it with the old one.
+If they differ in anything but the intended changes, nothing is written.
+It prints a `NOTE` for anything it drops (for example the comments of a
+`[release]` table that held only `VERSION`).
 
-### When the RECEIVE fails
+Then pin the mbt the project is built with:
 
-The RECEIVE job's spool is kept in `build/receive.spool`, and the failure names
-the job and what happened rather than a return code:
-
-```
-[mbt] ERROR: RECEIVE job MBTDEPL JOB01099 abended -- IBMUSER.HTTPD.V4R0M0D.LINKLIB was not written
-[mbt]        the full spool is in build/receive.spool
+```toml
+[toolchain]
+mbt = "3.0"        # any 3.0.x; "3.0.2" for exactly that one
 ```
 
-Because the target is deleted before the RECEIVE, a job that ends in an abend,
-a JCL error or RC > 4 leaves no LINKLIB at all — the previous contents are gone
-with it, so redeploy.
+### What is different in `mbt.toml`
 
-Two outcomes are reported as **open** rather than failed: an expired poll, and
-a job that ended without a readable status. In both the RECEIVE may have
-succeeded, so check the dataset on MVS before rerunning — a rerun deletes it
-first, and would destroy what a still-running job is writing. The poll scales
-with the XMIT size; `MBT_DEPLOY_TIMEOUT` (seconds) overrides it.
+The full reference is [`internals/mbt-3-schema.md`](../internals/mbt-3-schema.md).
+What you will notice after migrating:
+
+- **Modules are keyed tables.** `[[module]] name = "UFSD"` becomes
+  `[module.UFSD]`. mbt orders modules by name wherever order is visible: the
+  build, the SMP package's module list, the test matrix. In most projects the
+  first build after migrating therefore lists them in a different order. The
+  load modules themselves do not change.
+- **`rent` and `reus` must be stated on every module.** `norent = true` becomes
+  `rent = false`.
+- **`[build] cflags`** loses its `-I` pairs to a new `include` list. The
+  compile line stays the same.
+- **Tests are discovered.** Every `test/**/*.c` and `test/**/*.asm` is a
+  test, named after its file in upper case (`test/mvs/tstgctx.c` is
+  `TSTGCTX`). A `[test.NAME]` entry is needed only where a test differs from
+  that: more sources, a `parm`, fixtures. Defaults for all tests go in
+  `[tests]`, and files under `test/` that are not tests go in
+  `[tests] exclude`. `mbt migrate` keeps every source list that differs from
+  the discovered default, so the test load modules stay identical.
+- **The version lives in `[project] version` only.** `VERSION` is gone, and
+  nothing reads it any more.
+- **The FMID can be derived.** `[smp] prefix = "TUFS"` and version 1.4.0 give
+  `TUFS140`, deleting `TUFS130`. An explicit `fmid` / `delete` still wins.
+  A patch release (1.4.1) needs an explicit `fmid` until mbt builds PTFs:
+  mbt refuses to spend the minor's id a second time.
+- **`startup = "crt0"` / `"crt1"` are gone.** The C startup comes out of
+  `libc.a` (libc370 >= 2.3.0), and `mbt migrate` drops them.
+
+A directory holding both `mbt.toml` and `project.toml` is an error. mbt does
+not pick one.
 
 ---
 
-## 5. Dependencies
+## 3. Remove the submodule and the Makefile
 
-Declare dependencies on other mvslovers projects in `[dependencies]`,
-keyed `owner/repo` with a semver range:
-
-```toml
-[dependencies]
-"mvslovers/ufsd" = ">=1.0.0-dev"
-```
-
-`make deps` resolves each range against the dependency's GitHub Releases,
-downloads its `{repo}-{version}-lib.tar.gz` asset, and stages it under
-`.mbt/deps/{repo}/` (`include/` + `lib/`). The build wires these in
-automatically — `-I .mbt/deps/*/include` on compile, `.mbt/deps/*/lib/*.a`
-on link — so no path config is needed in `project.toml`.
-
-`make deps` also writes **`mbt.lock`** (version + SHA256 per dep) at the
-project root. **Commit it** — it is source-of-record, not a build
-artifact: `project.toml` holds the *range* (`>=…`), the lock holds the
-*resolved* version and the exact content hash. Keeping `.mbt/` ignored
-is correct; the lock sits at the root next to `project.toml`, so `make
-clean`/`distclean` never disturb it. On the next `make deps` the locked
-version is used and its SHA is re-verified — as long as it still fits
-the range in `project.toml`. Change a constraint so the pin no longer
-satisfies it (`>=4.0.0-dev` → `>=4.1.0`), and that one entry is
-re-resolved with a **WARNING** while every other pin stays as it is. A
-prerelease pin also stops fitting once the range names no prerelease,
-because the resolver would never pick it. How a drifted SHA is handled
-depends on the resolved version:
-
-- **stable** (`X.Y.Z`) — the asset is immutable, so a changed SHA is a
-  hard error (`make deps` fails); re-pin deliberately with `--update`.
-- **prerelease** (`-dev` / `-rcN`) — the tag legitimately moves, so a
-  changed SHA is expected: `make deps` accepts it with a **WARNING** and
-  rewrites the lock to the current SHA automatically (no `--update`
-  needed). Re-pin with a stable release when you need reproducibility.
+In the same change:
 
 ```sh
-make deps                  # use the lock (verify SHA), or resolve if absent
-make deps ARGS=--update    # re-resolve the ranges and rewrite the lock
+git rm Makefile
+git rm mbt                     # the submodule
+git rm .gitmodules             # if mbt was its only entry
+rm -rf .git/modules/mbt
 ```
 
-This encodes the resolver's intent: **`-dev` is rolling, stable is
-pinned.** It also keeps a whole ecosystem of rolling `-dev` prereleases
-building green without a lock-churn commit every time an upstream
-re-pushes (see issue #52).
+`.gitignore` should keep `.mbt/` (staged dependencies, tools, plugins and
+build state) and `build/`, `dist/`. In mbt 3 the directory `mbt/` is yours:
+it holds the project's Lua (section 6), so do not ignore it.
 
-Resolving a range always asks GitHub: the local download cache
-(`~/.mbt/cache`) holds only what this machine happened to download, so
-it answers only when GitHub cannot — offline, HTTP 5xx, or
-rate-limited (403/429; set `GITHUB_TOKEN` to lift the limit). That
-fallback warns, because a newer release may exist. A locked stable
-version that is already cached needs no network at all.
-
-A prerelease that has been deleted on GitHub can still be served from
-the cache. `make deps` then warns that the release no longer exists:
-the build succeeds on that machine and fails wherever the cache is
-absent, CI included. Downloading while offline falls back to the cache
-without a warning.
-
-A range that names a prerelease bound (`>=1.0.0-dev`) opts that
-dependency into prereleases; a plain range (`>=1.0.0`) ignores them.
-
-### Local override (working against an unreleased dependency)
-
-To build against a local working copy of a dependency instead of a
-GitHub release — e.g. while developing both projects in lockstep —
-create **`.mbt/deps.local.toml`** (gitignored, never committed):
-
-```toml
-[override]
-"mvslovers/ufsd" = { path = "../ufsd" }
-```
-
-`make deps` then stages that dep from its own `build/<lib>.a` and the
-headers in its `[lib]` section — run `make lib` in the override path
-first. GitHub and the SHA lock are skipped for that dep; the committed
-`mbt.lock` keeps its release pin, so removing the override file
-restores the locked release with no further changes.
+**Commit `mbt.lock`**, as before.
 
 ---
 
-## 6. CI (GitHub Actions)
+## 4. Commands
 
-mbt ships reusable workflows. A v2 project's CI is **host-only** (no MVS).
+| mbt 2 | mbt 3 |
+|---|---|
+| `make` | `mbt build` |
+| `make all` | `mbt build --all` |
+| `make <name>` | `mbt build NAME` |
+| `make test` (build the test modules) | `mbt build --tests` |
+| `make test-host` | `mbt test` |
+| `make test-mvs ARGS="--only X"` | `mbt test --mvs --only X` |
+| — | `mbt test --tso` (interactive tests, section 7) |
+| `make check` | `mbt check` |
+| `make deps` | `mbt deps` (`--update` to move pins) |
+| `make package` | `mbt package` |
+| `make dist` | `mbt dist` |
+| `make deploy` | `mbt deploy` (`--dry-run`, `--module M`) |
+| `make doctor` | `mbt doctor` |
+| `make compiledb` | `mbt compiledb` |
+| `make clean` / `distclean` | `mbt clean` / `mbt distclean` |
+| `make release VERSION=1.4.0 NEXT_VERSION=…` | `mbt release 1.4.0 [--next 1.4.1-dev]` |
+| `make prerelease` | `mbt prerelease` |
+| `VERBOSE=1 make` | `-v` on the command |
 
-`.github/workflows/build.yml`:
+`mbt` alone lists every command. Behaviour you may notice:
+
+- **`mbt deps` never moves a pin on its own.** A version outside its range,
+  or an archive whose SHA-256 differs from `mbt.lock`, is an error, even for
+  a prerelease that was published again. `mbt deps --update` re-resolves and
+  rewrites the lock. mbt 2 re-pinned with a warning. Archives are cached by
+  SHA, so a locked prerelease stays buildable after its tag has moved.
+- **`mbt deploy --linklib DSN`** names a load library to deploy into instead
+  of `[deploy] target`. `--target` now names an MVS *system* (section 5).
+  The default `[deploy] target` is `<NAME>.DEV.LINKLIB`.
+- **`mbt doctor` masks the password** in its configuration table.
+
+Developing against an unreleased dependency works as before:
+`.mbt/deps.local.toml` with an `[override]` table.
+
+---
+
+## 5. MVS systems: from `.env` to targets
+
+mbt 3 keeps the MVS systems you work with in one file per machine,
+`~/.mbt/targets.toml` (`MBT_HOME` moves the directory). Turn an existing
+`.env` into a target once:
+
+```sh
+mbt target import .env --name lab
+```
+
+This writes:
+
+```toml
+[target.lab]
+default  = true            # the first target becomes the default
+hlq      = "IBMUSER"
+volume   = "PUB000"
+
+[target.lab.mvsmf]
+url      = "http://lab:1080"
+user     = "IBMUSER"
+password = "…"             # from MBT_MVS_PASS
+```
+
+A password written into the file is accepted only while nobody else can read
+it (`chmod 600`, which `import` sets). Better, name where it comes from:
+
+```toml
+password = { env = "LAB_PASSWORD" }
+password = { keychain = "mbt/lab" }     # macOS Keychain, or secret-tool on Linux
+password = { cmd = ["pass", "show", "mvs/lab"] }
+```
+
+Then check the connection and remove `.env` from the project:
+
+```sh
+mbt target list
+mbt target ping lab          # every access, without logging on
+mbt target info lab          # logs on to mvsMF
+```
+
+`--target NAME` picks a system for `deploy` and `test --mvs`. Without it, mbt
+uses the default target, or the only one. A project that still has a
+`.env` keeps working, with a warning.
+
+A target can carry more than mvsMF. All of these are optional:
+
+```toml
+[target.lab.hercules]      # Hercules' web console: a fallback for operator commands
+url = "http://lab:8081"
+
+[target.lab.tn3270]        # for interactive tests (mbt test --tso)
+host     = "lab"
+user     = "IBMUSER"
+password = { keychain = "mbt/lab-tso" }
+```
+
+`mbt target console lab -- D T` issues an operator command through mvsMF,
+falling back to the Hercules web console when mvsMF cannot be reached.
+
+**mbt logs on to mvsMF once per run** and logs off at the end, on an error and
+on Ctrl-C.
+
+---
+
+## 6. Makefile extras: Lua and plugins
+
+A Makefile rule beyond mbt's own targets (building an image, uploading
+files) becomes Lua in `mbt/init.lua`. Modules for it go in `mbt/lua/`. Only an
+`mbt.toml` project loads Lua. There are three kinds:
+
+```lua
+-- a task: declared inputs and outputs, runs before the named commands,
+-- skipped while its outputs are newer than its inputs
+mbt.task {
+  name    = "tables",
+  before  = { "build" },
+  inputs  = { "tools/tables.txt" },
+  outputs = { "src/tables.c" },
+  run = function(ctx)
+    ctx.exec { "python3", "tools/gen.py", ctx.inputs[1], ctx.out[1] }
+  end,
+}
+
+-- a hook: before_/after_ build, test, package, dist, deploy, release; on_failure
+mbt.hook("after_deploy", function(ctx)
+  ctx.log("deployed " .. ctx.result.library)
+end)
+
+-- a command of the project's own: mbt run upload
+mbt.command("upload", function(ctx)
+  ctx.exec { ctx.tool("ufsd-utils"), "upload", "build/web.img", "--dsn", "LAB.WEBROOT" }
+end)
+```
+
+`mbt run` lists the tasks and commands. `mbt run NAME` runs one, a task
+always, even when it is up to date. `--dry-run` runs the Lua but no program
+and writes nothing.
+
+Lua runs with limits. `ctx.exec` takes an argument list and starts no shell.
+File access stays inside the project. Each call has a limit on CPU and on
+memory.
+
+**Host tools** come from GitHub releases and are pinned like dependencies:
+
+```toml
+[tools]
+ufsd-utils = { repo = "mvslovers/ufsd-utils", version = "1.0.1" }
+```
+
+`mbt deps` fetches the tool and records its SHA-256 in `mbt.lock`;
+`ctx.tool("ufsd-utils")` returns its path.
+
+**Plugins** are Lua that someone else maintains, declared like dependencies:
+
+```toml
+[plugins]
+"mvslovers/mbt-ufs" = "^0.1"
+```
+
+```lua
+local ufs = require("mvslovers/mbt-ufs")
+ufs.webroot { from = "static", image = "build/webroot/web.img" }
+```
+
+`mbt deps` fetches, pins and stages the plugin. A plugin may start only the
+programs its own manifest names. [mbt-ufs](https://github.com/mvslovers/mbt-ufs),
+which builds UFS370 disk images, replaces the `make webroot` rule of a web
+server project.
+
+---
+
+## 7. Tests
+
+The test sources do not change: `#include <mbtcheck.h>`, a return code of 0
+for passed. `mbt test` runs them on the host, `mbt test --mvs` on MVS (batch
+and TSO steps per test, as `make test-mvs` did), `mbt check` both.
+
+New are **interactive tests**: `test/tso/*.lua`, each run in a TSO session of
+its own over TN3270, as the target's `[tn3270]` user:
+
+```lua
+-- test/tso/time.lua
+return function(t)
+  t:logon()
+  t:type("TIME"):enter()
+  t:expect("TIME-")
+  t:logoff()
+end
+```
+
+`t:pf(n)`, `t:pa(n)`, `t:clear()`, `t:tab()`, `t:screen()` and `t:text()` are
+there too, and `t.testlib` names the library `mbt test --mvs` deploys the test
+modules to. A failed `expect` fails the test and shows the screen. The
+session is logged off whatever happens.
+
+---
+
+## 8. CI
+
+Replace the two workflow files:
 
 ```yaml
+# .github/workflows/build.yml
+name: Build
 on:
   pull_request:
   push:
     branches: [main]
 jobs:
   build:
-    uses: mvslovers/mbt/.github/workflows/build.yml@main
+    uses: mvslovers/mbt/.github/workflows/build3.yml@main
+    with:
+      host_tests: true          # also run mbt test
 ```
 
-`.github/workflows/release.yml`:
-
 ```yaml
+# .github/workflows/release.yml
+name: Release
 on:
   push:
     tags: ["v*"]
 jobs:
   release:
-    uses: mvslovers/mbt/.github/workflows/release.yml@main
+    uses: mvslovers/mbt/.github/workflows/release3.yml@main
+    permissions:
+      contents: write
 ```
 
-The v2 workflows clone + `make install` the cc370 toolchain (cached per
-cc370 commit), run `make deps` (so dependency libraries are staged before
-the build), then run the host build:
+Both install the newest mbt 3 release, which then switches to the version
+`[toolchain] mbt` pins. `build3.yml` builds against the tip of cc370 and
+libc370, as the mbt 2 workflow did. `release3.yml` builds with the versions
+`[toolchain]` names, checks that the tag matches `[project] version`, runs
+`mbt package` and publishes `dist/`. Once mbt 3.0.0 is released, pin `uses:`
+to the release instead of `@main`.
 
-- `build.yml` — `make deps` + `make` + `make test` + `make lib`. Builds
-  against the tip of cc370/libc370 by default, so a toolchain regression
-  shows up on a PR rather than in a consumer's release. It ignores
-  `[toolchain]`.
-- `release.yml` — validates the tag against `project.toml` version, checks
-  out the toolchain declared in `[toolchain]` (section 2; default `main`),
-  runs `make deps` + `make package`, and publishes a GitHub Release with
-  `dist/*` (prerelease when the tag contains `-`). The resolved refs are
-  echoed into the log as `[mbt] cc370 @ …` / `[mbt] libc370 @ …`.
-
-`release.yml` also takes `cc370_ref` / `libc370_ref` inputs, which override
-`[toolchain]` for a one-off run; leave them unset to use the declaration.
-
-`build.yml` takes the same two inputs (branch, tag or SHA; default `main`).
-They exist to hold a consumer's build CI on an older toolchain while it
-migrates across a breaking change — for example `libc370_ref: v1.0.8` during
-the libc370 2.0 migration — and the line comes out again in the migrating PR.
-Both workflows log the refs they fetched as `[mbt] cc370 @ …` /
-`[mbt] libc370 @ …`.
-
-A held sysroot does not hold the dependencies. `make deps` accepts a moved
-SHA for a prerelease (`-dev`, `-rcN`) dependency and re-pins the lock, so a
-dependency that migrates first and publishes a new `-dev` build can bring
-2.0 headers into a consumer that is still held on 1.x. Stable versions are
-pinned hard by `mbt.lock`.
-
-Pin a tag (`@vX.Y.Z`) instead of `@main` for reproducibility. Legacy (v1)
-projects keep using `build-legacy.yml` / `release-legacy.yml` (MVS/CE in
-Docker).
+A workflow that talks to MVS sets its target from the environment:
+`MBT_TARGET_MVSMF_URL`, `MBT_TARGET_MVSMF_USER`, `MBT_TARGET_MVSMF_PASSWORD`,
+and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
 
 ---
 
-## 7. Migrating an existing project
+## 9. Checklist
 
-1. Update `mbt` (the submodule) to a v2 commit.
-2. Replace `Makefile` with the two-line v2 include (`mk/mbt.mk`).
-3. Rewrite `project.toml` per section 2 (use the mapping in section 3).
-4. Declare any dependencies in `[dependencies]` (section 5); commit
-   `mbt.lock` after a first `make deps`.
-   If `[build] cflags` injects a version or commit stamp
-   (`-DVERSION=…`, `-DCOMMIT=…`), drop those flags and switch the banner to
-   `<buildstamp.h>` (section 2) — a stamp in a cflag goes stale on the next
-   commit.
-5. Point `.github/workflows/*.yml` at the v2 reusable workflows (section 6).
-6. `make doctor` — verify the cc370 toolchain (and MVS, for deploy).
-7. `make deps` then `make` then `make deploy ARGS="--dry-run"`.
-8. `make deploy` — first live deploy (writes to MVS).
-
----
-
-## 8. Legacy (v1)
-
-The v1 remote build is preserved under `mk/legacy/` and
-`scripts/legacy/`. Projects not yet migrated keep their old `Makefile`:
-
-```make
-MBT_ROOT := mbt
-include $(MBT_ROOT)/mk/legacy/core.mk
-```
-
-v1 is in maintenance mode; new work targets v2. `legacy/` will be removed
-once all ecosystem projects have migrated.
+1. Install mbt 3; `mbt doctor`.
+2. `mbt migrate --dry-run`, read it, then `mbt migrate`.
+3. Add `[toolchain] mbt = "3.0"`.
+4. `git rm Makefile mbt .gitmodules`, keep `.mbt/` in `.gitignore`.
+5. `mbt target import .env --name <name>` once per machine, then drop `.env`
+   from the project.
+6. Move Makefile extras to `mbt/init.lua`, a plugin or `[tools]`.
+7. Replace `build.yml` / `release.yml` with the mbt 3 workflows.
+8. `mbt deps`, `mbt build --all`, `mbt test`, and `mbt deploy --dry-run`.
+9. Optional, and worth it: compare with mbt 2. Build the same commit with
+   mbt 2 in a second checkout and compare `dist/` and `build/`. Object
+   decks carry the assembly date, load modules the link time, so compare
+   builds from the same day and expect those bytes to differ.
+10. Rewrite `make …` to `mbt …` in the README and other docs.
+11. `mbt deploy`: the first live deploy.

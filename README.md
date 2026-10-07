@@ -19,8 +19,10 @@ mbt is a reusable Git submodule that centralizes the full build pipeline for
 > include $(MBT_ROOT)/mk/mbt.mk
 > ```
 >
-> See **[docs/MIGRATION.md](docs/MIGRATION.md)** for the new `project.toml`
-> reference, the v1→v2 mapping, and migration steps.
+> The `project.toml` reference, the v1→v2 mapping and the v2 migration steps
+> are in [docs/MIGRATION.md as of v2.2.0](https://github.com/mvslovers/mbt/blob/v2.2.0/docs/MIGRATION.md).
+> **mbt 3** (a single installed program instead of the submodule) is on its
+> way: [docs/MIGRATION.md](docs/MIGRATION.md) takes a project from mbt 2 to mbt 3.
 >
 > The legacy v1 (remote mvsMF/JCL) build documented below still works via
 > `include $(MBT_ROOT)/mk/legacy/core.mk` and lives under `mk/legacy/` +
