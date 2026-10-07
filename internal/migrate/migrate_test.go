@@ -201,3 +201,55 @@ func TestBuildDefaultsLeftOut(t *testing.T) {
 		}
 	}
 }
+
+// From the httpd migration: the first test keeps its own comment under the
+// section banner; a [deploy] target equal to the default and SMP defaults
+// are left out with a NOTE each.
+func TestMigratePolish(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	os.MkdirAll(filepath.Join(root, "test"), 0o755)
+	os.WriteFile(filepath.Join(root, "src", "a.c"), []byte("int main(void){return 0;}\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "test", "tsta.c"), []byte("int main(void){return 0;}\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "project.toml"), []byte(`[project]
+name = "p"
+version = "1.0.0-dev"
+type = "application"
+
+[[module]]
+name = "P"
+rent = false
+reus = false
+sources = ["src/a.c"]
+
+# -- Tests ----------------------------------------------
+# TSTA checks a.c on its own.
+[[test]]
+name = "TSTA"
+rent = false
+reus = false
+sources = ["test/tsta.c", "src/a.c"]
+
+[deploy]
+target = "P.DEV.LINKLIB"
+`), 0o644)
+	res, err := Convert(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if diffs, err := Check(root, res.Text); err != nil || len(diffs) > 0 {
+		t.Fatalf("check %v %v", diffs, err)
+	}
+	if !strings.Contains(res.Text, "# -- Tests ----------------------------------------------\n# Defaults for every test") {
+		t.Errorf("the banner is not above [tests]:\n%s", res.Text)
+	}
+	if !strings.Contains(res.Text, "# TSTA checks a.c on its own.\n[test.TSTA]") {
+		t.Errorf("TSTA lost its comment:\n%s", res.Text)
+	}
+	if strings.Contains(res.Text, "[deploy]") {
+		t.Errorf("[deploy] target equal to the default was kept:\n%s", res.Text)
+	}
+	if n := strings.Join(res.Notices, "\n"); !strings.Contains(n, "[deploy] target: left out P.DEV.LINKLIB") {
+		t.Errorf("notes: %s", n)
+	}
+}

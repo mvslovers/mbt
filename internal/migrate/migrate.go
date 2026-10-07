@@ -221,7 +221,25 @@ func (c *converter) block(b *block, idx int) (*block, error) {
 			}
 		}
 		return ob, nil
-	case "toolchain", "dependencies", "lib", "internal", "deploy", "distribution":
+	case "deploy":
+		ob := c.emit(b.Lead, b.Header)
+		def := strings.ToUpper(c.name) + ".DEV.LINKLIB"
+		for _, e := range b.Entries {
+			t, _ := rawTable(c.raw, "deploy")["target"].(string)
+			if e.Key == "target" && t == def && len(rawList(c.raw, "module")) > 0 && !hasComment(e.Lead) && inlineComment(e.Lines[len(e.Lines)-1]) == "" {
+				c.notice("[deploy] target: left out %s -- it is the default", def)
+				continue
+			}
+			verbatim(ob, e)
+		}
+		if len(ob.Entries) == 0 && !hasComment(b.Lead) {
+			if n := len(c.out); n > 0 && c.out[n-1] == ob {
+				c.out = c.out[:n-1]
+			}
+			return nil, nil
+		}
+		return ob, nil
+	case "toolchain", "dependencies", "lib", "internal", "distribution":
 		ob := c.emit(b.Lead, b.Header)
 		for _, e := range b.Entries {
 			verbatim(ob, e)
@@ -449,6 +467,7 @@ func (c *converter) smp(b *block) (*block, error) {
 		default:
 			def, known := defaults[e.Key]
 			if known && reflect.DeepEqual(def, normalize(smp[e.Key])) && !hasComment(e.Lead) && inlineComment(e.Lines[len(e.Lines)-1]) == "" {
+				c.notice("[smp] %s: left out -- %s is the default", e.Key, strings.TrimSpace(e.Lines[0][strings.Index(e.Lines[0], "=")+1:]))
 				continue // the convention, said again
 			}
 			verbatim(ob, e)
@@ -540,8 +559,11 @@ func (c *converter) unit(b *block, raw map[string]any, kind string) (*block, err
 		if len(c.excluded) > 0 {
 			lines = append(lines, c.excludeLines())
 		}
-		c.testsBlock = c.emit(append(append([]string{}, lead...), "# Defaults for every test; test/**/*.c and *.asm are tests unless excluded."), "[tests]", lines...)
-		lead = []string{""}
+		// the section's banner goes above [tests]; the comment right below
+		// it, above the first test, is that test's and stays with it
+		banner, own := splitBanner(lead)
+		c.testsBlock = c.emit(append(append([]string{}, banner...), "# Defaults for every test; test/**/*.c and *.asm are tests unless excluded."), "[tests]", lines...)
+		lead = append([]string{""}, own...)
 	}
 	ob := &block{Lead: lead, Header: "[" + kind + "." + quoteKey(name) + "]"}
 	_, hasRent := raw["rent"]
@@ -833,4 +855,25 @@ func distNorm(p *project.Project) string {
 	}
 	sort.Strings(libs)
 	return fmt.Sprint(d["readme"], d["extra"], libs, smp)
+}
+
+// splitBanner splits the comment above the first test into the section's
+// banner and the test's own comment. The banner ends with its last
+// decorated line ("# -- Tests ---", "# ── Tests ──", "# == ... =="),
+// and what follows is the test's (httpd: banner, then four lines about
+// TSTGCTX). Without such a line the banner ends at the last blank line.
+// A banner with nothing below it leaves the test without a comment.
+func splitBanner(lead []string) (banner, own []string) {
+	for i := len(lead) - 1; i >= 0; i-- {
+		t := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(lead[i]), "#"))
+		if strings.HasPrefix(strings.TrimSpace(lead[i]), "#") && (strings.HasPrefix(t, "--") || strings.HasPrefix(t, "──") || strings.HasPrefix(t, "==")) {
+			return lead[:i+1], lead[i+1:]
+		}
+	}
+	for i := len(lead) - 1; i >= 0; i-- {
+		if strings.TrimSpace(lead[i]) == "" {
+			return lead[:i+1], lead[i+1:]
+		}
+	}
+	return nil, lead
 }
