@@ -184,10 +184,37 @@ own (root `CLAUDE.md`, "A DELETE never touches the predecessor's data set").
 |---|---|---|
 | `version_files` | `[]` | same, without `VERSION` |
 
+## `[tools]` — host tools from GitHub releases
+
+```toml
+[tools]
+ufsd-utils = { repo = "mvslovers/ufsd-utils", version = "1.0.1" }
+```
+
+| key | default | |
+|---|---|---|
+| `repo` | required | `owner/repo` on GitHub |
+| `version` | required | the release `v<version>` |
+| `asset` | `{name}-{os}-{arch}.tar.gz` | the release asset for this platform; `{name}`, `{version}`, `{os}` (darwin, linux, windows), `{arch}` (amd64, arm64) |
+| `bin` | `{name}-{os}-{arch}` | the member of a `.tar.gz`/`.zip` asset that is the tool (an asset of another kind is the tool itself) |
+
+Pinned like a dependency: the asset's SHA-256 goes into `mbt.lock` as
+`"tool:<name>"` on the first fetch; a later fetch of the same version with
+another SHA is refused until `mbt deps --update` moves the pin. Staged at
+`.mbt/tools/<name>-<version>/<name>` by `mbt deps`, or when Lua first asks for
+it (`ctx.tool(name)`).
+
+## Lua: `mbt/init.lua`
+
+Tasks, hooks and commands are Lua, not TOML: `mbt/init.lua`, with modules in
+`mbt/lua/`, and the user's own in `~/.mbt/init.lua`
+(`internals/mbt-3-extensions.md`; package `internal/ext`). Only an `mbt.toml`
+project loads Lua -- in a v2 project, `mbt/` is still the submodule.
+
 ## Reserved, not implemented yet
 
-`[rule."*.ext"]`, `[files."<glob>"]`, `[lang.*]` (design §10), `[tools]` and
-tasks (design §9, step 4).
+`[rule."*.ext"]`, `[files."<glob>"]`, `[lang.*]` (design §10), `[plugins]`
+(extensions §6), `[usermod.*]` (design §6.4).
 
 ## `mbt migrate`
 

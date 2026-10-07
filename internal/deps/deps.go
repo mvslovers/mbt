@@ -189,6 +189,12 @@ func Run(root, projectFile string, o Options) error {
 		newLock[key] = LockEntry{SHA256: sha, Version: ver}
 	}
 
+	// the pins of [tools] live in the same file and are not ours to drop
+	for k, v := range ReadLock(root) {
+		if strings.HasPrefix(k, ToolPrefix) {
+			newLock[k] = v
+		}
+	}
 	data := lockJSON(newLock)
 	old, _ := os.ReadFile(lockPath)
 	if string(old) != string(data) {
@@ -198,6 +204,28 @@ func Run(root, projectFile string, o Options) error {
 	}
 	o.Log(fmt.Sprintf("Locked %d dependency(ies) -> mbt.lock", len(newLock)))
 	return nil
+}
+
+// ToolPrefix marks the mbt.lock entries of [tools] ("tool:ufsd-utils").
+const ToolPrefix = "tool:"
+
+// ReadLock reads root/mbt.lock; a missing or unreadable file is empty.
+func ReadLock(root string) map[string]LockEntry {
+	lock := map[string]LockEntry{}
+	if data, err := os.ReadFile(filepath.Join(root, "mbt.lock")); err == nil {
+		json.Unmarshal(data, &lock)
+	}
+	return lock
+}
+
+// WriteLock writes root/mbt.lock in v2's format, only when it changes.
+func WriteLock(root string, lock map[string]LockEntry) error {
+	path := filepath.Join(root, "mbt.lock")
+	data := lockJSON(lock)
+	if old, _ := os.ReadFile(path); string(old) == string(data) {
+		return nil
+	}
+	return os.WriteFile(path, data, 0o644)
 }
 
 // lockJSON writes the lock exactly as v2 did: json.dumps(indent=2,
