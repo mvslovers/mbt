@@ -85,6 +85,9 @@ type Options struct {
 	// asked only when Lua uses them; nil: there is none.
 	Target func() (map[string]any, error)
 	MVS    func() (MVS, error)
+	// Console issues an operator command through the target's console chain
+	// and returns the reply lines and the channel that delivered it.
+	Console func(cmd string) ([]string, string, error)
 }
 
 // MVS is the mvsMF session as Lua reaches it.
