@@ -123,6 +123,10 @@ func (b *Builder) CFlags() []string { return b.cflags() }
 // [build] cflags, every dependency's include dir, mbt's headers, .mbt.
 func (b *Builder) cflags() []string {
 	f := append([]string{}, project.DefaultCFlags...)
+	if b.P.File == project.FileV3 {
+		// after -O1, before the warnings and the project's own flags
+		f = append([]string{f[0], project.DefaultStd}, f[1:]...)
+	}
 	f = append(f, strings.Fields(strings.Join(b.P.CFlags, " "))...)
 	for _, d := range b.depIncludes() {
 		f = append(f, "-I", d)

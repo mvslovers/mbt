@@ -1184,7 +1184,7 @@ func cmdTest(args []string) int {
 		// them out of cflags because mbt sets them (mbt 2 passed the host
 		// only what the project wrote). [build.host] cflags come later, so
 		// a -Wno... there relaxes one for the host compiler alone.
-		c.CFlags = append(append([]string{}, project.DefaultWarnings...), c.CFlags...)
+		c.CFlags = append(append([]string{project.DefaultStd}, project.DefaultWarnings...), c.CFlags...)
 	}
 	host := rawTable(p.Raw, "host")
 	c.HostCC, _ = host["cc"].(string)

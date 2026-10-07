@@ -568,6 +568,11 @@ var DefaultCFlags = append([]string{"-O1"}, DefaultWarnings...)
 // DefaultWarnings lead the host build of an mbt.toml project's tests too.
 var DefaultWarnings = []string{"-Wall", "-Wextra", "-Werror"}
 
+// DefaultStd is the C dialect of an mbt.toml project, on the cc370 line and
+// the host build alike: the ecosystem's C99 (gnu99). cc370 by itself compiles
+// gnu89. A -std in the project's cflags comes later on the line and wins.
+const DefaultStd = "-std=gnu99"
+
 // EffectiveCFlags is a project's cflags as the compiler sees them, for
 // comparing two of them: the -I dirs first, in their order (their position
 // among other flags changes nothing, their order among themselves does), a

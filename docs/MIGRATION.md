@@ -129,6 +129,12 @@ What you will notice after migrating:
   `TUFS140`, deleting `TUFS130`. An explicit `fmid` / `delete` still wins.
   A patch release (1.4.1) needs an explicit `fmid` until mbt builds PTFs:
   mbt refuses to spend the minor's id a second time.
+- **C99 is the default.** An `mbt.toml` project compiles with
+  `-std=gnu99`, as the ecosystem's rules ask. cc370 by itself compiles
+  gnu89, and an mbt 2 project without a `-std` in its `cflags` did. Such a
+  project's objects change on its first mbt 3 build: the code generation,
+  not the meaning. Run its tests on MVS once. A project that needs another
+  dialect writes `cflags = ["-std=gnu89"]`, which wins.
 - **`startup = "crt0"` / `"crt1"` are gone.** The C startup comes out of
   `libc.a` (libc370 >= 2.3.0), and `mbt migrate` drops them.
 
@@ -482,7 +488,11 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
    export ASMDATE=10/07/26 ASMTIME=12.00 LDDATE=26280 LDTIME=120000
    ```
 
-   Without them, build both on the same day and expect those bytes to
+   A project whose `project.toml` set no `-std` compiled as gnu89 under
+   mbt 2 and compiles as gnu99 under mbt 3. For the comparison, add
+   `cflags = ["-std=gnu89"]` on the mbt 3 side, then remove it again.
+
+   Without the pins, build both on the same day and expect those bytes to
    differ: two per object deck, two per load module. A test's `.d` file
    differs too when it includes `<mbtcheck.h>`: the header moved from the
    submodule (`mbt/include/`) to `.mbt/include/`, same content. A `.tar.gz` differs
@@ -491,8 +501,8 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
    unpacked from it.
 10. Rewrite `make …` to `mbt …` in the README and other docs, and in
     `mbt.toml` itself, whose comments came over from `project.toml` as
-    they were. A project
-    that ships a library also tells its consumers how to depend on it.
+    they were. A project that ships a library also tells its consumers
+    how to depend on it.
     Name both forms while they are on both: `[dependencies]` in their
     `project.toml` with `make deps`, or in their `mbt.toml` with `mbt deps`.
 11. `mbt deploy`: the first live deploy.
