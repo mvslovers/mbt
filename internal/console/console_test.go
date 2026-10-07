@@ -100,11 +100,13 @@ func TestMVSMFChannel(t *testing.T) {
 	}
 }
 
-// a stand-in for the Hercules web console, after cgibin.c: command runs a
-// panel command, MVS answers into the syslog a little later.
+// a stand-in for the Hercules web console, in the format measured on
+// Hercules 4.10 (mvsdev, 2026-10-07): the panel logs the command as HHC00013I
+// and then bare; MVS console messages carry a "/ " prefix, Hercules' own
+// messages do not.
 func TestHerculesChannel(t *testing.T) {
 	var mu sync.Mutex
-	log := []string{"HHC01603I ipl 148", "IEE136I LOCAL: TIME=11.59.59"}
+	log := []string{"HHC01603I ipl 148", "/ IEE136I LOCAL: TIME=11.59.59 DATE=2026.279"}
 	var gotAuth bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
@@ -116,12 +118,13 @@ func TestHerculesChannel(t *testing.T) {
 		mu.Lock()
 		defer mu.Unlock()
 		if c := r.URL.Query().Get("command"); c != "" {
-			log = append(log, c) // the console echoes the command
 			cmd := strings.TrimPrefix(c, "/")
+			log = append(log, `HHC00013I '/' input entered for console 0:0009: "`+cmd+`"`, cmd)
 			go func() {
 				time.Sleep(50 * time.Millisecond)
 				mu.Lock()
-				log = append(log, "IEE136I LOCAL: TIME=12.00.00 DATE=2026.279", "  ("+cmd+" done)")
+				log = append(log, "HHC01022I 0:0401 COMM: client 192.168.0.23 devtype 3270: connection closed by client",
+					"/ IEE136I LOCAL: TIME=12.00.00 DATE=2026.279", "/    00001 TIME SHARING USERS")
 				mu.Unlock()
 			}()
 		}
@@ -133,7 +136,7 @@ func TestHerculesChannel(t *testing.T) {
 	if d != mvsmf.Delivered || err != nil || !gotAuth {
 		t.Fatalf("%v %v auth=%v", d, err, gotAuth)
 	}
-	if strings.Join(lines, "|") != "IEE136I LOCAL: TIME=12.00.00 DATE=2026.279|  (D T done)" {
+	if strings.Join(lines, "|") != "IEE136I LOCAL: TIME=12.00.00 DATE=2026.279|   00001 TIME SHARING USERS" {
 		t.Errorf("reply: %q", lines)
 	}
 	down := &Hercules{URL: "http://127.0.0.1:1"}
