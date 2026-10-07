@@ -611,7 +611,7 @@ func derivedDSN(key, dsn string) error {
 			if len(q) > 8 {
 				why = fmt.Sprintf("qualifier %s is %d characters, at most 8", q, len(q))
 			}
-			return configErr("mbt.toml: %s: the default %s is no data set name (%s) -- set %s", key, dsn, why, key)
+			return configErr("mbt.toml: %s: the default %s is not a valid dataset name (%s) -- set %s", key, dsn, why, key)
 		}
 	}
 	return nil
