@@ -2,6 +2,7 @@ package project
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -179,5 +180,62 @@ func TestFindBothFiles(t *testing.T) {
 	root := writeTree(t, map[string]string{"mbt.toml": "", "project.toml": ""})
 	if _, err := Find(root); err == nil || !strings.Contains(err.Error(), "both") {
 		t.Errorf("both: %v", err)
+	}
+}
+
+// After 1.4.1 shipped under an FMID of its own, 1.5.0 must not derive
+// DELETE(TUFS140): TUFS141 owns the modules, and SMP would install nothing.
+func TestMinorAfterReleasedPatch(t *testing.T) {
+	old := ReleasedPatches
+	defer func() { ReleasedPatches = old }()
+	ReleasedPatches = func(root string, major, minor int) []string {
+		if major == 1 && minor == 4 {
+			return []string{"v1.4.1"}
+		}
+		return nil
+	}
+	root := v3Tree(t, strings.Replace(v3Base, "1.4.0-dev", "1.5.0", 1))
+	p, err := LoadV3(root, FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.DistError, "v1.4.1") || !strings.Contains(p.DistError, "TUFS140") || !strings.Contains(p.DistError, "set [smp] delete explicitly") {
+		t.Errorf("DistError %q", p.DistError)
+	}
+	root = v3Tree(t, strings.Replace(strings.Replace(v3Base, "1.4.0-dev", "1.5.0", 1), `prefix = "TUFS"`, `prefix = "TUFS"`+"\ndelete = [\"TUFS141\"]", 1))
+	if p, err = LoadV3(root, FileV3); err != nil || p.DistError != "" {
+		t.Errorf("explicit delete: %v %q", err, p.DistError)
+	}
+	ReleasedPatches = func(string, int, int) []string { return nil }
+	root = v3Tree(t, strings.Replace(v3Base, "1.4.0-dev", "1.5.0", 1))
+	if p, err = LoadV3(root, FileV3); err != nil || p.DistError != "" {
+		t.Errorf("no patch released: %v %q", err, p.DistError)
+	}
+}
+
+// ReleasedPatches against a real repository: releases only, no prereleases,
+// no other minor, in version order.
+func TestReleasedPatchesGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("no git")
+	}
+	root := t.TempDir()
+	run := func(a ...string) {
+		c := exec.Command("git", append([]string{"-C", root}, a...)...)
+		c.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", a, err, out)
+		}
+	}
+	run("init", "-q")
+	run("commit", "-q", "--allow-empty", "-m", "x")
+	for _, tag := range []string{"v1.4.0", "v1.4.10", "v1.4.2", "v1.4.3-dev", "v1.3.1", "v1.4.1"} {
+		run("tag", tag)
+	}
+	if got := strings.Join(ReleasedPatches(root, 1, 4), ","); got != "v1.4.1,v1.4.2,v1.4.10" {
+		t.Errorf("got %q", got)
+	}
+	if got := ReleasedPatches(t.TempDir(), 1, 4); len(got) != 0 {
+		t.Errorf("no repository: %v", got)
 	}
 }

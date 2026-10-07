@@ -191,6 +191,15 @@ PTF, which mbt does not build yet. Until it does, packaging a version with a
 patch component other than 0 needs an explicit `fmid` — mbt refuses rather
 than spend the minor's id a second time. No version component may exceed 9.
 
+A patch released that way (1.4.1 under `fmid = "TUFS141"`) owns the modules
+afterwards, so the next minor must delete **its** id: a derived
+`DELETE(TUFS140)` would leave TUFS141 in place, and SMP would install
+nothing at RC 0. When mbt derives `delete` for x.y.0 and the repository has
+a release tag of x.(y-1) with a patch component (`v1.4.1`), it refuses to
+package and asks for an explicit `delete`. A checkout without tags (a
+shallow CI clone) cannot see this, so the check bites where a release is
+prepared: locally, by `mbt package` or `mbt release`.
+
 `mbt migrate` writes `prefix` and leaves out what the derivation and the
 defaults produce; it writes every value that differs (mvsMF's `lklib` and
 `distlib` do: `MVSMF.MVSMFLOD`, `MVSMF.AMVSMFLD`). The dataset names of a
