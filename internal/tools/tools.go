@@ -259,7 +259,7 @@ func get(o Options, url string) ([]byte, error) {
 		return nil, notFound(url)
 	}
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("%s: %s", url, deps.HTTPStatus(resp))
 	}
 	return io.ReadAll(resp.Body)
 }
