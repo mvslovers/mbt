@@ -315,11 +315,14 @@ func (c *converter) build(b *block) *block {
 		// other flags changes nothing); include/ is left out where the
 		// convention puts it anyway: first
 		var inc, rest []string
+		droppedInc := false
 		for i := 0; i < len(flags); i++ {
 			if flags[i] == "-I" && i+1 < len(flags) {
 				d := flags[i+1]
 				if len(inc) > 0 || filepath.Clean(d) != project.DefaultInclude || !isDir(filepath.Join(c.root, project.DefaultInclude)) {
 					inc = append(inc, d)
+				} else {
+					droppedInc = true
 				}
 				i++
 				continue
@@ -334,11 +337,14 @@ func (c *converter) build(b *block) *block {
 		lead := e.Lead
 		if len(flags) < len(orig) {
 			c.notice("[build] cflags: left out %s -- mbt sets -Wall -Wextra -Werror itself", strings.Join(dropped(orig, flags), " "))
-			// a comment above them most likely explains them: it goes too
-			if hasComment(lead) || comment != "" {
-				c.notice("[build] cflags: dropped its comment with them -- restore what still applies")
-				lead, comment = nil, ""
-			}
+		}
+		if droppedInc {
+			c.notice("[build] cflags: left out -I %s -- include/ is on the include path by convention", project.DefaultInclude)
+		}
+		// a comment above the flags most likely explains them: it goes too
+		if (len(flags) < len(orig) || droppedInc) && (hasComment(lead) || comment != "") {
+			c.notice("[build] cflags: dropped its comment with them -- restore what still applies")
+			lead, comment = nil, ""
 		}
 		if len(inc) > 0 {
 			add(ob, lead, []string{"include = " + tomlList(inc)})

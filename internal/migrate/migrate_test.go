@@ -167,6 +167,8 @@ func TestBuildDefaultsLeftOut(t *testing.T) {
 		{cflags: `["-I", "include", "-Wall", "-Werror"]`, want: "", note: "left out -Wall -Werror"},
 		{cflags: `["-I", "include", "-I", "x", "-Wall", "-DY"]`, want: "[build]\ninclude = [\"x\"]\ncflags = [\"-DY\"]\n", note: "left out -Wall"},
 		{cflags: `["-I", "x", "-I", "include"]`, want: "[build]\ninclude = [\"x\", \"include\"]\n"},
+		// include/ alone: a NOTE too (httprexx: -std=gnu99 -I include)
+		{cflags: `["-std=gnu99", "-I", "include"]`, want: "[build]\ncflags = [\"-std=gnu99\"]\n", note: "left out -I include"},
 		{cflags: `["-Wno-unused", "-Wall"]`, want: "[build]\ncflags = [\"-Wno-unused\", \"-Wall\"]\n", noInclude: true},
 		// include/ on disk that mbt 2 did not use: the default would add it,
 		// and the check says so instead of writing a different build

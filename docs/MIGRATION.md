@@ -471,11 +471,15 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
    ```
 
    Without them, build both on the same day and expect those bytes to
-   differ: two per object deck, two per load module. A `.tar.gz` differs
+   differ: two per object deck, two per load module. A test's `.d` file
+   differs too when it includes `<mbtcheck.h>`: the header moved from the
+   submodule (`mbt/include/`) to `.mbt/include/`, same content. A `.tar.gz` differs
    anyway, because mbt 2 and mbt 3 write the archive differently (owner,
    timestamps, order, no macOS `._*` entries in mbt 3's). Compare what is
    unpacked from it.
-10. Rewrite `make …` to `mbt …` in the README and other docs. A project
+10. Rewrite `make …` to `mbt …` in the README and other docs, and in
+    `mbt.toml` itself, whose comments came over from `project.toml` as
+    they were. A project
     that ships a library also tells its consumers how to depend on it.
     Name both forms while they are on both: `[dependencies]` in their
     `project.toml` with `make deps`, or in their `mbt.toml` with `mbt deps`.
