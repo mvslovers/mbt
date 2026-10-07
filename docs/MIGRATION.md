@@ -459,6 +459,9 @@ jobs:
       contents: write
 ```
 
+Keep any other job a workflow file of yours carries (a checking job, say):
+only the `uses:` of the build and release jobs change.
+
 Both install the newest mbt 3 release, which then switches to the version
 `[toolchain] mbt` pins. `build3.yml` builds against the tip of cc370 and
 libc370, as the mbt 2 workflow did. `release3.yml` builds with the versions
@@ -482,7 +485,12 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
    (`mbt target import .env --name <name>`) is per machine and can come
    later.
 6. Move Makefile extras to `mbt/init.lua`, a plugin or `[tools]`.
-7. Replace `build.yml` / `release.yml` with the mbt 3 workflows.
+7. Replace `build.yml` / `release.yml` with the mbt 3 workflows. Then look
+   for anything else of the project's own that reads `project.toml`
+   (`git grep -n project.toml`): a checking script or a CI job of its own
+   now finds `mbt.toml`, where modules and tests are tables keyed by name
+   (`[module.NAME]`), not arrays. Comments that describe how a release
+   moved `VERSION` or the FMID in mbt 2 need the same look.
 8. `mbt deps`, `mbt build --all`, `mbt test`, and `mbt deploy --dry-run`
    (which says "nothing to deploy" for a library).
 9. Optional, and worth it: compare with mbt 2. Build the same commit with
@@ -494,6 +502,13 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
    ```sh
    export ASMDATE=10/07/26 ASMTIME=12.00 LDDATE=26280 LDTIME=120000
    ```
+
+   The build stamp names the commit, with `-dirty` for uncommitted changes,
+   and a source that includes `<buildstamp.h>` carries it. Make both trees
+   equally dirty (the mbt 3 side is, before you commit), or the banner's
+   objects differ by those bytes. In a project with an SMP package,
+   `inst.jcl` lists its `++MOD` cards and `SELECT MEMBER`s by name now, so
+   it differs in order only.
 
    A project whose `project.toml` set no `-std` compiled as gnu89 under
    mbt 2 and compiles as gnu99 under mbt 3. For the comparison, add

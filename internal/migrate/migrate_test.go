@@ -230,6 +230,7 @@ rent = false
 reus = false
 sources = ["test/tsta.c", "src/a.c"]
 
+# Where make deploy RECEIVEs; without this it would derive a versioned name.
 [deploy]
 target = "P.DEV.LINKLIB"
 `), 0o644)
@@ -249,7 +250,10 @@ target = "P.DEV.LINKLIB"
 	if strings.Contains(res.Text, "[deploy]") {
 		t.Errorf("[deploy] target equal to the default was kept:\n%s", res.Text)
 	}
-	if n := strings.Join(res.Notices, "\n"); !strings.Contains(n, "[deploy] target: left out P.DEV.LINKLIB") {
+	if strings.Contains(res.Text, "make deploy RECEIVEs") {
+		t.Errorf("the comment of the dropped [deploy] stayed:\n%s", res.Text)
+	}
+	if n := strings.Join(res.Notices, "\n"); !strings.Contains(n, "[deploy] target: left out P.DEV.LINKLIB") || !strings.Contains(n, "[deploy]: dropped with its comment") {
 		t.Errorf("notes: %s", n)
 	}
 }
