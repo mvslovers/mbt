@@ -153,6 +153,10 @@ git rm Makefile mbt .gitmodules            # mbt was the only submodule
 git rm Makefile mbt                        # there are others: keep .gitmodules
 ```
 
+Look into `.gitmodules` first: an old project may still list entries that
+have not been submodules for a long time (`contrib/*_sdk`). Those go with
+the file.
+
 `git rm mbt` already removes mbt's entry from `.gitmodules` and stages that.
 So a second, separate `git rm .gitmodules` fails with "the following file has
 changes staged in the index". Then clear what git keeps of the submodule
@@ -166,7 +170,8 @@ git config --remove-section submodule.mbt
 `.gitignore` should keep `.mbt/` (staged dependencies, tools, plugins and
 build state) and `build/`, `dist/`. Lines for mbt 2's own leftovers
 (`.build-warnings`, `*.jcl`, `contrib/`) can go, along with the files
-themselves if a working copy still holds them. In mbt 3 the directory `mbt/` is yours:
+themselves if a working copy still holds them. Keep one that also hides a
+file of yours, such as a hand-written job. In mbt 3 the directory `mbt/` is yours:
 it holds the project's Lua (section 6), so do not ignore it.
 
 **Commit `mbt.lock`** as before, once there is one: `mbt deps` writes it
@@ -203,7 +208,9 @@ A project with none of them has no lock file, under mbt 2 as under mbt 3.
 - **`mbt deps` never moves a pin on its own.** A version outside its range,
   or an archive whose SHA-256 differs from `mbt.lock`, is an error, even for
   a prerelease that was published again. `mbt deps --update` re-resolves and
-  rewrites the lock. mbt 2 re-pinned with a warning. Archives are cached by
+  rewrites the lock. mbt 2 re-pinned with a warning. **Expect this on the
+  first `mbt deps` of a project that depends on a `-dev` prerelease**: mbt 2
+  re-pinned quietly, so the committed lock may name an archive that is gone. Archives are cached by
   SHA, so a locked prerelease stays buildable after its tag has moved.
 - **`mbt deploy --linklib DSN`** names a load library to deploy into instead
   of `[deploy] target`. `--target` now names an MVS *system* (section 5).
