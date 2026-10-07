@@ -162,10 +162,17 @@ func (h *Hercules) Send(cmd string) ([]string, mvsmf.Delivery, error) {
 	return reply, mvsmf.Delivered, nil
 }
 
-// after returns the syslog lines that follow the last echo of the typed
-// command ("/D T") -- not merely the last line mentioning it: a reply may
-// repeat the command text. (How Hercules echoes a "/" command was taken from
-// its source, not yet seen on a live web console.)
+// after returns MVS's console messages that follow the last echo of cmd.
+// Measured on Hercules 4.10 (2026-10-07): the panel logs the command as
+//
+//	HHC00013I '/' input entered for console 0:0009: "D T"
+//	D T
+//	/ IEE136I LOCAL: TIME=00.31.37 DATE=2026.280 ...
+//
+// The echo is found by its HHC00013I line -- not by the command text alone,
+// which a reply may repeat. Of what follows, only lines with MVS's "/ "
+// prefix are the reply (without it); Hercules' own messages (HHC...) and
+// the bare echo interleave and are dropped.
 func after(lines []string, cmd string) []string {
 	var flat []string
 	for _, l := range lines {
@@ -175,14 +182,21 @@ func after(lines []string, cmd string) []string {
 			}
 		}
 	}
+	echo := `input entered for console`
 	last := -1
 	for i, l := range flat {
-		if strings.HasSuffix(strings.TrimSpace(l), "/"+cmd) {
+		if strings.HasPrefix(l, "HHC00013I") && strings.Contains(l, echo) && strings.HasSuffix(l, `"`+cmd+`"`) {
 			last = i
 		}
 	}
 	if last < 0 {
 		return nil
 	}
-	return flat[last+1:]
+	var reply []string
+	for _, l := range flat[last+1:] {
+		if strings.HasPrefix(l, "/ ") {
+			reply = append(reply, l[2:])
+		}
+	}
+	return reply
 }
