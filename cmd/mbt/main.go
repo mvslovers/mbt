@@ -117,7 +117,7 @@ commands:
   deploy [--target NAME] [--linklib DSN] [--module M]... [--dry-run] [-v]
                                       pack the built modules and RECEIVE them on MVS
   compiledb                           write compile_commands.json for clangd
-  doctor                              check the toolchain, the sysroot and the MVS connection
+  doctor [--offline]                  check the toolchain, the sysroot and the MVS connection (--offline: no logon)
   release VERSION [--next V]          release VERSION-dev as VERSION: bump, tag, push, then bump to V
   prerelease                          (re)tag the current -dev version and push the tag
   run [NAME] [-v] [--dry-run] [-- ARGS...]
@@ -164,7 +164,7 @@ func run(args []string) int {
 // refused rather than ignored -- "mbt doctor --help" must not run doctor
 // (which logs on to MVS) instead of printing help.
 var noArgs = map[string]bool{"clean": true, "distclean": true, "ci-info": true, "dist": true,
-	"check": true, "compiledb": true, "doctor": true, "version": true, "--version": true}
+	"check": true, "compiledb": true, "version": true, "--version": true}
 
 func dispatch(args []string) int {
 	if noArgs[args[0]] && len(args) > 1 {
@@ -215,7 +215,7 @@ func dispatch(args []string) int {
 	case "compiledb":
 		return cmdCompiledb()
 	case "doctor":
-		return cmdDoctor()
+		return cmdDoctor(args[1:])
 	case "version", "--version":
 		fmt.Println("mbt", mbtVersion+buildInfo())
 		return exitOK
@@ -1306,7 +1306,19 @@ func doctorCC370(want string) {
 
 // cmdDoctor: make doctor.  One deliberate difference: the configuration
 // table masks MVS_PASS, which mbt 2 printed in clear.
-func cmdDoctor() int {
+func cmdDoctor(args []string) int {
+	fl := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	offline := fl.Bool("offline", false, "check the host only: no MVS connection, no logon")
+	if err := fl.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return exitOK
+		}
+		return exitConfig
+	}
+	if fl.NArg() > 0 {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: mbt doctor takes no arguments (got %s)\n", strings.Join(fl.Args(), " "))
+		return exitConfig
+	}
 	fmt.Println("[mbt] Running environment checks (mbt 3 / cc370)...")
 	failed := 0
 	bad := func(f string, a ...any) { fmt.Fprintf(os.Stderr, "[mbt] ERROR: "+f+"\n", a...); failed++ }
@@ -1376,7 +1388,9 @@ func cmdDoctor() int {
 	} else {
 		fmt.Printf("[mbt] %s valid: %s v%s\n", p.File, p.Name, p.Version)
 		tg, err := chooseTarget(root, "")
-		if err != nil {
+		if *offline {
+			fmt.Println("[mbt] --offline: MVS not contacted")
+		} else if err != nil {
 			bad("%v", err)
 		} else {
 			fmt.Printf("[mbt] target %s (from %s)\n", tg.Name, tg.Source)

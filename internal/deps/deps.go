@@ -303,10 +303,10 @@ func resolve(o Options, owner, repo, constraint string) (string, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 403 || resp.StatusCode == 429 || resp.StatusCode >= 500 {
-		return resolveOffline(o, owner, repo, constraint, fmt.Sprintf("GitHub API HTTP %d", resp.StatusCode))
+		return resolveOffline(o, owner, repo, constraint, HTTPStatus(resp))
 	}
 	if resp.StatusCode != 200 {
-		return "", depErr("GitHub API error for %s/%s: HTTP %d", owner, repo, resp.StatusCode)
+		return "", depErr("%s/%s: %s", owner, repo, HTTPStatus(resp))
 	}
 	var rels []release
 	if err := json.NewDecoder(resp.Body).Decode(&rels); err != nil {
@@ -382,7 +382,11 @@ func fetch(o Options, owner, repo, ver, asset string, force bool) (string, error
 			}
 			return path, nil
 		}
-		return "", depErr("Cannot find release v%s for %s/%s and no local cache available", ver, owner, repo)
+		why := HTTPStatus(resp)
+		if resp.StatusCode == 404 {
+			why = "no such release"
+		}
+		return "", depErr("Cannot find release v%s for %s/%s (%s) and no local cache available", ver, owner, repo, why)
 	}
 	var r release
 	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {

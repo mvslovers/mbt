@@ -51,7 +51,18 @@ list and runs it instead. `MBT_NO_SWITCH=1` keeps the one you started.
 
 The cc370 toolchain (`cc370`, `as370`, `ld370`, `ar370`) and the libc370
 sysroot stay what they were: installed on your machine and on your `PATH`.
-`mbt doctor` checks both.
+`mbt doctor` checks both. Without `--offline` it also logs on to the MVS
+target, read-only. `mbt doctor --offline` checks the host alone.
+
+**GitHub's API allows 60 requests an hour without a token**, shared by
+everything on the machine. mbt asks it when it fetches dependencies, tools,
+plugins or another mbt version. With several projects or sessions on one
+machine the limit runs out quickly, and mbt then reports `GitHub API rate
+limit reached`. Give it a token:
+
+```sh
+export GITHUB_TOKEN=$(gh auth token)      # any token works, no scopes needed
+```
 
 ---
 
@@ -450,7 +461,7 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
 
 ## 9. Checklist
 
-1. Install mbt 3; `mbt doctor`.
+1. Install mbt 3; `mbt doctor --offline` (no MVS needed yet).
 2. `mbt migrate --dry-run`, read it, then `mbt migrate`.
 3. Add `[toolchain] mbt = "3.0"`.
 4. `git rm Makefile mbt .gitmodules`, keep `.mbt/` in `.gitignore`.
@@ -462,7 +473,8 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
 8. `mbt deps`, `mbt build --all`, `mbt test`, and `mbt deploy --dry-run`
    (which says "nothing to deploy" for a library).
 9. Optional, and worth it: compare with mbt 2. Build the same commit with
-   mbt 2 in a second checkout and compare `dist/` and `build/`. Object
+   mbt 2 in a second checkout (`git submodule update --init` brings its
+   mbt 2 back) and compare `dist/` and `build/`. Object
    decks carry the assembly date, and load modules the link time. Pin both
    on both sides to make the comparison byte for byte:
 

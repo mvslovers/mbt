@@ -36,6 +36,8 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/mvslovers/mbt/internal/version"
+
+	"github.com/mvslovers/mbt/internal/deps"
 )
 
 // Options for Switch; the zero value means the real thing.
@@ -218,7 +220,7 @@ func get(url string, o Options) ([]byte, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("%s: HTTP %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("%s: %s", url, deps.HTTPStatus(resp))
 	}
 	return io.ReadAll(resp.Body)
 }
