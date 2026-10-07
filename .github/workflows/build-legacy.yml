@@ -1,5 +1,6 @@
 # LEGACY (mbt v1, mvsMF/JCL build). New projects use the v2 workflow
-# of the same base name (build.yml / release.yml). See docs/MIGRATION.md.
+# of the same base name (build.yml / release.yml). See docs/MIGRATION.md as of v2.2.0:
+# https://github.com/mvslovers/mbt/blob/v2.2.0/docs/MIGRATION.md
 #
 # Reusable build workflow for mbt-based projects.
 #

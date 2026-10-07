@@ -1,7 +1,8 @@
 # mk/legacy/core.mk — LEGACY (v1, mvsMF/JCL) include file.
 #
 # Superseded by mk/mbt.mk (the cc370 host build).  Kept for projects not
-# yet migrated; see docs/MIGRATION.md.
+# yet migrated; see docs/MIGRATION.md as of v2.2.0:
+# https://github.com/mvslovers/mbt/blob/v2.2.0/docs/MIGRATION.md
 #
 # Consumer Makefile needs only:
 #   MBT_ROOT := path/to/mbt
