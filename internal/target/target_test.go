@@ -1,6 +1,7 @@
 package target
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -221,5 +222,41 @@ func TestEmptySecretNamed(t *testing.T) {
 	}
 	if pw, err := (Secret{Cmd: []string{"printf", "pw\n"}, set: true}).Resolve(); pw != "pw" || err != nil {
 		t.Errorf("cmd ok: %q %v", pw, err)
+	}
+}
+
+// A stand-in for the Hercules web console, answering as Hercules 4.10 did on
+// mvsdev (2026-10-07): /version and /devices behind HTTP Basic.
+func TestHerculesInfo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if u, p, ok := r.BasicAuth(); !ok || u != "admin" || p != "pw" {
+			w.WriteHeader(401)
+			return
+		}
+		switch r.URL.Path {
+		case "/cgi-bin/api/v1/version":
+			fmt.Fprint(w, `{"hercules_version": "4.10.0.11773-SDL-DEV-g4675e7e1","build_date": "Sep  5 2026","build_time": "18:48:28","modes" :["S/370","ESA/390","z/Arch"], "max_cpu_engines":128}`)
+		case "/cgi-bin/api/v1/devices":
+			fmt.Fprint(w, `{"devices":[{"devnum":"0010","devclass":"DSP","devtype":"3270","status":"","assignment":"GROUP=CONSOLE IO[3]"},`+
+				`{"devnum":"0400","devclass":"DSP","devtype":"3270","status":"open ","assignment":"192.168.0.23 IO[23790]"},`+
+				`{"devnum":"0401","devclass":"DSP","devtype":"3270","status":"","assignment":"* IO[1552]"},`+
+				`{"devnum":"000E","devclass":"PRT","devtype":"1403","status":"open ","assignment":"printers/prt00e.txt IO[143]"}]}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	p := HerculesInfo(&Endpoint{URL: srv.URL, User: "admin", Password: Secret{Literal: "pw", set: true}}, 5*time.Second)
+	want := "logged on as admin (HTTP 200) -- Hercules 4.10.0.11773-SDL-DEV-g4675e7e1, built Sep 5 2026; 3270 terminals: 1 of 3 connected"
+	if !p.OK || p.Detail != want {
+		t.Errorf("got  %q\nwant %q", p.Detail, want)
+	}
+	bad := HerculesInfo(&Endpoint{URL: srv.URL, User: "admin", Password: Secret{Literal: "no", set: true}}, 5*time.Second)
+	if bad.OK || !strings.Contains(bad.Detail, "401") {
+		t.Errorf("wrong password: %+v", bad)
+	}
+	anon := HerculesInfo(&Endpoint{URL: srv.URL}, 5*time.Second)
+	if anon.OK || !strings.Contains(anon.Detail, "no user configured") {
+		t.Errorf("no user: %+v", anon)
 	}
 }
