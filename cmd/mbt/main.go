@@ -1179,6 +1179,13 @@ func cmdTest(args []string) int {
 	stamp.Write(root, p.Name, p.Version)
 	writeHeaders(filepath.Join(root, ".mbt/include"))
 	c := hosttest.Config{CFlags: project.RawStrs(rawTable(p.Raw, "build"), "cflags"), Resolve: p.Resolve, Replace: map[string]string{}}
+	if p.File == project.FileV3 {
+		// mbt's warning flags hold on the host as well: an mbt.toml leaves
+		// them out of cflags because mbt sets them (mbt 2 passed the host
+		// only what the project wrote). [build.host] cflags come later, so
+		// a -Wno... there relaxes one for the host compiler alone.
+		c.CFlags = append(append([]string{}, project.DefaultWarnings...), c.CFlags...)
+	}
 	host := rawTable(p.Raw, "host")
 	c.HostCC, _ = host["cc"].(string)
 	c.HostCFlags = project.RawStrs(host, "cflags")
