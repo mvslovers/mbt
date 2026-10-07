@@ -482,7 +482,12 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
    (`mbt target import .env --name <name>`) is per machine and can come
    later.
 6. Move Makefile extras to `mbt/init.lua`, a plugin or `[tools]`.
-7. Replace `build.yml` / `release.yml` with the mbt 3 workflows.
+7. Replace `build.yml` / `release.yml` with the mbt 3 workflows. Then look
+   for anything else of the project's own that reads `project.toml`
+   (`git grep -n project.toml`): a checking script or a CI job of its own
+   now finds `mbt.toml`, where modules and tests are tables keyed by name
+   (`[module.NAME]`), not arrays. Comments that describe how a release
+   moved `VERSION` or the FMID in mbt 2 need the same look.
 8. `mbt deps`, `mbt build --all`, `mbt test`, and `mbt deploy --dry-run`
    (which says "nothing to deploy" for a library).
 9. Optional, and worth it: compare with mbt 2. Build the same commit with

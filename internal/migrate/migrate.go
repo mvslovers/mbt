@@ -232,7 +232,12 @@ func (c *converter) block(b *block, idx int) (*block, error) {
 			}
 			verbatim(ob, e)
 		}
-		if len(ob.Entries) == 0 && !hasComment(b.Lead) {
+		if len(ob.Entries) == 0 {
+			// the table held only the default: it goes, and a comment above
+			// it described a key that is gone
+			if hasComment(b.Lead) {
+				c.notice("[deploy]: dropped with its comment -- it held only the default target")
+			}
 			if n := len(c.out); n > 0 && c.out[n-1] == ob {
 				c.out = c.out[:n-1]
 			}
