@@ -70,5 +70,5 @@ jobs:
           case "$TAG" in *-*) PRE="--prerelease" ;; esac
           # --latest=false: v2.x stays "Latest" for the submodule's users
           # until mbt 3 is the default
-          gh release create "$TAG" $PRE --latest=false --title "mbt ${TAG#v}" \
+          gh release create "$TAG" $PRE --latest=false --title "$TAG" \
             --generate-notes dist/*
