@@ -68,3 +68,24 @@ func TestVRM(t *testing.T) {
 		}
 	}
 }
+
+func TestCaret(t *testing.T) {
+	for _, c := range []struct {
+		v, r string
+		ok   bool
+	}{
+		{"1.0.0", "^1", true}, {"1.9.3", "^1", true}, {"2.0.0", "^1", false}, {"2.0.0-dev", "^1", false},
+		{"0.9.0", "^1", false}, {"1.4.0", "^1.4", true}, {"1.3.9", "^1.4", false}, {"0.3.5", "^0.3", true},
+		{"0.4.0", "^0.3", false}, {"1.4.2", "^1.4.2", true}, {"1.4.1", "^1.4.2", false},
+		{"1.5.0", ">=1.4.0, ^1", true},
+	} {
+		v, _ := Parse(c.v)
+		got, err := Satisfies(v, c.r)
+		if err != nil || got != c.ok {
+			t.Errorf("%s in %s: %v %v", c.v, c.r, got, err)
+		}
+	}
+	if _, err := Satisfies(Version{Major: 1}, "^x"); err == nil {
+		t.Error("^x accepted")
+	}
+}

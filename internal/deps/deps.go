@@ -189,9 +189,10 @@ func Run(root, projectFile string, o Options) error {
 		newLock[key] = LockEntry{SHA256: sha, Version: ver}
 	}
 
-	// the pins of [tools] live in the same file and are not ours to drop
+	// the pins of [tools] and [plugins] live in the same file and are not
+	// ours to drop
 	for k, v := range ReadLock(root) {
-		if strings.HasPrefix(k, ToolPrefix) {
+		if strings.HasPrefix(k, ToolPrefix) || strings.HasPrefix(k, PluginPrefix) {
 			newLock[k] = v
 		}
 	}
@@ -206,8 +207,18 @@ func Run(root, projectFile string, o Options) error {
 	return nil
 }
 
-// ToolPrefix marks the mbt.lock entries of [tools] ("tool:ufsd-utils").
-const ToolPrefix = "tool:"
+// ToolPrefix marks the mbt.lock entries of [tools] ("tool:ufsd-utils"),
+// PluginPrefix those of [plugins] ("plugin:mvslovers/mbt-ufs").
+const (
+	ToolPrefix   = "tool:"
+	PluginPrefix = "plugin:"
+)
+
+// Overrides reads [override] of .mbt/deps.local.toml: "owner/repo" -> a
+// local path (a dependency's or a plugin's working copy).
+func Overrides(root string) map[string]string {
+	return readOverrides(filepath.Join(root, ".mbt", "deps.local.toml"))
+}
 
 // ReadLock reads root/mbt.lock; a missing or unreadable file is empty.
 func ReadLock(root string) map[string]LockEntry {

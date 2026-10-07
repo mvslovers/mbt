@@ -85,6 +85,16 @@ func Compare(a, b Version) int {
 func Satisfies(v Version, constraint string) (bool, error) {
 	for _, part := range strings.Split(constraint, ",") {
 		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "^") {
+			lo, hi, err := caret(part[1:])
+			if err != nil {
+				return false, err
+			}
+			if Compare(v, lo) < 0 || Compare(v, hi) >= 0 {
+				return false, nil
+			}
+			continue
+		}
 		var op, rest string
 		switch {
 		case strings.HasPrefix(part, ">="):
@@ -127,4 +137,27 @@ func Allowed(v Version, constraint string) (bool, error) {
 		return false, nil
 	}
 	return Satisfies(v, constraint)
+}
+
+// caret gives the bounds of "^1", "^1.4", "^1.4.2" (cargo's and npm's rule):
+// at or above it, below the next major -- or, for 0.x, below the next minor.
+// The upper bound is the next level's -dev, so its prereleases stay out.
+func caret(s string) (lo, hi Version, err error) {
+	parts := strings.Split(strings.TrimSpace(s), ".")
+	if len(parts) == 0 || len(parts) > 3 {
+		return lo, hi, fmt.Errorf("invalid caret range: ^%s", s)
+	}
+	n := [3]int{}
+	for i, p := range parts {
+		if n[i], err = strconv.Atoi(p); err != nil || n[i] < 0 {
+			return lo, hi, fmt.Errorf("invalid caret range: ^%s", s)
+		}
+	}
+	lo = Version{Major: n[0], Minor: n[1], Patch: n[2]}
+	if n[0] > 0 || len(parts) == 1 {
+		hi = Version{Major: n[0] + 1, Pre: "dev"}
+	} else {
+		hi = Version{Major: 0, Minor: n[1] + 1, Pre: "dev"}
+	}
+	return lo, hi, nil
 }

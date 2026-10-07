@@ -391,3 +391,62 @@ mbt.command("bad", function(ctx) ctx.mvs.request { path = "zosmf/x" } end)`})
 		t.Errorf("%v", err)
 	}
 }
+
+func plugin(t *testing.T, files map[string]string) string {
+	dir := t.TempDir()
+	for n, b := range files {
+		p := filepath.Join(dir, n)
+		os.MkdirAll(filepath.Dir(p), 0o755)
+		os.WriteFile(p, []byte(b), 0o644)
+	}
+	return dir
+}
+
+func TestPlugins(t *testing.T) {
+	pdir := plugin(t, map[string]string{
+		"init.lua": `
+local util = require("o/ufs/util")
+mbt.hook("before_package", function(ctx) ctx.log("plugin hook") end)
+local M = {}
+function M.image(name) return util.prefix .. name end
+function M.task(spec)
+  mbt.task { name = spec.name, run = function(ctx)
+    ctx.exec { "printf", "%s", "allowed" }
+    ctx.exec { "touch", "not-allowed" }
+  end }
+end
+return M`,
+		"lua/util.lua": `return { prefix = "img:" }`,
+	})
+	v := setup(t, map[string]string{"mbt/init.lua": `
+local ufs = require("o/ufs")
+assert(ufs.image("web") == "img:web")
+mbt.hook("before_package", function(ctx) ctx.log("project hook") end)
+ufs.task { name = "webroot" }
+mbt.command("mine", function(ctx) ctx.exec { "touch", "project-may" } end)`,
+		"~/init.lua": `mbt.hook("before_package", function(ctx) ctx.log("user hook") end)`})
+	e := v.mustLoad(t, func(o *Options) { o.Plugins = []Plugin{{Key: "o/ufs", Dir: pdir, API: 1, Exec: []string{"printf"}}} })
+	if err := e.Before("package"); err != nil {
+		t.Fatal(err)
+	}
+	if v.logged() != "[mbt] plugin hook\n[mbt] project hook\n[mbt] user hook" {
+		t.Errorf("order:\n%s", v.logged())
+	}
+	err := e.Run("webroot", nil)
+	if err == nil || !strings.Contains(err.Error(), "plugin o/ufs may run only printf (plugin.toml exec), not touch") {
+		t.Errorf("allowlist: %v", err)
+	}
+	if err := e.Run("mine", nil); err != nil {
+		t.Errorf("the project's own exec: %v", err)
+	}
+
+	// wrong API version
+	if _, err := v.load(t, func(o *Options) { o.Plugins = []Plugin{{Key: "o/ufs", Dir: pdir, API: 2}} }); err == nil || !strings.Contains(err.Error(), "written for Lua API 2") {
+		t.Errorf("api: %v", err)
+	}
+	// an undeclared plugin
+	v2 := setup(t, map[string]string{"mbt/init.lua": `require("o/other")`})
+	if _, err := v2.load(t); err == nil || !strings.Contains(err.Error(), "declare it in [plugins]") {
+		t.Errorf("undeclared: %v", err)
+	}
+}

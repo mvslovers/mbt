@@ -37,6 +37,7 @@ import (
 	"github.com/mvslovers/mbt/internal/mvsmf"
 	"github.com/mvslovers/mbt/internal/mvstest"
 	"github.com/mvslovers/mbt/internal/pkg"
+	"github.com/mvslovers/mbt/internal/plugins"
 	"github.com/mvslovers/mbt/internal/project"
 	"github.com/mvslovers/mbt/internal/release"
 	"github.com/mvslovers/mbt/internal/stamp"
@@ -462,7 +463,20 @@ func exts(p *project.Project, verbose, dry bool) (*ext.Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	e, err := ext.Load(ext.Options{Root: p.Root, Home: home, Version: mbtVersion, Verbose: verbose, DryRun: dry,
+	pd, err := plugins.Declared(p.Raw)
+	if err != nil {
+		return nil, err
+	}
+	// a build uses what mbt deps staged; it never reaches out for a plugin
+	staged, err := plugins.Resolve(p.Root, pd, plugins.Options{Offline: true, Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }})
+	if err != nil {
+		return nil, err
+	}
+	var pls []ext.Plugin
+	for _, x := range staged {
+		pls = append(pls, ext.Plugin{Key: x.Key, Dir: x.Dir, API: x.API, Exec: x.Exec})
+	}
+	e, err := ext.Load(ext.Options{Plugins: pls, Root: p.Root, Home: home, Version: mbtVersion, Verbose: verbose, DryRun: dry,
 		Project: ext.Project{Name: p.Name, Version: p.Version, Modules: unitNames(p.Modules), Tests: unitNames(p.Tests)},
 		Tools:   tl, ToolOpt: tools.Options{Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }},
 		Target: func() (map[string]any, error) {
@@ -1366,6 +1380,14 @@ func cmdDeps(args []string) int {
 			return fail(err)
 		}
 	}
+	// and [plugins]
+	pd, err := plugins.Declared(p.Raw)
+	if err != nil {
+		return fail(err)
+	}
+	if _, err := plugins.Resolve(root, pd, plugins.Options{Update: *update, Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }}); err != nil {
+		return fail(err)
+	}
 	return exitOK
 }
 
@@ -1375,8 +1397,12 @@ func fail(err error) int {
 	var xe *ext.Error
 	var te *tools.Error
 	var tge *target.Error
+	var pe *plugins.Error
 	if errors.As(err, &tge) {
 		return exitConfig
+	}
+	if errors.As(err, &pe) {
+		return 3
 	}
 	if errors.As(err, &xe) {
 		if xe.Config {
