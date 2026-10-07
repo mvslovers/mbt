@@ -217,9 +217,14 @@ ufsd-utils = { repo = "mvslovers/ufsd-utils", version = "1.0.1" }
 | `asset` | `{name}-{os}-{arch}.tar.gz` | the release asset for this platform; `{name}`, `{version}`, `{os}` (darwin, linux, windows), `{arch}` (amd64, arm64) |
 | `bin` | `{name}-{os}-{arch}` | the member of a `.tar.gz`/`.zip` asset that is the tool (an asset of another kind is the tool itself) |
 
-Pinned like a dependency: the asset's SHA-256 goes into `mbt.lock` as
-`"tool:<name>"` on the first fetch; a later fetch of the same version with
-another SHA is refused until `mbt deps --update` moves the pin. Staged at
+Pinned like a dependency, but **per platform**, because each platform
+downloads a different asset: `mbt.lock` holds `"tool:<name>@<os>-<arch>"`
+for every platform mbt releases itself for. The first fetch pins this
+platform's download and takes the others' SHA-256 from the digests GitHub
+publishes for the release's assets, so a lock written on a Mac checks a
+Linux runner's download as well. A later fetch of the same version with
+another SHA is refused until `mbt deps --update` moves the pins. A
+single-platform `"tool:<name>"` pin of an earlier mbt is replaced. Staged at
 `.mbt/tools/<name>-<version>/<name>` by `mbt deps`, or when Lua first asks for
 it (`ctx.tool(name)`).
 

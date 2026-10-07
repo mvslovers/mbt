@@ -136,11 +136,21 @@ func (t Tool) Path(root string) string {
 	return filepath.Join(root, ".mbt", "tools", t.Name+"-"+t.Version, exe)
 }
 
+// Platforms are the ones mbt releases itself for: the pins of a tool cover
+// all of them, so an mbt.lock written on one platform holds on the others.
+var Platforms = [][2]string{{"darwin", "arm64"}, {"darwin", "amd64"}, {"linux", "amd64"}, {"linux", "arm64"}, {"windows", "amd64"}}
+
+// lockKey is a tool's pin for one platform: "tool:ufsd-utils@linux-amd64".
+// Each platform downloads a different asset, so one SHA cannot pin them all.
+func lockKey(name, goos, goarch string) string {
+	return deps.ToolPrefix + name + "@" + goos + "-" + goarch
+}
+
 // Ensure stages t in root (if it is not staged at the pinned version yet)
 // and returns the binary's path.
 func Ensure(root string, t Tool, o Options) (string, error) {
 	o.fill()
-	key := deps.ToolPrefix + t.Name
+	key := lockKey(t.Name, o.GOOS, o.GOARCH)
 	lock := deps.ReadLock(root)
 	pinned, hasPin := lock[key]
 	dest := t.Path(root)
@@ -151,12 +161,15 @@ func Ensure(root string, t Tool, o Options) (string, error) {
 	}
 
 	asset := t.expand(t.Asset, o)
-	data, err := fetch(t, asset, pinned, hasPin && pinned.Version == t.Version && !o.Update, o)
+	data, digests, err := fetch(t, asset, pinned, hasPin && pinned.Version == t.Version && !o.Update, o)
 	if err != nil {
 		return "", err
 	}
 	sum := sha256.Sum256(data)
 	sha := hex.EncodeToString(sum[:])
+	if d, ok := digests[asset]; ok && d != sha {
+		return "", errf("tool %s %s: %s has SHA-256 %s, but GitHub's digest for it is %s -- the download is damaged", t.Name, t.Version, asset, sha[:12], d[:12])
+	}
 	if hasPin && pinned.Version == t.Version && pinned.SHA256 != sha && !o.Update {
 		return "", errf("tool %s %s: %s has SHA-256 %s, mbt.lock pins %s -- the release asset was replaced; check it, then 'mbt deps --update' moves the pin", t.Name, t.Version, asset, sha[:12], pinned.SHA256[:12])
 	}
@@ -173,13 +186,40 @@ func Ensure(root string, t Tool, o Options) (string, error) {
 	if err := os.WriteFile(dest, bin, 0o755); err != nil {
 		return "", err
 	}
-	if !hasPin || pinned.SHA256 != sha || pinned.Version != t.Version {
-		lock = deps.ReadLock(root)
-		lock[key] = deps.LockEntry{SHA256: sha, Version: t.Version}
+	// pin this platform, and every other one GitHub publishes a digest for
+	// and that is not pinned at this version yet (all of them on --update);
+	// a single-platform pin of an older mbt goes
+	lock = deps.ReadLock(root)
+	changed := false
+	if _, old := lock[deps.ToolPrefix+t.Name]; old {
+		delete(lock, deps.ToolPrefix+t.Name)
+		changed = true
+	}
+	set := func(k, v string) {
+		if e, ok := lock[k]; !ok || e.Version != t.Version || e.SHA256 != v && (o.Update || k == key) {
+			lock[k] = deps.LockEntry{SHA256: v, Version: t.Version}
+			changed = true
+		}
+	}
+	set(key, sha)
+	n := 1
+	for _, pl := range Platforms {
+		k := lockKey(t.Name, pl[0], pl[1])
+		if k == key {
+			continue
+		}
+		po := o
+		po.GOOS, po.GOARCH = pl[0], pl[1]
+		if d, ok := digests[t.expand(t.Asset, po)]; ok {
+			set(k, d)
+			n++
+		}
+	}
+	if changed {
 		if err := deps.WriteLock(root, lock); err != nil {
 			return "", err
 		}
-		o.Log(fmt.Sprintf("Tool %s %s pinned in mbt.lock (sha %s)", t.Name, t.Version, sha[:12]))
+		o.Log(fmt.Sprintf("Tool %s %s pinned in mbt.lock for %d platform(s) (here: sha %s)", t.Name, t.Version, n, sha[:12]))
 	}
 	o.Log(fmt.Sprintf("Tool %s %s -> %s", t.Name, t.Version, rel(root, dest)))
 	return dest, nil
@@ -204,28 +244,36 @@ func keep(o Options, t Tool, sha, asset string, data []byte) {
 }
 
 // fetch returns the asset: from the cache when the pin names it, else from
-// the release.
-func fetch(t Tool, asset string, pinned deps.LockEntry, usePin bool, o Options) ([]byte, error) {
+// the release, together with the SHA-256 digests GitHub publishes for the
+// release's assets (by name; none when it came from the cache).
+func fetch(t Tool, asset string, pinned deps.LockEntry, usePin bool, o Options) ([]byte, map[string]string, error) {
 	if usePin {
 		if data, err := os.ReadFile(cachePath(o, t, pinned.SHA256, asset)); err == nil {
-			return data, nil
+			return data, nil, nil
 		}
 	}
 	var rel struct {
 		Assets []struct {
-			Name string `json:"name"`
-			URL  string `json:"browser_download_url"`
+			Name   string `json:"name"`
+			URL    string `json:"browser_download_url"`
+			Digest string `json:"digest"`
 		} `json:"assets"`
 	}
 	body, err := get(o, fmt.Sprintf("%s/repos/%s/releases/tags/v%s", o.API, t.Repo, t.Version))
 	var nf notFound
 	if errors.As(err, &nf) {
-		return nil, errf("tool %s: %s has no release v%s", t.Name, t.Repo, t.Version)
+		return nil, nil, errf("tool %s: %s has no release v%s", t.Name, t.Repo, t.Version)
 	} else if err != nil {
-		return nil, errf("tool %s %s is not staged and GitHub cannot be reached: %v", t.Name, t.Version, err)
+		return nil, nil, errf("tool %s %s is not staged and GitHub cannot be reached: %v", t.Name, t.Version, err)
 	}
 	if err := json.Unmarshal(body, &rel); err != nil {
-		return nil, errf("tool %s: release v%s: %v", t.Name, t.Version, err)
+		return nil, nil, errf("tool %s: release v%s: %v", t.Name, t.Version, err)
+	}
+	digests := map[string]string{}
+	for _, a := range rel.Assets {
+		if d, ok := strings.CutPrefix(a.Digest, "sha256:"); ok && len(d) == 64 {
+			digests[a.Name] = d
+		}
 	}
 	var names []string
 	for _, a := range rel.Assets {
@@ -233,13 +281,13 @@ func fetch(t Tool, asset string, pinned deps.LockEntry, usePin bool, o Options) 
 			o.Log(fmt.Sprintf("Tool %s %s: fetching %s", t.Name, t.Version, asset))
 			data, err := get(o, a.URL)
 			if err != nil {
-				return nil, errf("tool %s: %v", t.Name, err)
+				return nil, nil, errf("tool %s: %v", t.Name, err)
 			}
-			return data, nil
+			return data, digests, nil
 		}
 		names = append(names, a.Name)
 	}
-	return nil, errf("tool %s: release v%s of %s has no %s for this platform (it has: %s)", t.Name, t.Version, t.Repo, asset, strings.Join(names, ", "))
+	return nil, nil, errf("tool %s: release v%s of %s has no %s for this platform (it has: %s)", t.Name, t.Version, t.Repo, asset, strings.Join(names, ", "))
 }
 
 func get(o Options, url string) ([]byte, error) {
