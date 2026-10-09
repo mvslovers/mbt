@@ -10,8 +10,13 @@ mbt command [options] [arguments]
 #cmd("mbt") is run in the directory of a project, the one that holds its
 #cmd("mbt.toml"), except #cmd("mbt target") and #cmd("mbt version"), which
 need no project. #cmd("mbt") without a command lists the commands and ends
-with return code 2. Options follow the command\; a long option is written
-with one or two hyphens, #cmd("-v") or #cmd("--v") alike.
+with return code 2\; #cmd("mbt help"), #cmd("-h") and #cmd("--help") list
+them with return code 0. Options may stand before or after the arguments,
+and #cmd("--") ends them. A long option is written with one or two
+hyphens.
+
+#note[*To be confirmed:* options after the arguments are accepted from the
+next prerelease of 3.0.0 on\; until then, give the options first.]
 
 When #cmd("mbt.toml") pins another version of MBT in
 #cmd("[toolchain] mbt"), the command is run by that version
@@ -38,11 +43,11 @@ modules of any other.
     case.],
 )
 
-Before linking a module declared #cmd("rent = true") or #cmd("ac = 1"),
-#cmd("mbt build") runs the check of #cmd("mbt module-data"). It also
-checks that the installed LIBC/370 is not older than
-#cmd("[toolchain] libc370"), and that the declared dependencies are
-staged.
+Before it links, #cmd("mbt build") runs the check of
+#cmd("mbt module-data"). It also checks that the installed LIBC/370 is not
+older than #cmd("[toolchain] libc370") (return code 1 otherwise), and that
+the declared dependencies are staged (return code 3). A #var("NAME") that
+is no module or test builds nothing.
 
 == mbt check <ref-cmd-check>
 
@@ -70,7 +75,11 @@ mbt compiledb
 ```
 
 Writes #cmd("compile_commands.json") in the project directory, one entry
-per C source, with the options #cmd("mbt build") uses.
+per C source of the modules, tests, #cmd("[lib]") and #cmd("[internal]"),
+for the language server #cmd("clangd"): #cmd("clang") commands with the
+options #cmd("clangd") needs to read the sources as CC/370 does
+(#cmd("-D__MVS__"), no host headers), #cmd("-std=gnu99"),
+#cmd("[build] cflags") and the include directories.
 
 == mbt deploy <ref-cmd-deploy>
 
@@ -98,6 +107,10 @@ replacing members of the same name. The library is never deleted unless
     larger, on the same volume, then deploy. Refused while the library is
     held.],
 )
+
+A project without load modules has nothing to deploy and ends with return
+code 0. An unknown #cmd("--module") is return code 2, a failed pack 1, every
+failure on MVS 4.
 
 == mbt deps <ref-cmd-deps>
 
@@ -134,8 +147,11 @@ mbt doctor [--offline]
 
 Checks the commands of CC/370, the toolchain's directory tree with
 LIBC/370, their versions against #cmd("[toolchain]"), and the project file,
-and logs on to the target, read-only. Errors end it with return code 2\; a
-CC/370 older than #cmd("[toolchain] cc370") is a warning.
+(#cmd("cc370"), #cmd("as370"), #cmd("ld370"), #cmd("ar370"),
+#cmd("xmit370")), and logs on to the target, read-only\; the target is
+chosen as for every command, #cmd("MBT_TARGET") included. Errors, an
+unreachable mvsMF among them, end it with return code 2\; a CC/370 older
+than #cmd("[toolchain] cc370") is a warning.
 
 #deflist(width: 1.2in,
   [#cmd("--offline")], [check the workstation only: no connection, no
@@ -150,8 +166,9 @@ mbt migrate [--dry-run]
 
 Reads #cmd("project.toml") of MBT 2, writes #cmd("mbt.toml"), and removes
 #cmd("project.toml") and #cmd("VERSION"). It writes nothing when the new
-file would describe a different project than the old one. Notes go to
-standard error.
+file would describe a different project than the old one: it says
+#cmd("nothing written") and ends with return code 99. Notes go to standard
+error.
 
 #deflist(width: 1.2in,
   [#cmd("--dry-run")], [print the new file to standard output instead.],
@@ -163,14 +180,16 @@ standard error.
 mbt module-data [--all] [--raw]
 ```
 
-Checks the sources of modules declared #cmd("rent = true") or
-#cmd("ac = 1") for writable data: definitions outside functions and
-#cmd("static") definitions inside them that are not #cmd("const").
-Writable data in a #cmd("rent = true") module is an error, in an
-#cmd("ac = 1") module a warning.
+Checks the sources of the load modules for writable data: definitions
+outside functions and #cmd("static") definitions inside them that are not
+#cmd("const"). Writable data in a #cmd("rent = true") module is an error,
+in an #cmd("ac = 1") module, or a module without a #cmd("rent")
+declaration (an MBT 2 project), a warning. Modules with
+#cmd("rent = false") and no #cmd("ac"), and tests, are not checked.
 
 #deflist(width: 1.2in,
-  [#cmd("--all")], [list every finding, not three per module.],
+  [#cmd("--all")], [list every warning, not three per module. Errors are
+    always listed in full.],
   [#cmd("--raw")], [scan the sources as written, without running the
     preprocessor first.],
 )
@@ -185,8 +204,10 @@ mbt package [-j n]
 Builds the load modules and the library and writes the release files into
 #cmd("dist/"): #var("name")#cmd("-")#var("version")#cmd("-load.xmit"),
 #cmd("-lib.tar.gz"), and, with #cmd("[distribution]"), the installation
-package #cmd("-dist.zip") and #cmd("-dist.tar.gz") (@ref-smp). A version
-whose FMID cannot be derived is refused (@ref-toml-smp).
+package #cmd("-dist.zip") and #cmd("-dist.tar.gz") (@ref-smp). A release
+version whose FMID cannot be derived is refused (@ref-toml-smp)\; a
+prerelease gets a warning and no installation package, and the other files
+are written.
 
 == mbt prerelease <ref-cmd-prerelease>
 
@@ -227,9 +248,10 @@ repository's tags (@ref-cmd-prerelease). A step that fails is not undone.
 mbt run [name] [-v] [--dry-run] [-- arguments...]
 ```
 
-Runs a command or a task of the project's Lua (@ref-lua). Without
-#var("name"), lists them. A task runs even when it is up to date. The
-arguments after #cmd("--") reach the code as #cmd("ctx.args").
+Runs a command or a task of the Lua of the project and of
+#cmd("~/.mbt/init.lua") (@ref-lua). Without #var("name"), lists them. A task
+runs even when it is up to date. The arguments after #cmd("--") reach a
+command as #cmd("ctx.args")\; a task gets none.
 
 #deflist(width: 1.2in,
   [#cmd("-v")], [show each program run and its output.],
@@ -249,7 +271,10 @@ mbt target import file --name name
 ```
 
 Works on the targets of #cmd("~/.mbt/targets.toml") (@ref-targets). Without
-#var("name"), on the selected target.
+#var("name"), on the selected target. #cmd("mbt target") alone is
+#cmd("list"), which also shows the target #cmd("env") when
+#cmd("MBT_TARGET_*") defines one. #cmd("ping") ends with return code 4 only
+when mvsMF does not answer.
 
 #deflist(width: 1.2in,
   [#cmd("list")], [the targets, the default marked #cmd("*"), with where
@@ -261,7 +286,8 @@ Works on the targets of #cmd("~/.mbt/targets.toml") (@ref-targets). Without
     answer.],
   [#cmd("console")], [issues an operator command and shows the reply.],
   [#cmd("import")], [turns an MBT 2 #cmd(".env") file into the target
-    #var("name").],
+    #var("name"), filling what it leaves out from the environment and
+    #cmd("~/.mbt/config.toml").],
 )
 
 == mbt test <ref-cmd-test>
@@ -287,9 +313,12 @@ workstation's C compiler and runs them there.
   [#cmd("--target") #var("name")], [the target.],
   [#cmd("--linklib") #var("dsn")], [with #cmd("--mvs"): the library the
     tests run against, after the test library in the #cmd("STEPLIB").
-    Default: #cmd("[deploy] target").],
-  [#cmd("-v")], [print the commands and every line of the tests'
-    output.],
+    Default: #cmd("[deploy] target"). If it does not exist on MVS, the
+    tests run from the test library alone.],
+  [#cmd("-v")], [on the workstation, the compile commands and the
+    compiler's errors\; with #cmd("--mvs"), the pack commands and the
+    deploy's details\; with #cmd("--tso"), a trace of the 3270 data stream
+    on standard error.],
 )
 
 == mbt version <ref-cmd-version>
@@ -299,13 +328,28 @@ mbt version
 ```
 
 Prints the version of MBT, the commit it was built from and the date.
+#cmd("mbt --version") is the same.
 
 == The Launcher <ref-cmd-launcher>
 
 #idx("launcher")
 Every #cmd("mbt") checks #cmd("[toolchain] mbt") of the project before it
 runs a command. #cmd("\"3.0\"") accepts any 3.0._x_, #cmd("\"3.0.2\"") only
-that version. When the running #cmd("mbt") does not match, the matching
-one under #cmd("~/.mbt/versions/") runs instead, downloaded first from the
-releases of #cmd("mvslovers/mbt") and checked against their SHA-256 list
-if it is not there. #cmd("MBT_NO_SWITCH=1") keeps the running one.
+that version\; #cmd("\"3.0\"") also accepts prereleases of 3.0. When the
+running #cmd("mbt") does not match, the highest matching one under
+#cmd("~/.mbt/versions/") runs instead. Only when none is there is one
+downloaded from the releases of #cmd("mvslovers/mbt"), a release preferred
+to a prerelease, and checked against their SHA-256 list.
+#cmd("MBT_NO_SWITCH=1") keeps the running one. A pin that is no version is
+return code 2, a version that cannot be fetched 3. #cmd("help") is never
+switched.
+
+== mbt ci-info <ref-cmd-ci-info>
+
+```
+mbt ci-info
+```
+
+For workflows: prints #cmd("PROJECT_NAME"), #cmd("PROJECT_VERSION"),
+#cmd("PROJECT_FILE"), #cmd("CC370_REF"), #cmd("LIBC370_REF") and
+#cmd("MBT_PIN") from the project file.
