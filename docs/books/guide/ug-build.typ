@@ -64,8 +64,9 @@ A build has four kinds of steps:
 
 #note[Because the directory is dropped, two sources of the same name, such
 as #cmd("src/util.c") and #cmd("lib/util.c"), would make the same object
-module, and only one of them is built. Give every source of a project its
-own name.]
+module. MBT refuses such a project before it compiles anything, naming both
+files: give every source of a project its own name. The same source listed
+by several modules is no conflict.]
 
 Independent steps run at the same time, as many as the workstation has
 processors\; #cmd("-j") #var("n") sets another number. A step runs again
