@@ -1,0 +1,4 @@
+$ mbt deps --update
+[mbt] mvslovers/crypto370 >=1.0.2-dev -> 1.0.2-dev
+[mbt]   staged -> .mbt/deps/crypto370 (sha aa14a4bf654e)
+[mbt] Locked 1 dependency(ies) -> mbt.lock

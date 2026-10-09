@@ -1,0 +1,3 @@
+$ mbt deps
+[mbt] ERROR: mvslovers/crypto370: locked '1.0.1' no longer fits '>=1.0.2-dev' -- run 'mbt deps --update' to re-resolve
+(return code 3)

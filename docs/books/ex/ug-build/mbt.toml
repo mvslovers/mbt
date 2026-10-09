@@ -1,0 +1,23 @@
+schema = 3
+
+[project]
+name = "sums"
+version = "1.0.0-dev"
+
+[toolchain]
+mbt = "3.0"
+
+# Code shared by the load modules, linked from a private archive.
+[internal]
+sources = ["src/*.c", "asm/*.asm"]
+
+# The same code, published as a library for other projects.
+[lib]
+name = "sums"
+sources = ["src/*.c", "asm/*.asm"]
+headers = ["include/sums.h"]
+
+[module.SUMS]
+sources = ["app/sums.c"]
+rent = true
+reus = true
