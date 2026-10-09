@@ -70,7 +70,7 @@ func cmdTestTSO(args []string) int {
 	fl.Var(&only, "only", "run only this test (repeatable)")
 	targetName := fl.String("target", "", "the MVS system (a name in ~/.mbt/targets.toml)")
 	verbose := fl.Bool("v", false, "trace the 3270 data stream (passwords are never traced)")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
