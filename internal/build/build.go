@@ -167,15 +167,19 @@ func (b *Builder) Run() error {
 		}
 	}
 
+	// every source of the project must map to an object of its own, whatever
+	// is built this time: build/<stem>.o drops the directory, and two sources
+	// sharing a stem would silently share one object (mbt#200)
+	if err := CheckObjectNames(b.P, b.O.BuildDir); err != nil {
+		return err
+	}
+
 	// objects needed
 	need := map[string]string{} // object -> source
 	var order []string
 	add := func(srcs []string) {
 		for _, s := range srcs {
 			o := project.ObjectPath(b.O.BuildDir, s)
-			if prev, ok := need[o]; ok && prev != s {
-				continue // v2: the first source of a stem wins the rule
-			}
 			if _, ok := need[o]; !ok {
 				order = append(order, o)
 			}
@@ -227,6 +231,35 @@ func (b *Builder) Run() error {
 		}
 	}
 	return b.runAll(links)
+}
+
+// CheckObjectNames refuses two different sources that map to the same
+// object, naming both. mbt 2 let the first one win, so the other was never
+// compiled: a link failure at best, a wrong object linked at worst.
+func CheckObjectNames(p *project.Project, builddir string) error {
+	from := map[string]string{} // object -> source
+	var clash []string
+	check := func(srcs []string) {
+		for _, s := range srcs {
+			o := project.ObjectPath(builddir, s)
+			if prev, ok := from[o]; ok && prev != s {
+				clash = append(clash, fmt.Sprintf("%s and %s both compile to %s", prev, s, o))
+				continue
+			}
+			from[o] = s
+		}
+	}
+	for _, u := range append(append([]*project.Unit{}, p.Modules...), p.Tests...) {
+		check(u.Sources)
+	}
+	check(p.Internal)
+	if p.Lib != nil {
+		check(p.Lib.Sources)
+	}
+	if len(clash) == 0 {
+		return nil
+	}
+	return &Error{Code: 2, Msg: "sources sharing a name: " + strings.Join(clash, "; ") + " -- rename one; objects are named after the file alone"}
 }
 
 func objs(builddir string, srcs []string) []string {
