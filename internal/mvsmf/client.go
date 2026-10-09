@@ -318,6 +318,14 @@ func (c *Client) DatasetExists(dsn string) bool {
 // DatasetVolume says whether dsn is cataloged and on which volume ("" when
 // the listing does not say).
 func (c *Client) DatasetVolume(dsn string) (string, bool) {
+	a, ok := c.DatasetAttrs(dsn)
+	return a["vol"], ok
+}
+
+// DatasetAttrs is the data set list's entry for dsn, as strings: vol, dev,
+// dsorg, recfm, blksz, spacu (TRACKS, CYLINDERS), sizex (allocated, in
+// spacu), used (percent of it), extx (extents).
+func (c *Client) DatasetAttrs(dsn string) (map[string]string, bool) {
 	parts := strings.Split(dsn, ".")
 	n := len(parts) - 1
 	if n > 2 {
@@ -328,16 +336,37 @@ func (c *Client) DatasetVolume(dsn string) (string, bool) {
 	}
 	m, _, err := c.jsonDo("GET", "/restfiles/ds?dslevel="+strings.Join(parts[:n], "."), nil)
 	if err != nil {
-		return "", false
+		return nil, false
 	}
 	items, _ := m["items"].([]any)
 	for _, it := range items {
 		im, _ := it.(map[string]any)
 		if strings.TrimSpace(strOr(im["dsname"], "")) == dsn {
-			return strings.TrimSpace(strOr(im["vol"], "")), true
+			a := map[string]string{}
+			for k, v := range im {
+				a[k] = strings.TrimSpace(strOr(v, ""))
+			}
+			return a, true
 		}
 	}
-	return "", false
+	return nil, false
+}
+
+// Members lists a PDS's member names.
+func (c *Client) Members(dsn string) ([]string, error) {
+	m, _, err := c.jsonDo("GET", "/restfiles/ds/"+dsn+"/member", nil)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	items, _ := m["items"].([]any)
+	for _, it := range items {
+		im, _ := it.(map[string]any)
+		if n := strings.TrimSpace(strOr(im["member"], "")); n != "" {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }
 
 func (c *Client) CreateDataset(dsn, dsorg, recfm string, lrecl, blksize int, space []any, unit, volume string) error {
