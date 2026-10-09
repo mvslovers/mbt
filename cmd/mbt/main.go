@@ -114,8 +114,9 @@ commands:
                                       run test/tso/*.lua interactively over TN3270, one TSO logon each
   check                               every test suite: the host first, then MVS
   migrate [--dry-run]                 convert project.toml into mbt.toml (schema 3)
-  deploy [--target NAME] [--linklib DSN] [--module M]... [--dry-run] [-v]
-                                      pack the built modules and RECEIVE them on MVS
+  deploy [--target NAME] [--linklib DSN] [--module M]... [--dry-run] [-v] [--ignore-space] [--reallocate]
+                                      put the built modules into the library on MVS, replacing members
+                                      (the library is never deleted: a running server may hold it)
   compiledb                           write compile_commands.json for clangd
   doctor [--offline]                  check the toolchain, the sysroot and the MVS connection (--offline: no logon)
   release VERSION [--next V]          release VERSION-dev as VERSION: bump, tag, push, then bump to V
@@ -1458,6 +1459,8 @@ func cmdDeploy(args []string) int {
 	fl.Var(&mods, "module", "deploy only this module (repeatable)")
 	dry := fl.Bool("dry-run", false, "pack locally and report, touch no MVS")
 	verbose := fl.Bool("v", false, "echo the ld370/RECEIVE commands")
+	ignoreSpace := fl.Bool("ignore-space", false, "copy although the library's free space looks too small (its secondary extents may cover it)")
+	reallocate := fl.Bool("reallocate", false, "delete the target and allocate it again, larger, on its volume (only while nothing holds it)")
 	if err := fl.Parse(args); err != nil {
 		return exitConfig
 	}
@@ -1491,6 +1494,7 @@ func cmdDeploy(args []string) int {
 	}
 	code = deploy.Run(deploy.Options{Root: root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
 		Modules: names, Target: *linklib, ProjectTarget: pt, Only: mods, DryRun: *dry, Verbose: *verbose,
+		IgnoreSpace: *ignoreSpace, Reallocate: *reallocate,
 		Out: os.Stdout, Err: os.Stderr, Config: cfg, Client: client})
 	if code != exitOK {
 		return code
