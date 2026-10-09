@@ -1,0 +1,6 @@
+[distribution]
+readme = "README.md"
+
+[smp]
+prefix = "TSUM"
+delete = []                # the first level: nothing to replace
