@@ -169,14 +169,11 @@ other's working copy instead of a release. Name it in
 
 #cmd("mbt deps") then stages that dependency from the working copy: the
 library its last build left in #cmd("build/") and the headers its
-#cmd("[lib]") names. Build the library there first. GitHub and the lock are
-not consulted for it, and #cmd("mbt.lock") keeps the release pin, so
-deleting the file returns to the release. #cmd(".mbt/") is not committed,
-so the override never reaches anyone else.
-
-#note[*To be confirmed:* that the override of MBT 3 stages exactly as
-described, from #cmd("build/") and the #cmd("[lib]") headers of the working
-copy.]
+#cmd("[lib]") names. Build the library there first\; otherwise
+#cmd("mbt deps") reports that it is not built. GitHub and the lock are not
+consulted for it, and #cmd("mbt.lock") keeps the release pin, so deleting
+the file returns to the release. #cmd(".mbt/") is not committed, so the
+override never reaches anyone else.
 
 == The Toolchain <ug-deps-toolchain>
 

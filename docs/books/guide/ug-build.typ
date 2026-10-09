@@ -184,7 +184,8 @@ Each load module is a table #cmd("[module.")#var("NAME")#cmd("]"),
       routine of a C program.],
     [#cmd("startup")], [how the C run time comes in, see below.],
     [#cmd("dep_startup")], [#cmd("true") when a dependency provides the
-      start-up routine #cmd("@@START"), as for a module run by a server.],
+      start-up routine #cmd("@@START"), as the library of an HTTP server
+      does for its CGI modules\; #cmd("false") keeps that of LIBC/370.],
     [#cmd("aliases")], [further names of the module, such as
       #cmd("[\"REXX\", \"RX\"]").],
   )
@@ -208,9 +209,9 @@ point #cmd("@@CRT0"), the linkage editor finds the start-up routine in
   [(omitted)], [a C program, as above.],
   [#cmd("false")], [no C run time: a module with its own entry point,
     usually in assembler. Set #cmd("entry") to it.],
-  [#cmd("\"crtm\"")], [the start-up for a C module that is called by
-    another program rather than run as one\; see the _LIBC/370 Programmer's
-    Guide_, "The Start-Up".],
+  [#cmd("\"crtm\"")], [a C module that another C program links to or calls:
+    it uses the C run time of its caller instead of starting its own. See
+    the _LIBC/370 Programmer's Guide_, "The Start-Up".],
 )
 
 == Shared Code: [internal] <ug-build-internal>
@@ -262,10 +263,13 @@ Many projects build the same sources twice, as #cmd("sums") does: in
 #idx("module-data check")#idx("RENT", "writable data")
 A module declared #cmd("rent = true") is one copy that every task running
 it shares, and MVS may load it into storage that cannot be written to. It
-must not keep data it changes in itself. The same holds for a module with
-#cmd("ac = 1"). Before it links such a module, MBT looks through its
-sources for data that can be written: variables defined outside functions,
-and #cmd("static") variables inside them, that are not #cmd("const").
+must not keep data it changes in itself. Before it links such a module,
+MBT looks through its sources for data that would land in the module
+itself: variables defined outside functions, and #cmd("static") variables
+inside them, that are not #cmd("const"). In a #cmd("rent = true") module
+that is an error. A module with #cmd("ac = 1") is checked too, and gets a
+warning, since MVS fetches an authorized module into storage the program
+cannot change. Modules that are neither, and tests, are not checked.
 @ug-build-moddata-fig shows what happens when #cmd("v") in
 #cmd("app/sums.c") loses its #cmd("const").
 
@@ -275,7 +279,8 @@ and #cmd("static") variables inside them, that are not #cmd("const").
 
 Nothing is linked then. Make the data #cmd("const"), keep it on the stack or
 in storage the program obtains, or declare the module #cmd("rent = false").
-#cmd("mbt module-data") runs the check alone.
+#cmd("mbt module-data") runs the check alone\; it reports the first three
+findings of each module, #cmd("--all") every one.
 
 == An Editor That Knows the Build <ug-build-compiledb>
 
