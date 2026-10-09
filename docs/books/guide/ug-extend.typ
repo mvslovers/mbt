@@ -42,8 +42,7 @@ project, then your own file.
       report module sizes],
     [#cmd("before_test"), #cmd("after_test")], [prepare test data\; pass
       the results on. In #cmd("after_test"), #cmd("ctx.kind") says
-      #cmd("host"), #cmd("mvs") or #cmd("tso"). #cmd("mbt test --tso")
-      runs no #cmd("before_test") hook.],
+      #cmd("host"), #cmd("mvs") or #cmd("tso").],
     [#cmd("before_package"), #cmd("after_package")], [build a file that
       ships in the package],
     [#cmd("before_dist"), #cmd("after_dist")], [add to the installation

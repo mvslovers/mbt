@@ -30,6 +30,11 @@ this chapter describes version 1.
   [#cmd("mbt.version")], [the version of MBT.],
 )
 
+#cmd("mbt.hook") with an unknown point is an error that lists the points\;
+a command needs a name and a function, and a name may be used once.
+#cmd("require") takes names in lower case, dots for directories
+(#cmd("a.b") is #cmd("mbt/lua/a/b.lua")).
+
 *Errors.* An error in a #cmd("before_") hook or in a task stops the command
 before it runs. An error in an #cmd("after_") hook fails the command and
 undoes nothing. An #cmd("on_failure") hook gets #cmd("ctx.result") with
@@ -59,6 +64,11 @@ mbt.task {
   [#cmd("run")], [the function.],
 )
 
+A task's #cmd("description") is shown by #cmd("mbt run"). Errors in a task
+declaration: #cmd("before") naming no command of the list above, a path
+outside the project, a name used twice or by a command. Under
+#cmd("--dry-run") a task runs, but its outputs are left in place.
+
 Tasks run before the #cmd("before_") hooks of a command, each at most once
 per run. A task with inputs but no outputs, or an input pattern that
 matches nothing, is an error. A task runs on the first run and, without
@@ -75,12 +85,17 @@ that made them changed: the task itself, the Lua files loaded, the
   [#cmd("ctx.project")], [a copy: #cmd("name"), #cmd("version"),
     #cmd("modules"), #cmd("tests").],
   [#cmd("ctx.args")], [the arguments after #cmd("--") of #cmd("mbt run").],
-  [#cmd("ctx.dry_run")], [#cmd("true") under #cmd("--dry-run").],
+  [#cmd("ctx.dry_run")], [#cmd("true") under #cmd("mbt run --dry-run") and
+    #cmd("mbt deploy --dry-run").],
   [#cmd("ctx.kind")], [in #cmd("after_test"): #cmd("host"), #cmd("mvs") or
     #cmd("tso").],
-  [#cmd("ctx.result")], [in #cmd("after_") hooks: what the command
-    produced, such as the modules built or the tag released\; in
-    #cmd("on_failure"): #cmd("command") and #cmd("error").],
+  [#cmd("ctx.result")], [in #cmd("after_") hooks: what the command produced
+    -- #cmd("build"): #cmd("modules"), #cmd("tests")\; #cmd("package"),
+    #cmd("dist"): #cmd("artifacts")\; #cmd("release"): #cmd("version"),
+    #cmd("tag"), #cmd("prerelease")\; #cmd("test"): #cmd("kind"),
+    #cmd("passed")\; #cmd("deploy"): #cmd("library"), #cmd("modules"),
+    #cmd("dry_run"). In #cmd("on_failure"): #cmd("command") and
+    #cmd("error").],
   [#cmd("ctx.out"), #cmd("ctx.inputs")], [in a task: its outputs, and the
     files its inputs matched.],
   [#cmd("ctx.log(")#var("s")#cmd(")"), #cmd("ctx.warn(")#var("s")#cmd(")")],
@@ -89,23 +104,36 @@ that made them changed: the task itself, the Lua files loaded, the
     [runs a program without a shell. #cmd("check") defaults to
     #cmd("true"): a non-zero exit code raises an error\; with
     #cmd("check = false") it is returned. Returns the output and the exit
-    code\; under #cmd("mbt run") the program writes to the terminal and the
-    output returned is empty. #cmd("env") adds environment variables. Under
+    code\; the output is standard output and standard error together. Under
+    #cmd("mbt run") the program uses the terminal and the output returned
+    is empty. The program runs in the project directory. #cmd("env") adds environment variables. Under
     #cmd("--dry-run") nothing runs. In a plugin, only the programs its
     #cmd("plugin.toml") names, by the base name of the first argument.],
   [#cmd("ctx.tool(")#var("name")#cmd(")")], [the path of a #cmd("[tools]")
     program, fetched and checked if need be.],
   [#cmd("ctx.fs.read(")#var("p")#cmd(")"), #cmd("write(")#var("p")#cmd(", ")#var("s")#cmd(")"),
     #cmd("exists"), #cmd("mkdir"), #cmd("remove"), #cmd("list")], [files,
-    inside the project only. #cmd("remove") does not remove the project
-    itself.],
-  [#cmd("ctx.target()")], [the selected target: its name, hosts, ports and
-    users, never a password.],
+    inside the project only: an absolute path, #cmd("..") or a link
+    leading outside is an error. #cmd("list(")#var("pattern")#cmd(")")
+    returns files and directories, #cmd("exists") a boolean.
+    #cmd("remove") does not remove the project itself. Under
+    #cmd("--dry-run"), #cmd("write"), #cmd("mkdir") and #cmd("remove") do
+    nothing.],
+  [#cmd("ctx.target()")], [the selected target, defaults applied, never a
+    password: #cmd("name"), #cmd("hlq"), #cmd("volume"), #cmd("jobclass"),
+    #cmd("msgclass"), #cmd("console"), #cmd("mvsmf = {url, user}"), and
+    where the target has them #cmd("hercules = {url, user}"),
+    #cmd("ssh = {host, user, port}"), #cmd("tn3270 = {host, port, tls,
+    user}"). An error when the command has no target.],
   [#cmd("ctx.console(")#var("cmd")#cmd(")")], [an operator command through
     the target's console chain. Returns the reply lines and the channel
-    that delivered it.],
+    that delivered it\; under #cmd("--dry-run"), an empty list.],
   [#cmd("ctx.mvs.request{ method, path, body, content_type }")], [a request
-    to mvsMF in MBT's session. Returns status and body.],
+    to mvsMF in MBT's session. #cmd("method") defaults to #cmd("GET");
+    #cmd("path") starts with #cmd("/") and lies below #cmd("/zosmf");
+    #cmd("content_type") defaults to JSON when there is a body. Returns
+    status and body. An HTTP error status is returned\; only a failed
+    connection raises an error.],
   [#cmd("ctx.mvs.token()")], [the session token, for another program's
     environment.],
 )

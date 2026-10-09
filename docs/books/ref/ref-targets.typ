@@ -29,8 +29,9 @@ Required.
 
 #table(columns: (1.2in, 1.3in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("url")], [required], [#cmd("http://")#var("host")#cmd(":")#var("port").
-    Only #cmd("http") is supported.],
+  [#cmd("url")], [required], [#cmd("http://")#var("host")#cmd(":")#var("port"),
+    the port 80 if left out. Only #cmd("http") is supported\; another
+    scheme fails at the connection.],
   [#cmd("user")], [required], [the user ID.],
   [#cmd("password")], [none], [a password (@ref-targets-password).],
 )
@@ -55,7 +56,8 @@ For #cmd("mbt test --tso").
   [Key], [Default], [Meaning],
   [#cmd("host")], [required], [the host.],
   [#cmd("port")], [#cmd("3270")], [the port.],
-  [#cmd("tls")], [#cmd("false")], [use TLS.],
+  [#cmd("tls")], [#cmd("false")], [reserved\; not yet used: connections
+    are plain TCP.],
   [#cmd("user")], [none], [the TSO user ID the tests log on with.],
   [#cmd("password")], [none], [its password.],
 )
@@ -64,7 +66,8 @@ For #cmd("mbt test --tso").
 
 #table(columns: (1.2in, 1.3in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("host")], [required], [the host that runs Hercules.],
+  [#cmd("host")], [required], [the host that runs Hercules. Only
+    #cmd("mbt target ping") uses the SSH access, as a probe.],
   [#cmd("user")], [none], [the user.],
   [#cmd("identity")], [none], [a key file. No passwords: keys or an
     agent.],
@@ -75,9 +78,12 @@ For #cmd("mbt test --tso").
 
 #table(columns: (1.2in, 1.3in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("order")], [#cmd("[\"mvsmf\", \"hercules\"]")], [the channels
+  [#cmd("order")], [#cmd("[\"mvsmf\"]"), and #cmd("[\"mvsmf\",
+    \"hercules\"]") when the target has #cmd("[hercules]")], [the channels
     for operator commands, in the order they are tried. A channel is
-    tried only when the one before certainly did not deliver.],
+    tried only when the one before certainly did not deliver. Naming
+    #cmd("hercules") without its section, or an unknown channel, is an
+    error.],
 )
 
 == Passwords <ref-targets-password>
@@ -85,18 +91,25 @@ For #cmd("mbt test --tso").
 #idx("password", "sources")
 #table(columns: (2.4in, 1fr),
   [Value], [The password is],
-  [#cmd("\"")#var("text")#cmd("\"")], [#var("text"). Accepted only while
-    the file is readable by its owner alone.],
+  [#cmd("\"")#var("text")#cmd("\"")], [#var("text"). Refused while group or
+    others have any permission on the file (#cmd("chmod 600")).],
   [#cmd("{ env = \"")#var("VAR")#cmd("\" }")], [the value of the
     environment variable #var("VAR").],
-  [#cmd("{ keychain = \"")#var("name")#cmd("\" }")], [the entry
-    #var("name") of the macOS Keychain (#cmd("security")) or the Secret
-    Service (#cmd("secret-tool")).],
+  [#cmd("{ keychain = \"")#var("name")#cmd("\" }")], [the entry with the
+    service name #var("name"), on macOS from the Keychain
+    (#cmd("security find-generic-password -s")), elsewhere from the Secret
+    Service (#cmd("secret-tool lookup service")).],
   [#cmd("{ cmd = [\"")#var("prog")#cmd("\", ...] }")], [the first line
     #var("prog") writes, started without a shell.],
 )
 
-A source that yields an empty password is an error that names the source.
+A table names exactly one source, and #cmd("cmd") a non-empty list. A
+source that yields an empty password, or an unset variable, is an error
+that names it. The password is read only when MBT logs on, so a dry run
+never asks for it.
+
+A key not listed in this chapter is an error, reported by its table. The
+types of the values are not checked: give them as shown.
 
 == Selecting a Target <ref-targets-select>
 
