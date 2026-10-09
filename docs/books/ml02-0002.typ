@@ -4,6 +4,7 @@
   title: "MBT for MVS 3.8j",
   subtitle: "Reference",
   short-title: "MBT Reference",
+  product: "MBT",
   number: "ML02-0002-0",
   date: "October 2026",
   authors: ("Mike Großmann",),
