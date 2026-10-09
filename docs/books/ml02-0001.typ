@@ -52,7 +52,7 @@ key is described in full in the companion volume, the _MBT Reference_.
   [Chapter 9], [“Packaging and SMP Installation”.],
   [Chapter 10], [“Releasing”.],
   [Chapter 11], [“Extending MBT”.],
-  [Appendix A], [“Migrating from mbt 2”.],
+  [Appendix A], [“Migrating from MBT 2”.],
   [Appendix B], [“Glossary”.],
 )
 
