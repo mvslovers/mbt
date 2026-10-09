@@ -120,8 +120,6 @@ Both install MBT, which then switches to the version
 Once MBT 3.0.0 is released, pin #cmd("uses:") to its tag instead of
 #cmd("@main"), so that workflow and tool do not drift apart.
 
-#note[*To be confirmed:* that #cmd("release3.yml") marks a
-#cmd("-dev") or #cmd("-rc") tag as a GitHub prerelease.]
 
 A workflow that deploys or tests on MVS describes its target in
 environment variables from the repository's secrets (@ug-targets-ci).

@@ -27,7 +27,8 @@ project deploys into a library of its own, by default
       that],
     [#var("NAME")#cmd(".DEV.LINKLIB")], [development], [#cmd("mbt deploy")],
     [#var("HLQ")#cmd(".")#var("NAME")#cmd(".")#var("VRM")#cmd(".TESTLIB")],
-      [tests], [#cmd("mbt test --mvs") (@ug-test-mvs)],
+      [tests], [#cmd("mbt test --mvs") (@ug-test-mvs)\; #cmd("[deploy]
+      test_target") names another],
   )
 ] <ug-deploy-libs>
 
@@ -62,7 +63,9 @@ first. Then:
 + *Pack.* The modules go into one TSO TRANSMIT file of a load library.
 + *Check the room.* If the library exists, MBT reads how many tracks are
   free and estimates, generously, how many the modules need. When they do
-  not fit, it stops before anything is copied (@ug-deploy-space).
+  not fit, it stops before anything is copied (@ug-deploy-space). When it
+  cannot measure the space, for a device or space unit it does not know,
+  it warns and goes on without the check.
 + *Upload.* The TRANSMIT file goes to MVS through mvsMF, into a staging data
   set #var("hlq")#cmd(".MBT.XMIT.IN").
 + *Receive and copy.* One job receives the file into a staging library,
@@ -76,15 +79,28 @@ first. Then:
 + *Report.* It shows how full the library is, with a warning from 80 per
   cent on, and removes the staging data sets.
 
+@ug-deploy-log shows the first deploy of a module into a library that did
+not exist yet. The project is a library project whose test module was
+deployed\; its name, cut to eight characters, names the staging library.
+
+#fig(caption: [A first deploy])[
+  #screen(raw(read("../ex/ug-deploy/deploy.txt")))
+] <ug-deploy-log>
+
+A second deploy of the same module shows the same lines, without the
+allocation, and ends at 46 per cent of the 30 tracks: the old member's
+space is still there (@ug-deploy-space).
+
 #cmd("--module") #var("M") deploys only the named module (repeat it for
 more). #cmd("--dry-run") packs and stops: it needs no password and logs on
 to nothing.
 
 #idx("deploy", "first")
 *A library that does not exist yet* is allocated by the deploy job, with
-room for several deploys, on the volume of the target (#cmd("volume"),
-@ug-targets-file). MBT checks afterwards that it landed on that volume,
-since an APF entry names a data set together with its volume.
+room for several deploys, on the target's volume if the target names one
+(#cmd("volume"), @ug-targets-file). MBT then checks that it landed on that
+volume, since an APF entry names a data set together with its volume.
+Without a volume, the system chooses one, and there is nothing to check.
 
 *A running server keeps the modules it loaded.* A new member in the library
 reaches a program the next time it is loaded. A server that loaded its
@@ -103,8 +119,10 @@ the numbers and the three ways out:
   server is stopped, or in the server's start-up procedure before the
   server itself starts.
 - *#cmd("mbt deploy --reallocate")* deletes the library and allocates it
-  again, larger, on the same volume, then deploys. It works only while
-  nothing holds the library, and refuses otherwise.
+  again, larger, on the same volume, then deploys. The new library is never
+  smaller than the old one. It works only while nothing holds the library:
+  otherwise the delete fails, and MBT stops with "most likely a running
+  server holds it -- stop it first".
 - *#cmd("mbt deploy --ignore-space")* copies all the same, for a library
   whose secondary extents will take it.
 
@@ -114,13 +132,23 @@ before it runs out of tracks.
 
 #note[*Libraries from earlier deploys.* Earlier versions of MBT deleted the
 library on every deploy and received it afresh, sized to its content, so
-such a library is full. Its first deploy now needs #cmd("--reallocate"), once, with the
+such a library is full or nearly so. Its first deploy now needs #cmd("--reallocate"), once, with the
 server stopped.]
 
 == When a Deploy Fails <ug-deploy-fail>
 
 #idx("mbt deploy", "errors")
-A deploy that fails on MVS ends with return code 4 and says why. When the
-job ran but the modules did not arrive, the job's output is in
-#cmd("build/deploy.spool"), and the uploaded TRANSMIT file is left in
-#var("hlq")#cmd(".MBT.XMIT.IN"), so the RECEIVE can be repeated.
+A deploy that fails on MVS ends with return code 4 and says why, also when
+it stopped for lack of room before anything was uploaded. An unknown
+#cmd("--module") or a project without built modules ends with return code
+2, before MVS is reached.
+
+When the job ran but did not deliver, because a module is missing from the
+library afterwards or the library landed on another volume, the job's
+output is in #cmd("build/deploy.spool"), and the uploaded TRANSMIT file is
+left in #var("hlq")#cmd(".MBT.XMIT.IN"), so the RECEIVE can be repeated.
+
+*A failed deploy is not all or nothing.* #cmd("IEBCOPY") replaces one
+member after the other, so a job that fails part-way can leave some of the
+new modules in the library beside old ones. MBT says so\; look at the
+spool before you use the library.
