@@ -175,9 +175,11 @@ func Run(o Options) int {
 		o.fail("%v", err)
 		return ExitBuild
 	}
+	staging := o.Config.HLQ() + ".MBT.XMIT.IN"
+	stage := fmt.Sprintf("%s.%s.MBTDPLY", o.Config.HLQ(), MVSQualifier(o.Project))
 	if o.DryRun {
-		o.log("[dry-run] would upload %s -> staging", filepath.Base(xmit))
-		o.log("[dry-run] would delete + RECEIVE -> %s", target)
+		o.log("[dry-run] would upload %s -> %s", filepath.Base(xmit), staging)
+		o.log("[dry-run] would RECEIVE into %s, then IEBCOPY replace into %s (DISP=SHR; allocated first if missing)", stage, target)
 		return ExitOK
 	}
 
@@ -190,7 +192,6 @@ func Run(o Options) int {
 		}
 		c = mvsmf.New(o.Config.Host(), port, o.Config.User(), o.Config.Pass())
 	}
-	staging := o.Config.HLQ() + ".MBT.XMIT.IN"
 	keep := false
 	defer func() {
 		if !keep && c.DatasetExists(staging) {
@@ -199,7 +200,6 @@ func Run(o Options) int {
 			}
 		}
 	}()
-	stage := fmt.Sprintf("%s.%s.MBTDPLY", o.Config.HLQ(), MVSQualifier(o.Project))
 	bytes := 0
 	for _, m := range built {
 		if st, err := os.Stat(filepath.Join(o.Root, o.BuildDir, m+".iebcopy")); err == nil {
