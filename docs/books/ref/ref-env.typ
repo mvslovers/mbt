@@ -37,7 +37,7 @@ on a workstation with a #cmd("targets.toml").
 )
 
 #cmd("ASMDATE") and the others belong to CC/370\; set them to make two
-builds byte-identical (@ug-migrate-check).
+builds byte-identical (_MBT User's Guide_, "Migrating from MBT 2").
 
 == The Target <ref-env-target>
 
