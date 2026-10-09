@@ -1,0 +1,6 @@
+build/HELLO
+build/hello.d
+build/hello.deploy.xmit
+build/HELLO.iebcopy
+build/hello.o
+build/host/tstadd

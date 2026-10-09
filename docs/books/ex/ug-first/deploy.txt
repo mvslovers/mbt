@@ -1,0 +1,6 @@
+$ mbt deploy --dry-run
+[mbt] Deploy target: HELLO.DEV.LINKLIB
+[mbt] Modules (1): HELLO
+[mbt] Packed 1 module(s) -> hello.deploy.xmit
+[mbt] [dry-run] would upload hello.deploy.xmit -> staging
+[mbt] [dry-run] would delete + RECEIVE -> HELLO.DEV.LINKLIB

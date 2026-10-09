@@ -1,0 +1,4 @@
+$ mbt build
+[cc370] src/hello.c
+[ld370] HELLO (entry=@@CRT0)
+[mbt] Build complete
