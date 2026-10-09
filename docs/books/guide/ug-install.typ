@@ -17,7 +17,10 @@ to check the result.
   #cmd("cc370"), #cmd("as370"), #cmd("ld370"), #cmd("ar370") and
   #cmd("xmit370"), and the C library in the directory tree of the toolchain.
   Their installation is described in the _CC/370 User's Guide_, Chapter 2.
-  MBT uses whatever toolchain it finds on the #cmd("PATH").
+  MBT uses the #cmd("cc370") it finds on the #cmd("PATH"), and LIBC/370 in
+  that toolchain's directory tree. The versions a project names in
+  #cmd("[toolchain]") do not select another one\; they are checked
+  (@ug-install-check).
 - *A C compiler for the workstation*, such as #cmd("cc") or #cmd("gcc"), if
   you want to run the tests of a project on the workstation (@ug-test).
 - *Access to GitHub*, when a project has dependencies or pins a version of
@@ -121,6 +124,16 @@ shows the check in the project of @ug-first.
   #screen(raw(read("../ex/ug-first/doctor.txt")))
 ] <ug-install-doctor>
 
-Each line names what was found and where. A missing command, a toolchain
-older than the project asks for, or an error in #cmd("mbt.toml") is
-reported, and #cmd("mbt doctor") then ends with a return code other than 0.
+Each line names what was found and where. These are errors, after which
+#cmd("mbt doctor") ends with return code 2:
+
+- a command of CC/370 that is missing\;
+- a directory tree without the C library (#cmd("libc.a"), #cmd("crtm.o")) or
+  without the macros and the run-time library of CC/370\;
+- a LIBC/370 older than #cmd("[toolchain] libc370") asks for\;
+- an #cmd("mbt.toml") that cannot be read\;
+- without #cmd("--offline"), an MVS target that cannot be reached or refuses
+  the logon.
+
+A CC/370 older than #cmd("[toolchain] cc370") is only a warning: the build
+may still work, and #cmd("mbt doctor") says so without failing.

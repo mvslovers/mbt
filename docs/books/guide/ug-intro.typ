@@ -70,12 +70,15 @@ project, its version and its kind, and describes what the project produces:
   own. MBT finds them under #cmd("test/") by itself.
 
 #idx("project", "kind")
-The project's _kind_ says which of these is its main product: an
-#cmd("application") builds load modules, a #cmd("library") builds a
-library. #cmd("mbt build") without arguments builds the main product.
+The project's _kind_ says what it is: an #cmd("application"), a
+#cmd("library"), or a #cmd("module") such as a server module that another
+program loads. Only #cmd("library") changes what MBT does: #cmd("mbt build")
+without arguments builds the library of such a project, and the load modules
+of any other. #cmd("application") and #cmd("module") build the same and
+record what the project is.
 
-#note[*To be confirmed:* what the third kind, #cmd("module"), changes
-compared with #cmd("application").]
+#note[*To be confirmed:* whether #cmd("module") will come to mean more
+than #cmd("application").]
 
 #idx("target")
 The MVS systems a project is deployed to and tested on are _targets_. They
@@ -103,9 +106,11 @@ the workstation, and a project that is not ready for a newer MBT keeps its
 pin. The environment variable #cmd("MBT_NO_SWITCH=1") keeps the #cmd("mbt")
 that was started.
 
-#cmd("[toolchain] cc370") and #cmd("[toolchain] libc370") do the same for
-the toolchain: they name the releases of CC/370 and of its C library
-LIBC/370 that a release of the project is built with (@ug-deps).
+#cmd("[toolchain] cc370") and #cmd("[toolchain] libc370") name the
+releases of CC/370 and of its C library LIBC/370 that a release of the
+project is built with. They do not select a toolchain on the workstation,
+which builds with the one it has installed; MBT only checks that one
+against them (@ug-deps).
 
 == MBT 2 and MBT 3 <ug-intro-mbt2>
 

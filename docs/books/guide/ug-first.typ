@@ -24,12 +24,14 @@ hello/
   test/tstadd.c     a test
 ```
 
-MBT expects the C and assembler sources of a project under #cmd("src/"),
-its public headers under #cmd("include/") and its tests under #cmd("test/").
-None of these is mandatory, but each one used as expected is one thing less
-to write into the project file. Make the directory a Git repository
-(#cmd("git init")): MBT names the commit it built in its build stamp
-(@ug-build) and uses the tags of the repository when it releases.
+MBT expects public headers under #cmd("include/"), which is on the include
+path without being named, and tests under #cmd("test/"), where it finds
+them by itself. The sources live where the project file lists them\;
+#cmd("src/") is the custom. Make the directory a Git repository
+(#cmd("git init")): MBT puts the commit it built into a build stamp that a
+program can include (@ug-build), and #cmd("mbt release") commits, tags and
+pushes a release. Outside a repository the stamp names no commit, and
+nothing else fails.
 
 == The Program <ug-first-program>
 
