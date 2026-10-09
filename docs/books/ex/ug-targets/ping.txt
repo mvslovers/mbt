@@ -1,0 +1,5 @@
+$ mbt target ping lab
+[mbt] lab        mvsmf     http://lab:8080       answering (HTTP 401, 76 ms)
+[mbt] lab        hercules  http://lab:8181       answering (HTTP 200, 2 ms)
+[mbt] lab        tn3270    lab:3270              open (1 ms)
+[mbt] lab        ssh       lab:22                open (0 ms)
