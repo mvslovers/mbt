@@ -4,16 +4,24 @@
 
 #idx("mbt.toml")
 #cmd("mbt.toml") describes a project, in TOML, schema 3. This chapter lists
-every table and key, with its default. A key not listed here is an error,
-and so is a directory that holds both #cmd("mbt.toml") and an MBT 2
-#cmd("project.toml"). #var("NAME") below is the project name in upper case.
+every table and key, with its default. #var("NAME") below is the project
+name in upper case.
+
+A key not listed here is an error that names it, with return code 2, in
+every table except #cmd("[dependencies]") and #cmd("[plugins]"), whose keys
+are repository names, and #cmd("[tools]"), whose entries are checked when a
+tool is needed (return code 3). The reserved tables of @ref-toml-reserved
+are errors too. The types of the values are not checked: give them as
+shown. A directory that holds both #cmd("mbt.toml") and an MBT 2
+#cmd("project.toml") is an error, and so are the MBT 2 forms
+#cmd("[[module]]") and #cmd("[[test]]").
 
 
 == Top Level <ref-toml-top>
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("schema")], [required], [#cmd("3").],
+  [#cmd("schema")], [required], [the number #cmd("3"), not the string.],
 )
 
 == [project] <ref-toml-project>
@@ -23,10 +31,10 @@ and so is a directory that holds both #cmd("mbt.toml") and an MBT 2
   [#cmd("name")], [required], [the project's name.],
   [#cmd("version")], [required], [#var("major")#cmd(".")#var("minor")#cmd(".")#var("patch"),
     optionally #cmd("-dev") or #cmd("-rc")#var("n"). No number above 9 in a
-    project with an SMP package.],
+    project whose FMID is derived.],
   [#cmd("kind")], [#cmd("\"application\"")], [#cmd("application"),
-    #cmd("library") or #cmd("module"). Only #cmd("library") changes
-    anything: #cmd("mbt build") then builds the library.],
+    #cmd("library") or #cmd("module"), not checked. Only #cmd("library")
+    changes anything: #cmd("mbt build") then builds the library.],
 )
 
 == [toolchain] <ref-toml-toolchain>
@@ -34,11 +42,15 @@ and so is a directory that holds both #cmd("mbt.toml") and an MBT 2
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
   [#cmd("mbt")], [none], [the MBT that runs the project: #cmd("\"3.0\"")
-    for any 3.0._x_, #cmd("\"3.0.2\"") for that one (@ref-cmd-launcher).],
-  [#cmd("cc370")], [none], [the CC/370 a release is built with. Locally,
-    an older one is a warning.],
-  [#cmd("libc370")], [none], [the LIBC/370 a release is built with, at
-    least #cmd("2.3.0"). Locally, an older one stops the build.],
+    for any 3.0._x_, #cmd("\"3.0.2\"") or #cmd("\"3.0.2-dev\"") for that
+    one (@ref-cmd-launcher).],
+  [#cmd("cc370")], [none], [the CC/370 a release is built with: a version,
+    which means its tag, or any Git reference. Only #cmd("mbt doctor")
+    compares it with the installed one, and warns.],
+  [#cmd("libc370")], [none], [the LIBC/370 a release is built with, a
+    version or a Git reference. A version is also the oldest LIBC/370 a
+    build accepts. Since the C start-up must be in #cmd("libc.a"), name
+    2.3.0 or later.],
 )
 
 == [dependencies] <ref-toml-deps>
@@ -53,8 +65,8 @@ commas:
   [#cmd("<")#var("v")], [earlier than #var("v").],
   [#cmd("=")#var("v")], [exactly #var("v").],
   [#cmd("^")#var("v")], [#var("v") and later, below the next major
-    version, or for #cmd("0.")#var("x") below the next minor.
-    #var("v") may have one, two or three numbers.],
+    version, or for #cmd("0.")#var("x") below the next minor. #var("v")
+    may have one, two or three numbers\; #cmd("^0") means below 1.0.0.],
 )
 
 Versions are ordered by their numbers, then #cmd("-dev") \<
@@ -92,10 +104,12 @@ For #cmd("mbt test") on the workstation only:
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("name")], [required], [the library: #cmd("build/")#var("name")#cmd(".a").],
-  [#cmd("sources")], [required], [its sources. Patterns such as
-    #cmd("\"src/*.c\"") are allowed here and wherever sources are
-    listed.],
+  [#cmd("name")], [the project name], [the library:
+    #cmd("build/")#var("name")#cmd(".a").],
+  [#cmd("sources")], [none], [its sources. Patterns such as
+    #cmd("\"src/*.c\"") are allowed here and wherever sources are listed\;
+    a pattern that matches nothing is a warning. Without sources, only the
+    headers are published.],
   [#cmd("headers")], [#cmd("[]")], [the headers published with it.],
 )
 
@@ -103,7 +117,7 @@ For #cmd("mbt test") on the workstation only:
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("sources")], [required], [sources of a private archive every
+  [#cmd("sources")], [none], [sources of a private archive every
     module and test links with.],
   [#cmd("exclude")], [#cmd("[]")], [files the patterns match that are left
     out.],
@@ -111,8 +125,11 @@ For #cmd("mbt test") on the workstation only:
 
 == [module.NAME] <ref-toml-module>
 
-One table per load module. #var("NAME") is the member name, quoted when it
-holds #cmd("#"), #cmd("@") or #cmd("$").
+One table per load module. #var("NAME") is the member name in upper case,
+one to eight characters, #cmd("A")-#cmd("Z"), #cmd("0")-#cmd("9"),
+#cmd("@"), #cmd("#"), #cmd("$"), not starting with a digit\; quoted when it
+holds #cmd("#"), #cmd("@") or #cmd("$"). Aliases follow the same rule and
+must be unique across all modules and aliases\; a test has none.
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
@@ -173,20 +190,23 @@ The keys of a load module, #cmd("exclude"), #cmd("entry"),
   [#cmd("target")], [#var("NAME")#cmd(".DEV.LINKLIB")], [the development
     library.],
   [#cmd("test_target")], [#var("HLQ")#cmd(".")#var("NAME")#cmd(".")#var("VRM")#cmd(".TESTLIB")],
-    [the test library.],
+    [the test library. The name is cut to eight characters.],
 )
 
-A default that would not be a valid data set name, because the project
-name is longer than eight characters, is refused, with the key to set. The
-same holds for the defaults of #cmd("[smp]") and
+#cmd("target") is derived only for a project with load modules. A default
+#cmd("target") that would not be a valid data set name, because the
+project name is longer than eight characters, is refused, with the key to
+set. The same holds for the defaults of #cmd("[smp]") and
 #cmd("[distribution.library]").
 
 == [distribution] <ref-toml-distribution>
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("readme")], [none], [shipped as #cmd("README.md").],
-  [#cmd("extra")], [#cmd("[]")], [further files shipped as they are.],
+  [#cmd("readme")], [none], [shipped as #cmd("README.md"). The file must
+    exist.],
+  [#cmd("extra")], [#cmd("[]")], [further files shipped under their base
+    names\; a missing file or a directory is an error.],
 )
 
 === [distribution.library.DIR] <ref-toml-distlib>
@@ -196,39 +216,47 @@ A text library made from the directory #var("DIR") and received with TSO
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("target")], [#var("NAME")#cmd(".")#var("DIR")], [the library it is
-    received into.],
+  [#cmd("target")], [#var("NAME")#cmd(".")#var("DIR"), the last part of
+    #var("DIR") in upper case], [the library it is received into.],
 )
 
 == [smp] <ref-toml-smp>
 
-Needed with #cmd("[distribution]"). #var("P4") is the first four
-characters of #var("NAME").
+Needed with #cmd("[distribution]"), and only with it\; a
+#cmd("[distribution]") needs at least one load module. #var("P4") is the
+first four characters of #var("NAME").
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
   [#cmd("prefix")], [required unless #cmd("fmid")], [#cmd("T") and three
-    letters.],
-  [#cmd("fmid")], [#var("prefix") + major + minor + #cmd("0")], [the FMID.
-    Required for a version whose patch number is not 0.],
-  [#cmd("delete")], [#var("prefix") + major + (minor − 1) + #cmd("0")],
-    [the FMIDs this release replaces. Required for #var("x")#cmd(".0.0")\;
-    #cmd("[]") for a first level.],
+    letters, by convention\; not checked.],
+  [#cmd("fmid")], [#var("prefix") + major + minor + #cmd("0")], [the FMID,
+    seven characters, a letter and six letters or digits. Required for a
+    version whose patch number is not 0.],
+  [#cmd("delete")], [with a derived #cmd("fmid"): #var("prefix") + major +
+    (minor − 1) + #cmd("0")\; else #cmd("[]")], [the FMIDs this release
+    replaces. With a derived #cmd("fmid"), required for
+    #var("x")#cmd(".0.0")\; #cmd("[]") for a first level. It must not name
+    the release's own FMID.],
   [#cmd("system")], [#cmd("\"Z038\"")], [the SREL of the #cmd("++VER").],
   [#cmd("prereq")], [#cmd("[]")], [SYSMODs that must be installed.],
   [#cmd("accept_fmid")], [#cmd("true")], [accept the FMID in the
     installation job.],
   [#cmd("lklib")], [#var("NAME")#cmd(".")#var("P4")#cmd("LOAD")], [the
-    staging library the load modules are received into.],
+    staging library the load modules are received into. Not the same as
+    #cmd("target").],
   [#cmd("target")], [#var("NAME")#cmd(".LINKLIB")], [the target library.],
   [#cmd("distlib")], [#var("NAME")#cmd(".A")#var("P4")#cmd("LOD")], [the
     distribution library.],
 )
 
-#cmd("mbt package") refuses a version whose patch number is not 0 without
+For a release version, #cmd("mbt package") refuses a version whose patch
+number is not 0 without
 an explicit #cmd("fmid"), and a derived #cmd("delete") for #var("x")#cmd(".")#var("y")#cmd(".0")
 when the repository has a release tag #var("x")#cmd(".")#var("y−1")#cmd(".")#var("p")
-with #var("p") > 0.
+with #var("p") > 0. For #cmd("-dev") and #cmd("-rc")#var("n") versions it
+warns and writes no installation package. The tag check needs the
+repository's tags, which a shallow clone does not have.
 
 == [release] <ref-toml-release>
 

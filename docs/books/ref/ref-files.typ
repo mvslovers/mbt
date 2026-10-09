@@ -16,24 +16,33 @@
   [#cmd("build/")], [no], [object modules (#var("stem")#cmd(".o"),
     #var("stem")#cmd(".d")), archives, load modules (#var("NAME"),
     #var("NAME")#cmd(".iebcopy")), #cmd("host/") with the workstation's test
-    programs, the generated jobs and spool files such as
-    #cmd("test-runner.jcl") and #cmd("deploy.spool").],
+    programs, #cmd("dist-stage/"), the deploy's TRANSMIT file, the
+    generated jobs and spool files: #cmd("test-runner.jcl"),
+    #cmd("test-runner.spool"), #cmd("testlib-receive.spool"),
+    #cmd("deploy.spool").],
   [#cmd("dist/")], [no], [the release files of #cmd("mbt package").],
   [#cmd(".mbt/")], [no], [MBT's state: #cmd("deps/"), #cmd("tools/"),
     #cmd("plugins/"), #cmd("include/") (#cmd("mbtcheck.h")),
-    #cmd("buildstamp.h"), #cmd("cmd/") (the command line of each step),
-    #cmd("deps.local.toml").],
+    #cmd("buildstamp.h"), #cmd("cmd/") (the command line of each step and
+    the signature of each task), #cmd("deps.local.toml"), and the files of
+    #cmd("mbt migrate")'s check.],
   [#cmd("compile_commands.json")], [no], [written by #cmd("mbt compiledb").],
 )
 
 == In the Home Directory <ref-files-home>
 
-#cmd("~/.mbt"), or the directory #cmd("MBT_HOME") names:
-
-#table(columns: (1.9in, 1fr),
+#table(columns: (2.1in, 1fr),
   [Path], [Contents],
-  [#cmd("targets.toml")], [the targets (@ref-targets).],
-  [#cmd("init.lua"), #cmd("lua/")], [your own Lua.],
-  [#cmd("versions/")], [the versions of MBT that projects pinned.],
-  [#cmd("cache/")], [downloaded archives, by checksum.],
+  [#cmd("~/.mbt/targets.toml")], [the targets (@ref-targets).
+    #cmd("MBT_HOME") moves it.],
+  [#cmd("~/.mbt/init.lua"), #cmd("lua/")], [your own Lua. #cmd("MBT_HOME")
+    moves them.],
+  [#cmd("~/.mbt/versions/")], [the versions of MBT that projects pinned.
+    #cmd("MBT_HOME") moves them.],
+  [#cmd("~/.mbt/v3/cache/"), #cmd("tools/"), #cmd("plugins/")],
+    [downloaded archives, by checksum. Always under the home directory.],
+  [#cmd("~/.mbt/config.toml")], [MBT 2's settings, read for the fallback
+    when there is no target.],
 )
+
+A project's #cmd(".env") is read for the same fallback.
