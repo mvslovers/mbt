@@ -42,7 +42,7 @@ var v3Keys = map[string][]string{
 	"project":      {"name", "version", "kind"},
 	"toolchain":    {"cc370", "libc370", "mbt"},
 	"build":        {"include", "cflags", "asflags", "host"},
-	"build.host":   {"cflags", "sources", "replace"},
+	"build.host":   {"cc", "cflags", "sources", "replace"},
 	"lib":          {"name", "sources", "headers"},
 	"internal":     {"sources", "exclude"},
 	"module":       {"sources", "exclude", "rent", "reus", "refr", "entry", "startup", "dep_startup", "ac", "aliases"},
