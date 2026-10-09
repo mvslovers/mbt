@@ -9,8 +9,10 @@ plugins, the project, the user. #cmd("require(\"")#var("name")#cmd("\")")
 loads #cmd("mbt/lua/")#var("name")#cmd(".lua") (or #cmd("~/.mbt/lua/")),
 #cmd("require(\"")#var("owner")#cmd("/")#var("repo")#cmd("\")") a plugin.
 #cmd("dofile"), #cmd("loadfile") and #cmd("package") are not available, nor
-are #cmd("os") and #cmd("io"). Each call into Lua runs under a limit of
-processor time and memory. The interface has a version, #cmd("mbt.api")\;
+are #cmd("os"), #cmd("io") and #cmd("debug"). #cmd("print") writes to MBT's
+output. Each call into Lua runs under a limit of computation steps and of
+256 MiB of memory\; there is no limit of wall-clock time, and programs
+started with #cmd("ctx.exec") are not limited. The interface has a version, #cmd("mbt.api")\;
 this chapter describes version 1.
 
 == The Table mbt <ref-lua-mbt>
@@ -57,7 +59,11 @@ mbt.task {
   [#cmd("run")], [the function.],
 )
 
-A task is skipped while its outputs are newer than every input and nothing
+Tasks run before the #cmd("before_") hooks of a command, each at most once
+per run. A task with inputs but no outputs, or an input pattern that
+matches nothing, is an error. A task runs on the first run and, without
+outputs, every time. Otherwise it is skipped while its outputs are newer
+than every input and nothing
 that made them changed: the task itself, the Lua files loaded, the
 #cmd("[tools]"). Its outputs are removed before it runs and after it fails.
 
@@ -70,20 +76,23 @@ that made them changed: the task itself, the Lua files loaded, the
     #cmd("modules"), #cmd("tests").],
   [#cmd("ctx.args")], [the arguments after #cmd("--") of #cmd("mbt run").],
   [#cmd("ctx.dry_run")], [#cmd("true") under #cmd("--dry-run").],
-  [#cmd("ctx.kind")], [in test hooks: #cmd("host"), #cmd("mvs") or
+  [#cmd("ctx.kind")], [in #cmd("after_test"): #cmd("host"), #cmd("mvs") or
     #cmd("tso").],
   [#cmd("ctx.result")], [in #cmd("after_") hooks: what the command
-    produced, such as the modules built or the tag released.],
+    produced, such as the modules built or the tag released\; in
+    #cmd("on_failure"): #cmd("command") and #cmd("error").],
   [#cmd("ctx.out"), #cmd("ctx.inputs")], [in a task: its outputs, and the
     files its inputs matched.],
   [#cmd("ctx.log(")#var("s")#cmd(")"), #cmd("ctx.warn(")#var("s")#cmd(")")],
     [a line of output, or a warning.],
   [#cmd("ctx.exec{")#var("argv")...#cmd(", env = {}, check = true}")],
-    [runs a program without a shell. Returns its output and exit code.
-    #cmd("env") adds environment variables. With #cmd("check = false"), a
-    non-zero exit code is returned instead of raised as an error. Under
+    [runs a program without a shell. #cmd("check") defaults to
+    #cmd("true"): a non-zero exit code raises an error\; with
+    #cmd("check = false") it is returned. Returns the output and the exit
+    code\; under #cmd("mbt run") the program writes to the terminal and the
+    output returned is empty. #cmd("env") adds environment variables. Under
     #cmd("--dry-run") nothing runs. In a plugin, only the programs its
-    #cmd("plugin.toml") names.],
+    #cmd("plugin.toml") names, by the base name of the first argument.],
   [#cmd("ctx.tool(")#var("name")#cmd(")")], [the path of a #cmd("[tools]")
     program, fetched and checked if need be.],
   [#cmd("ctx.fs.read(")#var("p")#cmd(")"), #cmd("write(")#var("p")#cmd(", ")#var("s")#cmd(")"),
@@ -101,8 +110,9 @@ that made them changed: the task itself, the Lua files loaded, the
     environment.],
 )
 
-#note[*To be confirmed:* the default of #cmd("check") in #cmd("ctx.exec"),
-and the members of the table #cmd("ctx.target()") returns.]
+*Dry run.* Under #cmd("--dry-run"), #cmd("ctx.exec") runs nothing and
+#cmd("ctx.mvs.request") sends only #cmd("GET") requests. #cmd("ctx.tool")
+still fetches its tool, and #cmd("ctx.mvs.token") still logs on.
 
 == Plugins <ref-lua-plugins>
 

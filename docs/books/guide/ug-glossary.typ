@@ -12,9 +12,9 @@ _CC/370 User's Guide_.
 
 #g(
   [APF], [The authorized program facility of MVS. A program runs authorized
-    only if its _load module_ has authorization code 1 and every library it
-    is loaded from is listed as APF-authorized, by data set name and
-    volume.],
+    only if its _load module_ has authorization code 1 and every library of
+    an authorized #cmd("STEPLIB") concatenation is listed as APF-authorized,
+    by data set name and volume.],
   [build stamp], [The header #cmd("<buildstamp.h>") that MBT writes for each
     build, with the project's name, version and commit.],
   [deploy], [Putting the load modules of a _project_ into its _development
@@ -58,8 +58,10 @@ _CC/370 User's Guide_.
     #cmd("reus = true").],
   [SMP], [The System Modification Program of MVS 3.8j, release 4, which
     installs products and records what it installed.],
-  [staging library], [A library a deploy or an installation receives files
-    into before they are copied to where they belong.],
+  [staging data set], [A data set that holds files on their way: a deploy
+    uploads into #var("HLQ")#cmd(".MBT.XMIT.IN") and receives into the
+    staging library #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".MBTDPLY")\; an
+    installation receives into #var("NAME")#cmd(".")#var("P4")#cmd("LOAD").],
   [SYSMOD], [A system modification: the unit SMP installs, such as a
     #cmd("FUNCTION") for a product release.],
   [target], [An MVS system MBT deploys and tests on, described in
@@ -67,7 +69,9 @@ _CC/370 User's Guide_.
   [task], [Lua code with declared inputs and outputs, run before a command
     when its outputs are out of date.],
   [test library], [The library #cmd("mbt test --mvs") puts the test
-    modules into, #var("HLQ")#cmd(".")#var("NAME")#cmd(".")#var("VRM")#cmd(".TESTLIB").],
+    modules into, by default
+    #var("HLQ")#cmd(".")#var("NAME")#cmd(".")#var("VRM")#cmd(".TESTLIB")\;
+    #cmd("[deploy] test_target") names another.],
   [tool], [A program for the workstation, fetched from a GitHub release and
     pinned like a _dependency_, declared in #cmd("[tools]").],
   [TRANSMIT file], [A file in the format of the TSO #cmd("TRANSMIT")

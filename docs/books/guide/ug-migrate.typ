@@ -65,7 +65,19 @@ What you will notice in the new file:
 - *The version is in #cmd("[project] version") only.* #cmd("VERSION") is
   gone.
 - *The FMID is derived* from #cmd("[smp] prefix") and the version
-  (@ug-package-fmid).
+  (@ug-package-fmid), when the old one equals the derived: for a version
+  #var("x")#cmd(".")#var("y")#cmd(".0") with #var("y") > 0 and the
+  predecessor as #cmd("delete"). Otherwise #cmd("fmid") and #cmd("delete")
+  are kept as they were.
+- *Tables are renamed*: #cmd("[project] type") is #cmd("kind"),
+  #cmd("[host]") is #cmd("[build.host]"), #cmd("[test_deploy] target") is
+  #cmd("[deploy] test_target"), #cmd("[distribution.smp]") is
+  #cmd("[smp]"), #cmd("[[distribution.library]]") is
+  #cmd("[distribution.library.")#var("DIR")#cmd("]"),
+  #cmd("parm_batch") and #cmd("parm_tso") are #cmd("parm"), and
+  #cmd("[[test.fixture]]") is #cmd("fixtures"). Values equal to their
+  defaults, such as #cmd("[deploy] target") of
+  #var("NAME")#cmd(".DEV.LINKLIB"), are left out with a note.
 - *C99 is the default.* MBT 2 compiled C89 with GNU extensions unless the
   project said otherwise, MBT 3 compiles C99. The code generated changes,
   the meaning does not\; run the project's tests on MVS once.
@@ -157,9 +169,10 @@ that describe how MBT 2 moved #cmd("VERSION") or the FMID.
 
 #idx("MBT 2", "comparing")
 Build the same commit with MBT 2 in a second checkout and compare
-#cmd("build/") and #cmd("dist/"). Object modules carry the date of the
-assembly and load modules the time of the link\; set the same values on
-both sides to compare byte for byte:
+#cmd("build/") and #cmd("dist/"). Object modules from assembler sources that
+use #cmd("&SYSDATE") or #cmd("&SYSTIME") carry the date of the assembly,
+and load modules the time of the link\; set the same values on both sides
+to compare byte for byte:
 
 ```
 export ASMDATE=10/07/26 ASMTIME=12.00 LDDATE=26280 LDTIME=120000

@@ -41,8 +41,9 @@ project, then your own file.
     [#cmd("before_build"), #cmd("after_build")], [generate a source\;
       report module sizes],
     [#cmd("before_test"), #cmd("after_test")], [prepare test data\; pass
-      the results on. #cmd("ctx.kind") says #cmd("host"), #cmd("mvs") or
-      #cmd("tso").],
+      the results on. In #cmd("after_test"), #cmd("ctx.kind") says
+      #cmd("host"), #cmd("mvs") or #cmd("tso"). #cmd("mbt test --tso")
+      runs no #cmd("before_test") hook.],
     [#cmd("before_package"), #cmd("after_package")], [build a file that
       ships in the package],
     [#cmd("before_dist"), #cmd("after_dist")], [add to the installation
@@ -70,7 +71,12 @@ not reported as a success.
 
 #idx("task")
 *A task* declares its inputs and outputs. It runs before the commands it
-names, and only when an output is missing or older than an input:
+names, ahead of their #cmd("before_") hooks and at most once per run: the
+first time, when an output is missing or older than an input, when the task
+itself, a Lua file or #cmd("[tools]") changed, and every time if it has no
+outputs. Its outputs are removed before it runs and after it fails, and a
+task that did not write them fails. A task with inputs but no outputs, and
+an input that matches no file, are errors:
 
 ```
 mbt.task {
@@ -96,8 +102,8 @@ end)
 
 #cmd("mbt run") alone lists the tasks and commands. #cmd("mbt run")
 #var("NAME") runs a task even when it is up to date. #cmd("--dry-run") runs
-the Lua but starts no program and writes nothing\; the code sees
-#cmd("ctx.dry_run").
+the Lua but starts no program and sends no request to MVS that changes
+anything\; the code sees #cmd("ctx.dry_run").
 
 == What the Code Can Reach <ug-extend-ctx>
 
@@ -113,7 +119,10 @@ own.
       as a copy.],
     [#cmd("ctx.exec{")#var("argv")#cmd("}")], [runs a program. The arguments
       are a list, and no shell is involved, so a value with blanks stays
-      one argument. Returns the output and the exit code.],
+      one argument. A non-zero exit code is an error unless
+      #cmd("check = false") is given\; #cmd("env = {...}") adds environment
+      variables. Under #cmd("mbt run") the program writes to the terminal\;
+      in a hook its output is returned.],
     [#cmd("ctx.tool(")#var("name")#cmd(")")], [the path of a tool from
       #cmd("[tools]"), fetched and checked if need be (@ug-deps-tools).],
     [#cmd("ctx.fs")], [#cmd("read"), #cmd("write"), #cmd("exists"),
@@ -131,14 +140,16 @@ own.
     [#cmd("ctx.out"), #cmd("ctx.inputs")], [in a task: its outputs, and the
       files its inputs matched.],
     [#cmd("ctx.result")], [in an #cmd("after_") hook: what the command
-      produced.],
+      produced\; in #cmd("on_failure"): #cmd("command") and #cmd("error").],
     [#cmd("ctx.args"), #cmd("ctx.kind"), #cmd("ctx.dry_run")], [the
       arguments of #cmd("mbt run"), the kind of test run, the dry run.],
     [#cmd("ctx.log"), #cmd("ctx.warn")], [write a line of MBT's output.],
   )
 ] <ug-extend-ctx-tab>
 
-Each call runs with a limit on processor time and on memory.
+Each call into Lua runs with a limit on the work it may do and on its
+memory (256 MiB). Programs started with #cmd("ctx.exec") are not limited.
+#cmd("print") writes to MBT's output.
 
 #idx("extension", "rules")
 *Extensions act, they do not change the build.* They can write files, run
