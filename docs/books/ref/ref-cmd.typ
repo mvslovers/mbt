@@ -196,7 +196,9 @@ mbt prerelease
 
 Tags the current commit #cmd("v")#var("version") with the version in
 #cmd("mbt.toml"), such as #cmd("v1.4.0-dev"), moving the tag if it exists,
-and pushes it. The working tree must be clean.
+and pushes it. The working tree must be clean, and the project must own the
+repository's tags: its project file is at the root, or it is the only one
+in the repository.
 
 == mbt release <ref-cmd-release>
 
@@ -208,9 +210,11 @@ mbt release version [--next version]
 Releases the tree's #var("version")#cmd("-dev") as #var("version"): sets
 it, commits #cmd("release: v")#var("version"), tags, pushes, then sets the
 next development version, commits #cmd("chore: bump to ")#var("next") and
-pushes. Refused unless the tree is clean and at #var("version")#cmd("-dev"),
-when the tag exists locally or on #cmd("origin"), when the FMID cannot be
-derived, and in a repository whose root holds another project.
+pushes. Refused, with return code 2, unless the tree is clean and at a
+prerelease of #var("version") (#cmd("-dev") or #cmd("-rc")#var("n")), when
+the tag exists locally or on #cmd("origin"), for a patch release with an SMP
+package but no explicit #cmd("fmid"), and when the project does not own the
+repository's tags (@ref-cmd-prerelease). A step that fails is not undone.
 
 #deflist(width: 1.5in,
   [#cmd("--next") #var("version")], [the next development version, a
