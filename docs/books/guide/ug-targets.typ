@@ -62,8 +62,11 @@ user     = "hercules"
 ```
 
 #cmd("volume") names the volume on which MBT allocates the data sets it
-receives. Name one on a system that does not choose a volume by itself,
-such as MVS/CE. The file is in #cmd("~/.mbt"), or in the directory that
+receives. Without it, the system chooses. Name one on a system that does
+not choose a suitable volume by itself, such as MVS/CE. When MBT allocates
+a library on the named volume, it checks afterwards that the library
+really is there, because an APF entry names a data set together with its
+volume. The file is in #cmd("~/.mbt"), or in the directory that
 #cmd("MBT_HOME") names. The _MBT Reference_ lists every key.
 
 == Passwords <ug-targets-password>
@@ -97,15 +100,20 @@ and #cmd("mbt doctor") show only where it comes from.
 
 #idx("--target")
 #cmd("mbt deploy") and #cmd("mbt test --mvs") take #cmd("--target")
-#var("name"). Without it, MBT takes, in this order:
+#var("name"), and the environment variable #cmd("MBT_TARGET") does the
+same. An unknown name is an error that lists the targets there are. The
+name #cmd("env") means the target described by environment variables
+(@ug-targets-ci). Without a name, MBT takes, in this order:
 
-+ the target the environment variable #cmd("MBT_TARGET") names\;
-+ a target described entirely by environment variables, as in CI
-  (@ug-targets-ci)\;
-+ the target marked #cmd("default = true"), or the only one in the file.
++ the target described by environment variables, when
+  #cmd("MBT_TARGET_MVSMF_URL") is set\;
++ the target marked #cmd("default = true")\;
++ the only target in the file.
 
-A file with several targets and none marked default is an error that says
-so. Only one target may be the default.
+A file with several targets and none marked default is an error, which
+asks for #cmd("--target") or a default. Only one target may be the
+default. Only when there is no #cmd("targets.toml"), or it defines no
+target, does MBT fall back to the settings of MBT 2 (@ug-targets-env).
 
 == Checking a Target <ug-targets-check>
 
@@ -136,8 +144,9 @@ a system that is still starting, which is useful in CI. #cmd("mbt doctor")
 without #cmd("--offline") logs on to the target too (@ug-install-check).
 
 #idx("mvsMF", "session")
-For each run, MBT logs on to mvsMF once, uses that session for every
-request, and logs off at the end, also after an error or Ctrl-C.
+MBT logs on to mvsMF once per run, at the first request that needs it, so
+a dry run never logs on. It uses that session for every request and logs
+off at the end, also after an error or Ctrl-C.
 
 == Targets in CI <ug-targets-ci>
 
@@ -174,6 +183,8 @@ it, because there was no connection or it answered with an HTTP error,
 through the Hercules web interface. #cmd("[target.")#var("name")#cmd(".console]
 order") changes the order. A command whose delivery is uncertain, because
 it was sent and no answer came, is not sent a second time: it may have run.
+A reply from MVS that rejects the command is an answer too, and is not
+sent elsewhere.
 The project's Lua code can issue operator commands the same way
 (@ug-extend).
 
@@ -193,8 +204,10 @@ target:
 mbt target import .env --name lab
 ```
 
-It writes the target into #cmd("~/.mbt/targets.toml"), makes the first
-target the default, sets the file to #cmd("chmod 600") and lists every
-value it took from somewhere other than the file. A password from the
-environment is not copied. Afterwards the project's #cmd(".env") can be
-deleted.
+It writes the target into #cmd("~/.mbt/targets.toml"), makes it the
+default if it is the first, and makes the file readable by you alone. What
+the #cmd(".env") leaves out, such as the port (default 1080) or the job
+classes, it takes from where MBT 2 took it, and prints each value with its
+source. A password is copied only from the #cmd(".env") itself, never from
+the environment. An existing target of the same name is not replaced.
+Afterwards the project's #cmd(".env") can be deleted.

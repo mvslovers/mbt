@@ -43,8 +43,9 @@ subdirectory, is a test, named after its file in upper case:
 #cmd("test/mvs/tstgctx.c") is #cmd("TSTGCTX"). The name becomes a member
 name and the #cmd("PGM=") of a job step, so it must be a valid member
 name: at most eight characters, letters, digits, #cmd("@"), #cmd("#") and
-#cmd("$"), not starting with a digit. A file whose name is not is an
-error that names it.
+#cmd("$"), not starting with a digit. A file whose name is not, and two
+files that would give the same test name, are errors that name the files.
+Exclude such a file, or give it a #cmd("[test.")#var("NAME")#cmd("]").
 
 A test links its own source, the private archive of #cmd("[internal]")
 (@ug-build-internal), the dependencies and the C library. #cmd("[tests]")
@@ -57,8 +58,8 @@ reus    = false
 exclude = ["test/helpers/fixture.c"]    # under test/, but not a test
 ```
 
-#cmd("rent") and #cmd("reus") are required once a project has a test, as
-for a load module. #cmd("exclude") names files under #cmd("test/") that are
+Every test needs #cmd("rent") and #cmd("reus"), from #cmd("[tests]") or
+from its own table, as a load module does. #cmd("exclude") names files under #cmd("test/") that are
 not tests, such as helpers.
 
 === A Test That Differs <ug-test-entry>
@@ -102,9 +103,12 @@ A test table also takes the keys of a load module, such as #cmd("entry"),
 
 #idx("mbt test")#idx("host test")
 #cmd("mbt test") compiles every test with the C compiler of the workstation
-and runs it there, with MBT's warning options and C99. A test written in
+and runs it there: with C99 and MBT's warning options, then
+#cmd("[build] cflags"), then #cmd("[build.host] cflags"). A test written in
 portable C, as the ones above, runs on the workstation and on MVS from the
-same source. A test with an assembler source runs on MVS only.
+same source. A test with a source that is not C, such as an assembler
+routine, runs on MVS only, unless #cmd("[build.host] replace") puts a C
+source in its place for the workstation.
 
 ```
 mbt test                       # every test
@@ -187,13 +191,15 @@ things, and the return code of #cmd("mbt test --mvs") tells them apart:
     [Code], [Meaning],
     [0], [every test passed in both runs.],
     [1], [at least one test failed.],
-    [4], [the job could not run or its output could not be read: JES
-      rejected it, the wait for it ran out, or mvsMF could not return its
-      output. MBT shows the reason, and the generated job is in
+    [2], [the configuration is wrong: no test modules built, a fixture
+      that is wrong or whose file cannot be read.],
+    [4], [the job could not run or its output could not be read: the
+      submit failed, JES rejected it, the wait for it ran out, or mvsMF
+      could not return its output. MBT shows the reason, and the generated job is in
       #cmd("build/test-runner.jcl").],
     [5], [a fixture could not be loaded, for example because its data set
       ran out of space. The table is shown, but those tests did not run
-      against what they declared.],
+      against what they declared. 5 is reported before 1.],
   )
 ] <ug-test-rc>
 
@@ -239,8 +245,8 @@ end
     test fails and shows the screen it saw.],
   [#cmd("t:screen()"), #cmd("t:text()"), #cmd("t:cursor()")], [read the
     screen and the cursor position.],
-  [#cmd("t.testlib")], [the name of the library #cmd("mbt test --mvs")
-    deploys the tests to, for a session that calls one of them.],
+  [#cmd("t.testlib")], [the name of the test library #cmd("mbt test
+    --mvs") uses, for a session that calls one of the tests.],
 )
 
 Each file gets its own logon, and the session is logged off whatever
