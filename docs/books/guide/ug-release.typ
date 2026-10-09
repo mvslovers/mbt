@@ -34,9 +34,10 @@ mbt release 1.4.0
 
 #cmd("mbt release") does this, and stops at the first step that fails:
 
-+ checks that the tree is at #cmd("1.4.0-dev") and clean, that the tag
-  #cmd("v1.4.0") exists neither in the repository nor on #cmd("origin"),
-  and, for a product with an SMP package, that its FMID can be derived
++ checks that the tree is clean and at a prerelease of 1.4.0, such as
+  #cmd("1.4.0-dev") or #cmd("1.4.0-rc1"), that the tag #cmd("v1.4.0")
+  exists neither in the repository nor on #cmd("origin"), and, for a patch
+  release with an SMP package, that it has an explicit FMID
   (@ug-package-fmid)\;
 + sets the version to #cmd("1.4.0"), commits it as #cmd("release: v1.4.0"),
   tags the commit #cmd("v1.4.0"), and pushes the commit and the tag\;
@@ -44,22 +45,27 @@ mbt release 1.4.0
   unless #cmd("--next") names another, commits it as
   #cmd("chore: bump to 1.4.1-dev") and pushes it.
 
-Pushing the tag starts the release workflow (@ug-release-ci). Use
+Pushing the tag starts the release workflow (@ug-release-ci). Nothing is
+undone when a step fails: a failure after the tag leaves the tag, and the
+next run says so and how to remove it. Every refusal and every failed Git
+step ends with return code 2. Use
 #cmd("--next 1.5.0-dev") when the next release is planned as a minor, so
 the tree does not carry a patch version that would need an FMID of its
 own.
 
 #idx("release", "repository")
-In a repository with more than one project, only the project whose
-#cmd("mbt.toml") is at the root may tag: the tags #cmd("v")#var("version")
-of the repository are its tags.
+In a repository with more than one project, only the project whose project
+file is at the root may tag: the tags #cmd("v")#var("version") of the
+repository are its tags. A repository with one project file, not at the
+root, lets that one tag\; one with several and none at the root lets none.
+This holds for #cmd("mbt prerelease") as well.
 
 == Prereleases: mbt prerelease <ug-release-pre>
 
 #idx("mbt prerelease")#idx("prerelease")
 #cmd("mbt prerelease") publishes the version in development without
-releasing it. It tags the current commit with the current version, such as
-#cmd("v1.4.0-dev"), and pushes the tag. Run again later, it moves the same
+releasing it. On a clean tree, it tags the current commit with the current
+version, such as #cmd("v1.4.0-dev"), and pushes the tag. Run again later, it moves the same
 tag to the newer commit, and the release workflow publishes the
 prerelease again. Nothing in the tree changes.
 
@@ -110,11 +116,16 @@ Both install MBT, which then switches to the version
     main branch, against the current development state of CC/370 and
     LIBC/370, so that a change there that breaks the project shows early.
     With #cmd("host_tests: true") it also runs #cmd("mbt test").],
-  [#cmd("release3.yml")], [builds a tag with exactly the CC/370 and
-    LIBC/370 that #cmd("[toolchain]") names, checks that the tag is
-    #cmd("v") followed by #cmd("[project] version"), runs #cmd("mbt
-    package") and publishes the files of #cmd("dist/") as the release. A
-    tag with #cmd("-dev") or #cmd("-rc")#var("n") becomes a prerelease.],
+  [#cmd("release3.yml")], [builds a tag with the CC/370 and LIBC/370 that
+    #cmd("[toolchain]") names, checks that the tag is #cmd("v") followed by
+    #cmd("[project] version"), runs #cmd("mbt package") and publishes the
+    files of #cmd("dist/") as the release. A tag with a hyphen, such as
+    #cmd("-dev") or #cmd("-rc1"), becomes a prerelease, and a tag pushed
+    again replaces its release. A #cmd("[toolchain]") entry that is a
+    version means the tag #cmd("v")#var("version") of that project, any
+    other string a Git reference\; a missing entry means the main branch,
+    so a project without #cmd("[toolchain]") releases against the
+    development state.],
 )
 
 Once MBT 3.0.0 is released, pin #cmd("uses:") to its tag instead of
@@ -126,7 +137,9 @@ environment variables from the repository's secrets (@ug-targets-ci).
 
 == After the Release <ug-release-after>
 
-The workflow fills the release page with the files and, if the project has
-one, the section of its #cmd("CHANGELOG.md") for the version. Read the page
-before you announce the release: it is written for someone who does not
-know the project yet, and a changelog written while working seldom is.
+The workflow publishes the files with notes that GitHub generates from the
+pull requests and commits since the last tag. Before you announce the
+release, rework the page for someone who does not know the project yet:
+what the release is, what a user notices, how to install it, and then the
+section of #cmd("CHANGELOG.md") for the version, which the workflow does
+not read.

@@ -29,13 +29,17 @@ then writes the release files. @ug-package-run shows it for the project
     and its headers, in #cmd("lib/") and #cmd("include/"): what
     #cmd("mbt deps") of another project fetches (@ug-deps).],
   [#var("name")#cmd("-")#var("version")#cmd("-dist.zip"), #cmd(".tar.gz")],
-    [the installation package: the load modules, the jobs that install
-    them, the README and further files the project names, for an operator
-    to unpack.],
+    [the installation package for an operator to unpack: the load modules,
+    one TRANSMIT file per text library
+    (#var("name")#cmd("-")#var("version")#cmd("-")#var("qualifier")#cmd(".xmit")),
+    the jobs that install them, the README, and the #cmd("extra") files
+    under their own names.],
 )
 
-A project without load modules writes only the library, and one without
-#cmd("[distribution]") no installation package.
+The library archive is written only for a project with #cmd("[lib]"), the
+installation package only for one with #cmd("[distribution]"). A project
+with #cmd("[distribution]") but no load module is an error: there is
+nothing to install.
 
 == Describing the Package <ug-package-describe>
 
@@ -79,13 +83,15 @@ distribution library holds what SMP accepted, and scratching it would leave
 SMP reporting a level that is no longer there.
 
 *The installation job*, #var("name")#cmd("-")#var("version")#cmd("-inst.jcl"),
-does the rest, each step only if the one before it worked:
+does the rest. The SMP steps run in order, and each is skipped when the
+step it depends on failed:
 
 #tab(caption: [The steps of the installation job])[
   #table(columns: (0.9in, 1fr),
     [Step], [What it does],
-    [#cmd("DELOLD")], [deletes the staging libraries a previous run left,
-      since TSO #cmd("RECEIVE") does not write into an existing data set.],
+    [#cmd("DELOLD")], [deletes every data set the job receives into, the
+      staging library and each text library, since TSO #cmd("RECEIVE") does
+      not write into an existing data set.],
     [#cmd("RECV1")...], [receives each uploaded TRANSMIT file: the load
       modules into the staging library, by default
       #var("NAME")#cmd(".")#var("xxxx")#cmd("LOAD"), and each text library
@@ -96,7 +102,8 @@ does the rest, each step only if the one before it worked:
       anything.],
     [#cmd("APPLY")], [copies the modules into the target library.],
     [#cmd("ACCEPT")], [copies them into the distribution library, the level
-      a later #cmd("RESTORE") returns to.],
+      a later #cmd("RESTORE") returns to. Left out with
+      #cmd("[smp] accept_fmid = false").],
     [#cmd("CLEANUP")], [deletes the staging library.],
   )
 ] <ug-package-steps>
@@ -104,7 +111,7 @@ does the rest, each step only if the one before it worked:
 #idx("SYSMOD")
 The SYSMOD is a #cmd("++FUNCTION") with one #cmd("++MOD") per load module:
 
-#fig(caption: [The SYSMOD of sums 1.0.0])[
+#fig(caption: [The SYSMOD of sums 1.0.0-dev])[
   #code(read("../ex/ug-package/sysmod.txt"))
 ] <ug-package-sysmod>
 
@@ -133,15 +140,18 @@ and MBT derives the rest from the version:
 #deflist(width: 1.2in,
   [*One per minor.*], [The FMID is the release's major and minor version,
     and a #cmd("0"). A patch release is meant to become a PTF against its
-    minor's FMID, which MBT does not build yet. Until it does, packaging a
-    version with a patch number other than 0 needs an explicit
-    #cmd("fmid"), such as #cmd("TSUM141") for 1.4.1: MBT refuses to spend
-    the minor's identifier a second time.],
+    minor's FMID, which MBT does not build yet. Until it does, a patch
+    release needs an explicit #cmd("fmid"), such as #cmd("TSUM141") for
+    1.4.1, *and an explicit #cmd("delete")*, here #cmd("[\"TSUM140\"]"):
+    with an explicit #cmd("fmid"), #cmd("delete") is empty unless given,
+    and a SYSMOD that replaces nothing does not own the modules it ships
+    (@ug-package-check). MBT refuses to spend the minor's identifier a
+    second time.],
   [*Each release replaces its predecessor.*], [#cmd("delete") names the
-    FMID the release replaces, by default the previous minor. A release
-    x.0.0 has no previous minor to derive, so it names it, or writes
-    #cmd("delete = []") for a product's first level, as #cmd("sums")
-    does.],
+    FMID the release replaces. With a derived FMID it is the previous
+    minor by default. A release x.0.0 has no previous minor to derive, so
+    it names it, or writes #cmd("delete = []") for a product's first
+    level, as #cmd("sums") does.],
   [*After a patch release, name it.*], [When 1.4.1 was released as
     #cmd("TSUM141"), that SYSMOD owns the modules, and 1.5.0 must delete
     #cmd("TSUM141"), not the derived #cmd("TSUM140"). MBT refuses to
@@ -149,6 +159,15 @@ and MBT derives the rest from the version:
     tag of a 1.4 patch release, and asks for an explicit one.],
   [*No digit above 9.*], [There is no room for two: at patch 9 the next
     release is a new minor, at minor 9 a new major.],
+  [*When it is checked.*], [A missing #cmd("delete") for x.0.0 and a digit
+    above 9 make the project file invalid: every command stops, even
+    #cmd("mbt build"). A patch release without an explicit #cmd("fmid")
+    stops #cmd("mbt package") and #cmd("mbt release") for a final
+    version\; for a #cmd("-dev") version #cmd("mbt package") warns, leaves
+    out the installation package, and still writes the other files. The
+    check for a released patch tag needs the repository's tags, which a
+    shallow CI checkout does not have: it takes effect where a release is
+    prepared, on the workstation.],
   [*Every FMID once.*], [An identifier that was installed anywhere, even
     on a test system, is spent. Never give it to another release.],
 )
@@ -172,6 +191,10 @@ the distribution library.
 The predecessor's identifier stays in the SMP inventory as a deleted
 SYSMOD: #cmd("LIST") shows it with #cmd("DELBY") naming the release that
 replaced it. It remains spent.
+
+Text libraries shipped with #cmd("[distribution.library]") are received
+afresh on every installation: changes made to them on the system are lost,
+so copy what you change into a library of your own.
 
 #idx("APF")
 Two things an upgrade does not do:
