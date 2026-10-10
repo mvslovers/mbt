@@ -32,7 +32,7 @@ func setup(t *testing.T, files map[string]string) *env {
 
 func (v *env) load(t *testing.T, tweak ...func(*Options)) (*Engine, error) {
 	o := Options{Root: v.root, Home: v.home, Version: "3.0.0-test",
-		Project: Project{Name: "sbx", Version: "1.0.0", Modules: []string{"HELLO"}},
+		Project: Project{Name: "sbx", Version: "1.0.0", Modules: []string{"HELLO"}, DeployTarget: "SBX.DEV.LINKLIB"},
 		Log:     func(s string) { v.log = append(v.log, s) }, Stdout: &v.out, Stderr: &v.out}
 	for _, f := range tweak {
 		f(&o)

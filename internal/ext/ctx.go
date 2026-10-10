@@ -26,7 +26,7 @@ type callInfo struct {
 
 // ctx builds the table a hook, task or command gets:
 //
-//	ctx.project            name, version, modules, tests (a copy: read-only)
+//	ctx.project            name, version, modules, tests, deploy_target (read-only copy)
 //	ctx.args               mbt run NAME -- ARGS
 //	ctx.dry_run, ctx.kind  (kind: host, mvs or tso in test hooks)
 //	ctx.result             in after_ hooks: what the command produced
@@ -44,7 +44,11 @@ func (e *Engine) ctx(ci callInfo) rt.Value {
 	set := func(k string, v rt.Value) { c.Set(rt.StringValue(k), v) }
 
 	p := e.o.Project
-	set("project", toLua(map[string]any{"name": p.Name, "version": p.Version, "modules": p.Modules, "tests": p.Tests}))
+	proj := map[string]any{"name": p.Name, "version": p.Version, "modules": p.Modules, "tests": p.Tests}
+	if p.DeployTarget != "" {
+		proj["deploy_target"] = p.DeployTarget
+	}
+	set("project", toLua(proj))
 	set("args", toLua(ci.args))
 	set("dry_run", rt.BoolValue(e.o.DryRun))
 	if ci.kind != "" {
