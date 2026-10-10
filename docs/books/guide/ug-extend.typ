@@ -105,7 +105,7 @@ mbt.command {
 
 #cmd("mbt.command(\"upload\", function(ctx) ... end)") is the short form,
 without a description. #cmd("mbt run") alone lists the tasks and commands,
-with their descriptions. #cmd("mbt run")
+with their descriptions where they have one. #cmd("mbt run")
 #var("NAME") runs a task even when it is up to date. #cmd("--dry-run") runs
 the Lua but starts no program and sends no request to MVS that changes
 anything\; the code sees #cmd("ctx.dry_run").
