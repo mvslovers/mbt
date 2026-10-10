@@ -171,11 +171,13 @@ commands then go to the next console channel of the target
 #note[*Not in the server's own procedure.* A compress step in the
 procedure that starts the server looks simpler, but a job step that asks
 for a data set exclusively holds it for the whole job. The library would
-stay locked for as long as the server runs, and every deploy would fail.]
+stay locked for as long as the server runs: every deploy would wait for
+the server to stop, and fail on its timeout.]
 
 The plugin reads the library from #cmd("ctx.project.deploy_target")
-(@ug-extend-ctx). An MBT that predates it, and a project that builds no
-load modules, get the answer that there is no deploy target.
+(@ug-extend-ctx). An MBT that predates it, and a project with neither a
+#cmd("[deploy] target") nor load modules, get the answer that there is no
+deploy target.
 
 == When a Deploy Fails <ug-deploy-fail>
 
