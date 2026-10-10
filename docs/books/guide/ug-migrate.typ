@@ -68,7 +68,10 @@ What you will notice in the new file:
   (@ug-package-fmid), when the old one equals the derived: for a version
   #var("x")#cmd(".")#var("y")#cmd(".0") with #var("y") > 0 and the
   predecessor as #cmd("delete"). Otherwise #cmd("fmid") and #cmd("delete")
-  are kept as they were.
+  are kept as they were. An explicit #cmd("fmid") without #cmd("delete")
+  gets #cmd("delete = []") beside it, with a note: MBT 2 read a missing
+  #cmd("delete") as none, MBT 3 wants it said. If the release replaces an
+  earlier one, name that FMID instead.
 - *Tables are renamed*: #cmd("[project] type") is #cmd("kind"),
   #cmd("[host]") is #cmd("[build.host]"), #cmd("[test_deploy] target") is
   #cmd("[deploy] test_target"), #cmd("[distribution.smp]") is
