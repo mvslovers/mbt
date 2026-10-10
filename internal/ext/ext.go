@@ -62,6 +62,7 @@ func cfgErr(format string, a ...any) error {
 type Project struct {
 	Name, Version  string
 	Modules, Tests []string
+	DeployTarget   string // the library mbt deploy writes to; "" without one
 }
 
 // Options configure an engine; Root is required.

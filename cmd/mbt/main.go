@@ -530,7 +530,7 @@ func exts(p *project.Project, verbose, dry bool) (*ext.Engine, error) {
 		pls = append(pls, ext.Plugin{Key: x.Key, Dir: x.Dir, API: x.API, Exec: x.Exec})
 	}
 	e, err := ext.Load(ext.Options{Plugins: pls, Root: p.Root, Home: home, Version: mbtVersion, Verbose: verbose, DryRun: dry,
-		Project: ext.Project{Name: p.Name, Version: p.Version, Modules: unitNames(p.Modules), Tests: unitNames(p.Tests)},
+		Project: ext.Project{Name: p.Name, Version: p.Version, Modules: unitNames(p.Modules), Tests: unitNames(p.Tests), DeployTarget: deployTarget(p)},
 		Tools:   tl, ToolOpt: tools.Options{Log: func(s string) { fmt.Printf("[mbt] %s\n", s) }},
 		Target: func() (map[string]any, error) {
 			t, err := chooseTarget(p.Root, selectedTarget)
@@ -923,6 +923,13 @@ func cmdTarget(args []string) int {
 	}
 	fmt.Fprintln(os.Stderr, "[mbt] usage: mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME")
 	return exitConfig
+}
+
+// deployTarget is [deploy] target as mbt deploy uses it (an mbt.toml has it
+// filled with NAME.DEV.LINKLIB when it builds modules); "" without one.
+func deployTarget(p *project.Project) string {
+	t, _ := rawTable(p.Raw, "deploy")["target"].(string)
+	return t
 }
 
 func orDash(s string) string {
