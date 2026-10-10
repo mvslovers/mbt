@@ -224,6 +224,9 @@ A project with none of them has no lock file, under mbt 2 as under mbt 3.
   it again, larger, on the same volume; `--ignore-space` trusts the
   secondary extents. A library that mbt 2 or an older mbt 3 deployed was
   sized to its contents, so the first deploy into it needs `--reallocate`.
+  The plugin [`mvslovers/mbt-stc`](https://github.com/mvslovers/mbt-stc)
+  compresses the library during the restart that activates a deploy
+  (`mbt run restart`), with nothing to install on MVS.
 - **`mbt deploy --linklib DSN`** names a load library to deploy into instead
   of `[deploy] target`. `--target` now names an MVS *system* (section 5).
   The default `[deploy] target` is `<NAME>.DEV.LINKLIB`, so a project
