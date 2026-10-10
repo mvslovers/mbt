@@ -115,9 +115,9 @@ deploy therefore uses more of the library, and the report after each
 deploy shows how much. When the next deploy would not fit, MBT stops with
 the numbers and the three ways out:
 
-- *Compress the library* while nothing holds it, for example while the
-  server is stopped, or in the server's start-up procedure before the
-  server itself starts.
+- *Compress the library* while nothing holds it, that is while the server
+  is stopped. The plugin #cmd("mvslovers/mbt-stc") does it on the restart
+  that activates a deploy anyway (below).
 - *#cmd("mbt deploy --reallocate")* deletes the library and allocates it
   again, larger, on the same volume, then deploys. The new library is never
   smaller than the old one. It works only while nothing holds the library:
@@ -134,6 +134,48 @@ before it runs out of tracks.
 library on every deploy and received it afresh, sized to its content, so
 such a library is full or nearly so. Its first deploy now needs #cmd("--reallocate"), once, with the
 server stopped.]
+
+=== Compressing on the Restart <ug-deploy-restart>
+
+#idx("mbt-stc")#idx("started task", "restart")
+A server that loaded its modules at start-up runs a deploy only after a
+restart, and while it is down nothing holds its library. The plugin #cmd("mvslovers/mbt-stc") uses that moment:
+
+```
+[plugins]
+"mvslovers/mbt-stc" = "^0.1"
+```
+
+```
+mbt deploy
+mbt run restart                # the started task named after the project
+mbt run restart -- HTTPD       # another one
+```
+
+#cmd("mbt run restart") submits a job that compresses the deploy target
+(IEBCOPY) and asks for the library exclusively. The job waits
+(#cmd("IEF099I")) while the server holds the library. Then the command
+stops the server with #cmd("P"), and the job runs. The command then starts
+the server again with #cmd("S"), and the new server waits in the same way
+until the compress is done. MVS orders the three, so the command never
+waits itself. If the stop cannot be issued, the command cancels the job
+and fails. #cmd("mbt run --dry-run restart") shows the steps and touches
+nothing. Nothing is installed on MVS for it\; the job needs a free
+initiator in the target's #cmd("jobclass") for those few seconds.
+
+The job goes in before the stop because a server that carries mvsMF, such
+as HTTPD, takes the way to submit it down when it stops. The operator
+commands then go to the next console channel of the target
+(@ug-targets-console), so such a target needs #cmd("[hercules]").
+
+#note[*Not in the server's own procedure.* A compress step in the
+procedure that starts the server looks simpler, but a job step that asks
+for a data set exclusively holds it for the whole job. The library would
+stay locked for as long as the server runs, and every deploy would fail.]
+
+The plugin reads the library from #cmd("ctx.project.deploy_target")
+(@ug-extend-ctx). An MBT that predates it, and a project that builds no
+load modules, get the answer that there is no deploy target.
 
 == When a Deploy Fails <ug-deploy-fail>
 
