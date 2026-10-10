@@ -546,7 +546,10 @@ func v3Distribution(root string, in, d map[string]any, upper string, v version.V
 			}
 		}
 	} else if _, explicit := s["delete"]; !explicit {
-		smp["delete"] = []any{}
+		// an explicit fmid says nothing about its predecessor; an empty delete
+		// is right only for a first level -- anywhere else the new SYSMOD does
+		// not own the modules and SMP installs nothing at RC 0 (NOT SEL)
+		return nil, "", configErr("mbt.toml: [smp] fmid is explicit, so delete must be too: the FMID this one replaces, or delete = [] for a product's first level")
 	}
 	out["smp"] = smp
 	return out, distErr, nil

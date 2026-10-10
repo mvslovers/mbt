@@ -126,7 +126,7 @@ What you will notice after migrating:
 - **The version lives in `[project] version` only.** `VERSION` is gone, and
   nothing reads it any more.
 - **The FMID can be derived.** `[smp] prefix = "TUFS"` and version 1.4.0 give
-  `TUFS140`, deleting `TUFS130`. An explicit `fmid` / `delete` still wins.
+  `TUFS140`, deleting `TUFS130`. An explicit `fmid` / `delete` still wins; an explicit `fmid` needs an explicit `delete` beside it (`[]` for a first level), and `mbt migrate` writes `delete = []` where the mbt 2 file had none.
   A patch release (1.4.1) needs an explicit `fmid` until mbt builds PTFs:
   mbt refuses to spend the minor's id a second time.
 - **C99 is the default.** An `mbt.toml` project compiles with

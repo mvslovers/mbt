@@ -179,7 +179,7 @@ upper case, `<P4>` its first four characters.
 |---|---|---|
 | `prefix` | required unless `fmid` is set | new: `T` + three product letters |
 | `fmid` | `prefix` + major + minor + `0` | `distribution.smp.fmid` |
-| `delete` | `prefix` + major + (minor − 1) + `0` | `distribution.smp.delete`; required for a `x.0.0` (`[]` for a first level) |
+| `delete` | `prefix` + major + (minor − 1) + `0` | `distribution.smp.delete`; required for a `x.0.0`, and whenever `fmid` is explicit (`[]` for a first level) |
 | `system` | `"Z038"` | same |
 | `prereq` | `[]` | same |
 | `accept_fmid` | `true` | same |

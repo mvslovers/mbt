@@ -461,6 +461,11 @@ func (c *converter) smp(b *block) (*block, error) {
 				continue
 			}
 			verbatim(ob, e)
+			if _, has := smp["delete"]; !has {
+				// mbt 2 read a missing delete as none; mbt.toml wants it said
+				add(ob, nil, []string{"delete = []"})
+				c.notice("[smp] delete = [] written beside the explicit fmid: mbt 2 read a missing delete as none")
+			}
 		case "delete":
 			if derivable {
 				if hasComment(e.Lead) || inlineComment(e.Lines[len(e.Lines)-1]) != "" {
@@ -853,6 +858,9 @@ func distNorm(p *project.Project) string {
 	smp := project.SMPDefaults(strings.ToUpper(p.Name))
 	for k, v := range rawTable(d, "smp") {
 		smp[k] = normalize(v)
+	}
+	if _, ok := smp["delete"]; !ok {
+		smp["delete"] = []any{} // mbt 2: no delete is none; mbt.toml says so
 	}
 	var libs []string
 	for _, l := range rawList(d, "library") {
