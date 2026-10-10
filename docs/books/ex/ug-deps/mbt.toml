@@ -1,0 +1,17 @@
+schema = 3
+
+[project]
+name = "b64"
+version = "0.1.0-dev"
+
+[toolchain]
+mbt = "3.0"
+libc370 = "2.4.0"
+
+[dependencies]
+"mvslovers/crypto370" = "^1"
+
+[module.B64]
+sources = ["src/b64.c"]
+rent = false
+reus = false

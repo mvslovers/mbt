@@ -1,0 +1,5 @@
+$ mbt target info lab
+[mbt] lab        mvsmf     http://lab:8080       logged on as IBMUSER (HTTP 200) -- 1.1.1-dev lab, MVS 3.8j
+[mbt] lab        hercules  http://lab:8181       answering without a logon (HTTP 200) -- Hercules 4.10.0.11773-SDL-DEV-g4675e7e1, built Sep 5 2026; 3270 terminals: 0 of 33 connected
+[mbt] lab        tn3270    lab:3270              open (1 ms)
+[mbt] lab        ssh       lab:22                open (1 ms)

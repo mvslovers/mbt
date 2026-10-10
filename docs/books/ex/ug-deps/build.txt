@@ -1,0 +1,5 @@
+$ mbt build -v
+[mbt] libc370 2.6.3 in /home/user/.local/cc370 (>= 2.4.0)
+cc370 -O1 -std=gnu99 -Wall -Wextra -Werror -I .mbt/deps/crypto370/include -I .mbt/include -I .mbt -MMD -MP -c src/b64.c -o build/b64.o
+ld370 -L/home/user/.local/cc370/lib -e @@CRT0 build/b64.o -lcc370rt -lc .mbt/deps/crypto370/lib/crypto370.a -lc --norent --noreus -iebcopy -o build/B64
+[mbt] Build complete

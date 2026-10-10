@@ -5,6 +5,9 @@
 #   mbt-<version>-<os>-<arch>.tar.gz     (.zip for windows), holding mbt
 #   mbt-<version>-sha256.txt
 #
+# Beside them, the manuals ML02-0001 and ML02-0002 as PDFs, with their lines in
+# the SHA256 list.
+#
 # A tag with a '-' (v3.0.0-dev) is a prerelease and may be re-pushed: the
 # release of that tag is deleted and created again, as for every project.
 # The v2 tags (v2.x) are not built here -- mbt 2 is the submodule.
@@ -22,6 +25,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: true    # docs/books/bookmaster, for the manuals
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
@@ -49,7 +54,16 @@ jobs:
               tar -C "$OUT/stage" -czf "$OUT/dist/$name.tar.gz" "$name"
             fi
           done
-          (cd "$OUT/dist" && sha256sum mbt-* > "mbt-$VER-sha256.txt")
+          # the manuals, built from the tag, ride along under their document
+          # numbers (ml02-000N-E.pdf) and get their lines in the SHA256 list
+          f=typst-x86_64-unknown-linux-musl.tar.xz
+          curl -fsSL --proto "=https" --tlsv1.2 -o "$RUNNER_TEMP/$f" "https://github.com/typst/typst/releases/download/v0.15.1/$f"
+          (cd "$RUNNER_TEMP" && echo "a6d077d0a95eed5a2eba715b2dae06be954f624ccbf85758a03f389ded33118c  $f" | sha256sum -c -)
+          tar -xf "$RUNNER_TEMP/$f" -C "$RUNNER_TEMP"
+          PATH="$RUNNER_TEMP/typst-x86_64-unknown-linux-musl:$PATH" make -C docs/books
+          cp docs/books/*.pdf "$OUT/dist/"
+          rm -f docs/books/*.pdf    # keep the checkout clean for the next build
+          (cd "$OUT/dist" && sha256sum mbt-* ml02-* > "mbt-$VER-sha256.txt")
           cat "$OUT/dist/mbt-$VER-sha256.txt"
 
       - name: The binary reports its version

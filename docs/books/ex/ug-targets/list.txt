@@ -1,0 +1,2 @@
+$ mbt target list
+* lab          http://lab:8080       IBMUSER    password: keychain mbt/lab hercules ssh tn3270

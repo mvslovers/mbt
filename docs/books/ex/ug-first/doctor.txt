@@ -1,0 +1,13 @@
+$ mbt doctor --offline
+[mbt] Running environment checks (mbt 3 / cc370)...
+[mbt] cc370: /home/user/.local/bin/cc370
+[mbt] as370: /home/user/.local/bin/as370
+[mbt] ld370: /home/user/.local/bin/ld370
+[mbt] ar370: /home/user/.local/bin/ar370
+[mbt] xmit370: /home/user/.local/bin/xmit370
+[mbt] sysroot: /home/user/.local/cc370 (libc370: libc.a, crtm.o; cc370: macros, libcc370rt.a OK)
+[mbt] libc370 2.6.3 in /home/user/.local/cc370 (no version declared, nothing to check)
+[mbt] cc370 1.5.0 (no release pinned in [toolchain] cc370)
+[mbt] mbt.toml valid: hello v0.1.0-dev
+[mbt] --offline: MVS not contacted
+[mbt] All checks passed

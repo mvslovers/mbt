@@ -1,0 +1,8 @@
+$ mbt test
+
+  TEST       RESULT       ASSERTIONS    
+  ---------- ------------ --------------
+  TSTADD     ok  rc=0     2 pass / 0 fail
+
+  1 host test(s) | assertions: 2 PASS, 0 FAIL
+[mbt] all host tests passed

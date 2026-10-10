@@ -1,0 +1,14 @@
+++FUNCTION(TSUM100) .
+++VER(Z038)
+   /* sums 1.0.0-dev                                             */
+   /* Load modules are copied from the LKLIB, not re-bound.      */ .
+++JCLIN .
+//TSUM100 JOB 1,'SUMS JCLIN',MSGLEVEL=1,CLASS=A
+//COPYLOAD EXEC PGM=IEBCOPY
+//ASUMSLOD DD  DISP=SHR,DSN=SUMS.ASUMSLOD
+//LINKLIB  DD  DISP=SHR,DSN=SUMS.LINKLIB
+//SYSIN    DD  *
+  COPY INDD=ASUMSLOD,OUTDD=LINKLIB
+  SELECT MEMBER=(SUMS)
+/*
+++MOD(SUMS) LKLIB(SUMSLOAD) DISTLIB(ASUMSLOD) .

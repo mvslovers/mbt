@@ -1,0 +1,5 @@
+$ mbt build
+[cc370] app/sums.c
+[mbt] ERROR: writable data in SUMS (rent = true): app/sums.c:7: static int v[] = 3, 5, 8, 13, 21
+[mbt] A rent = true module is one copy shared by every task that LINKs it, so it may hold no writable data. Move it onto the heap or the stack, make it const, or declare rent = false (cc370#100).
+[mbt] ERROR: writable data in a rent = true module

@@ -1,0 +1,4 @@
+$ mbt deps
+[mbt] mvslovers/crypto370 ^1 -> 1.0.1
+[mbt]   staged -> .mbt/deps/crypto370 (sha f5686240265b)
+[mbt] Locked 1 dependency(ies) -> mbt.lock

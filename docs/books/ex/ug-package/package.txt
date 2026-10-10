@@ -1,0 +1,11 @@
+$ mbt package
+[cc370] app/sums.c
+[cc370] src/mean.c
+[ar370] sumsint.a (2 objects)
+[ar370] sums.a (2 objects)
+[ld370] SUMS (entry=@@CRT0)
+[mbt] Packaging sums-1.0.0-dev-load.xmit (1 module(s) -> SUMS.V1R0M0D.LINKLIB)
+[mbt] Packaging sums-1.0.0-dev-lib.tar.gz
+[mbt] Generated sums-1.0.0-dev-alloc.jcl and sums-1.0.0-dev-inst.jcl (FMID TSUM100) in build/dist-stage/
+[mbt] Packaged sums-1.0.0-dev-dist.zip and sums-1.0.0-dev-dist.tar.gz (4 files)
+[mbt] Package complete -> dist/

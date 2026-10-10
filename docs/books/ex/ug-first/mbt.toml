@@ -1,0 +1,17 @@
+schema = 3
+
+[project]
+name = "hello"
+version = "0.1.0-dev"
+
+[toolchain]
+mbt = "3.0"
+
+[module.HELLO]
+sources = ["src/hello.c"]
+rent = false
+reus = false
+
+[tests]
+rent = false
+reus = false

@@ -1,0 +1,8 @@
+$ mbt build --all -v
+cc370 -O1 -std=gnu99 -Wall -Wextra -Werror -I include -I .mbt/include -I .mbt -MMD -MP -c app/sums.c -o build/sums.o
+cc370 -O1 -std=gnu99 -Wall -Wextra -Werror -I include -I .mbt/include -I .mbt -MMD -MP -c src/mean.c -o build/mean.o
+as370 -o build/addup.o asm/addup.asm
+ar370 rc build/sumsint.a build/mean.o build/addup.o
+ar370 rc build/sums.a build/mean.o build/addup.o
+ld370 -L/home/user/.local/cc370/lib -e @@CRT0 build/sums.o build/sumsint.a -lcc370rt -lc -lc --rent --reus -iebcopy -o build/SUMS
+[mbt] Build complete
