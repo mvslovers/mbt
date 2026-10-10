@@ -1,6 +1,6 @@
 # mbt v2 output baseline — the yardstick for mbt 3
 
-*Measured 2026-10-03. The design proposal (`docs/mbt-3-design.md`, section
+*Measured 2026-10-03. The design proposal (`internals/mbt-3-design.md`, section
 "Migration and acceptance") accepts mbt 3 when it produces, for every project,
 what mbt v2 produces. This page fixes what "what v2 produces" means, how to
 reproduce it, and where it is not reproducible.*
