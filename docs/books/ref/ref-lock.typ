@@ -58,7 +58,7 @@ that has a #cmd("[lib]"). #cmd("mbt deps") copies its
 fails with #cmd("not built -- run 'mbt build' in") #var("path") when the
 archive is missing. #cmd("[lib] name") defaults to the project name\;
 headers are copied without their directories, and a missing one is
-skipped. #cmd("mbt deps") leaves the dependency's entry in #cmd("mbt.lock")
-as it is, but #cmd("mbt deps --update") drops it from the rewritten lock.
+skipped. #cmd("mbt deps") and #cmd("mbt deps --update") leave the dependency's
+entry in #cmd("mbt.lock") as it is.
 For a plugin, #cmd("path") is the plugin's directory, with
 #cmd("plugin.toml") and #cmd("init.lua").

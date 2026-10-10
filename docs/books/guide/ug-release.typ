@@ -51,7 +51,9 @@ next run says so and how to remove it. Every refusal and every failed Git
 step ends with return code 2. Use
 #cmd("--next 1.5.0-dev") when the next release is planned as a minor, so
 the tree does not carry a patch version that would need an FMID of its
-own.
+own. For a product with an SMP package, a next version with a number above
+9, such as #cmd("1.4.10-dev") after 1.4.9, is refused before anything is
+tagged: release with #cmd("--next 1.5.0-dev") instead.
 
 #idx("release", "repository")
 In a repository with more than one project, only the project whose project
@@ -65,7 +67,9 @@ This holds for #cmd("mbt prerelease") as well.
 #idx("mbt prerelease")#idx("prerelease")
 #cmd("mbt prerelease") publishes the version in development without
 releasing it. On a clean tree, it tags the current commit with the current
-version, such as #cmd("v1.4.0-dev"), and pushes the tag. Run again later, it moves the same
+version, such as #cmd("v1.4.0-dev"), and pushes the tag. A version without
+#cmd("-dev") or #cmd("-rc")#var("n") is refused: its tag is a release tag,
+which only #cmd("mbt release") sets. Run again later, it moves the same
 tag to the newer commit, and the release workflow publishes the
 prerelease again. Nothing in the tree changes.
 

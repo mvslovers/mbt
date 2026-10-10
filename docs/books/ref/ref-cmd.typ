@@ -15,9 +15,6 @@ them with return code 0. Options may stand before or after the arguments,
 and #cmd("--") ends them. A long option is written with one or two
 hyphens.
 
-#note[*To be confirmed:* options after the arguments are accepted from the
-next prerelease of 3.0.0 on\; until then, give the options first.]
-
 When #cmd("mbt.toml") pins another version of MBT in
 #cmd("[toolchain] mbt"), the command is run by that version
 (@ref-cmd-launcher). The return codes are listed in @apx-messages.
@@ -219,7 +216,8 @@ Tags the current commit #cmd("v")#var("version") with the version in
 #cmd("mbt.toml"), such as #cmd("v1.4.0-dev"), moving the tag if it exists,
 and pushes it. The working tree must be clean, and the project must own the
 repository's tags: its project file is at the root, or it is the only one
-in the repository.
+in the repository. A version without #cmd("-dev") or #cmd("-rc")#var("n")
+is refused.
 
 == mbt release <ref-cmd-release>
 
@@ -235,7 +233,9 @@ pushes. Refused, with return code 2, unless the tree is clean and at a
 prerelease of #var("version") (#cmd("-dev") or #cmd("-rc")#var("n")), when
 the tag exists locally or on #cmd("origin"), for a patch release with an SMP
 package but no explicit #cmd("fmid"), and when the project does not own the
-repository's tags (@ref-cmd-prerelease). A step that fails is not undone.
+repository's tags (@ref-cmd-prerelease), and, for a product with an SMP
+package, when the next version has a number above 9. A step that fails is
+not undone.
 
 #deflist(width: 1.5in,
   [#cmd("--next") #var("version")], [the next development version, a

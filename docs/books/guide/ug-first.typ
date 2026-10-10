@@ -154,7 +154,8 @@ shows what would happen, and needs no system and no password:
 ] <ug-first-deploy-fig>
 
 MBT packed the load module into a TSO TRANSMIT file, which it would upload
-to MVS and receive into the library. @ug-deploy describes the deployment,
+to MVS, receive into a staging library, and copy from there into the
+development library. @ug-deploy describes the deployment,
 and why it goes to a development library of its own.
 
 == What Comes Next <ug-first-next>

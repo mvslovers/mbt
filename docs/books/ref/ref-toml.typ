@@ -93,6 +93,8 @@ For #cmd("mbt test") on the workstation only:
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
+  [#cmd("cc")], [#cmd("CC"), else #cmd("cc")], [the C compiler of the
+    workstation.],
   [#cmd("cflags")], [#cmd("[]")], [options after #cmd("[build] cflags").],
   [#cmd("sources")], [#cmd("[]")], [further sources linked into every test.],
   [#cmd("replace")], [#cmd("{}")], [#cmd("{ \"")#var("source")#cmd("\" =

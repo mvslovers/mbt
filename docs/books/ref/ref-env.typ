@@ -34,8 +34,8 @@ on a workstation with a #cmd("targets.toml").
     and #cmd("ar370") by #cmd("build"), #cmd("package"), #cmd("deploy")
     and #cmd("module-data"). #cmd("mbt doctor") checks the standard
     names.],
-  [#cmd("CC")], [the C compiler of the workstation for #cmd("mbt test").
-    Default #cmd("cc").],
+  [#cmd("CC")], [the C compiler of the workstation for #cmd("mbt test"),
+    unless #cmd("[build.host] cc") names one. Default #cmd("cc").],
   [#cmd("ASMDATE"), #cmd("ASMTIME")], [read by #cmd("as370"): the date and
     time written into object modules.],
   [#cmd("LDDATE"), #cmd("LDTIME")], [read by #cmd("ld370"): the date and

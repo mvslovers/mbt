@@ -2,5 +2,5 @@ $ mbt deploy --dry-run
 [mbt] Deploy target: HELLO.DEV.LINKLIB
 [mbt] Modules (1): HELLO
 [mbt] Packed 1 module(s) -> hello.deploy.xmit
-[mbt] [dry-run] would upload hello.deploy.xmit -> staging
-[mbt] [dry-run] would delete + RECEIVE -> HELLO.DEV.LINKLIB
+[mbt] [dry-run] would upload hello.deploy.xmit -> IBMUSER.MBT.XMIT.IN
+[mbt] [dry-run] would RECEIVE into IBMUSER.HELLO.MBTDPLY, then IEBCOPY replace into HELLO.DEV.LINKLIB (DISP=SHR; allocated first if missing)
