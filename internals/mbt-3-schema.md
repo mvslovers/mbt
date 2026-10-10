@@ -82,6 +82,7 @@ among themselves, the rest in order.
 
 | key | from v2 |
 |---|---|
+| `cc` | `host.cc` (default: `CC`, else `cc`) |
 | `cflags` | `host.cflags` |
 | `sources` | `host.sources` |
 | `replace` | `host.replace` |
