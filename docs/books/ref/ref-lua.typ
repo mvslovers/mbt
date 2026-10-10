@@ -24,8 +24,10 @@ this chapter describes version 1.
     #cmd("deploy") or #cmd("release"), or #cmd("on_failure").],
   [#cmd("mbt.task{")...#cmd("}")], [declares a task (@ref-lua-task).],
   [#cmd("mbt.command(")#var("name")#cmd(", ")#var("fn")#cmd(")")], [makes
-    #var("fn(ctx)") the command #cmd("mbt run") #var("name"). Also
-    #cmd("mbt.command{ name = ..., description = ..., run = ... }").],
+    #var("fn(ctx)") the command #cmd("mbt run") #var("name").],
+  [#cmd("mbt.command{")...#cmd("}")], [the same as a table:
+    #cmd("name"), #cmd("run"), and a #cmd("description") that
+    #cmd("mbt run") lists beside the name. Only this form carries one.],
   [#cmd("mbt.api")], [the interface version, #cmd("1").],
   [#cmd("mbt.version")], [the version of MBT.],
 )
