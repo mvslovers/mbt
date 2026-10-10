@@ -69,6 +69,7 @@ type request struct {
 	body                              []byte
 	extra                             map[string]string
 	timeout                           time.Duration
+	noRelogin                         bool // the logoff, and the one repeat after a re-logon
 }
 
 func (c *Client) do(r request) ([]byte, error) {
@@ -117,6 +118,15 @@ func (c *Client) do(r request) ([]byte, error) {
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, errf("Connection lost during %s %s: %v", r.method, r.path, err)
+	}
+	// a server that restarted (mbt run restart stops and starts HTTPD)
+	// has forgotten the session: log on again once and repeat. Safe for a
+	// PUT as well -- mvsMF checks the logon before it acts on anything.
+	if resp.StatusCode == 401 && c.token != "" && !r.noRelogin {
+		if err := c.Login(); err == nil {
+			r.noRelogin = true
+			return c.do(r)
+		}
 	}
 	if resp.StatusCode >= 400 {
 		msg := fmt.Sprintf("HTTP %d %s for %s %s", resp.StatusCode, http.StatusText(resp.StatusCode), r.method, r.path)
@@ -466,8 +476,12 @@ func (c *Client) Logout() error {
 	if c.token == "" {
 		return nil
 	}
-	_, err := c.do(request{method: "DELETE", path: "/services/authenticate", timeout: 10 * time.Second})
+	_, err := c.do(request{method: "DELETE", path: "/services/authenticate", timeout: 10 * time.Second, noRelogin: true})
 	c.token = ""
+	var me *Error
+	if errors.As(err, &me) && strings.HasPrefix(me.Msg, "HTTP 401") {
+		return nil // the server has forgotten the session already (a restart)
+	}
 	return err
 }
 
