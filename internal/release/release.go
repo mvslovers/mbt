@@ -92,6 +92,9 @@ func Release(root string, p *project.Project, ver, next string, o Options) error
 	} else if nv, err := version.Parse(next); err != nil || !nv.IsPre() {
 		return errf("next version '%s' must be a prerelease, e.g. %s-dev", next, next)
 	}
+	if err := nextFMIDCheck(p, rel, next); err != nil {
+		return err
+	}
 	if err := ownsTags(root, p, o); err != nil {
 		return errf("release refused: %v", err)
 	}
@@ -137,6 +140,11 @@ func Prerelease(root string, p *project.Project, o Options) error {
 	if err := ownsTags(root, p, o); err != nil {
 		return errf("prerelease refused: %v", err)
 	}
+	// on a final version the tag is a release: moving it would replace a
+	// published release with whatever HEAD holds now
+	if v, err := version.Parse(p.Version); err != nil || !v.IsPre() {
+		return errf("prerelease refused: %s is not a prerelease -- v%s is a release tag; bump to the next -dev version first", p.Version, p.Version)
+	}
 	tag := "v" + p.Version
 	o.Log(fmt.Sprintf("Prerelease %s...", tag))
 	o.Git(root, "tag", "-d", tag)                  // may not exist
@@ -180,6 +188,24 @@ func smpCheck(root string, p *project.Project, ver string) error {
 		return errf("release %s refused: a patch release would ship under the minor's FMID again; set [smp] fmid (and delete) explicitly -- a PTF is not built yet (design §6.4)", ver)
 	}
 	return nil
+}
+
+// nextFMIDCheck refuses a next version an SMP package cannot express --
+// after x.y.9 the default x.y.10-dev -- before anything is tagged: the tree
+// would no longer load once bumped to it.
+func nextFMIDCheck(p *project.Project, rel version.Version, next string) error {
+	if p.Raw["distribution"] == nil {
+		return nil
+	}
+	nv, _ := version.Parse(next)
+	if nv.Major <= 9 && nv.Minor <= 9 && nv.Patch <= 9 {
+		return nil
+	}
+	way := fmt.Sprintf("%d.%d.0-dev", rel.Major, rel.Minor+1)
+	if rel.Minor+1 > 9 {
+		way = fmt.Sprintf("%d.0.0-dev", rel.Major+1)
+	}
+	return errf("next version %s has a component above 9 -- an FMID has one digit per component; release with --next %s", next, way)
 }
 
 var fmidLineRE = regexp.MustCompile(`(?m)^\s*fmid\s*=`)

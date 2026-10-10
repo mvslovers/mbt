@@ -212,6 +212,18 @@ A project with none of them has no lock file, under mbt 2 as under mbt 3.
   first `mbt deps` of a project that depends on a `-dev` prerelease**: mbt 2
   re-pinned quietly, so the committed lock may name an archive that is gone. Archives are cached by
   SHA, so a locked prerelease stays buildable after its tag has moved.
+- **`mbt deploy` never deletes the library.** It RECEIVEs into a staging
+  library of the project's own and replaces the members with IEBCOPY,
+  `DISP=SHR`, so a running server that holds the library need not stop. A
+  CGI module a server loads per request is active at once; a server's main
+  module needs a restart. A library that does not exist yet is allocated
+  with room for several deploys. A replaced member's old space stays dead
+  until the library is compressed, so mbt checks the free space first,
+  refuses rather than half-copies, and reports the library's fill after
+  each deploy. `--reallocate` (while nothing holds the library) allocates
+  it again, larger, on the same volume; `--ignore-space` trusts the
+  secondary extents. A library that mbt 2 or an older mbt 3 deployed was
+  sized to its contents, so the first deploy into it needs `--reallocate`.
 - **`mbt deploy --linklib DSN`** names a load library to deploy into instead
   of `[deploy] target`. `--target` now names an MVS *system* (section 5).
   The default `[deploy] target` is `<NAME>.DEV.LINKLIB`, so a project

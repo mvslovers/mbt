@@ -70,7 +70,7 @@ func cmdTestTSO(args []string) int {
 	fl.Var(&only, "only", "run only this test (repeatable)")
 	targetName := fl.String("target", "", "the MVS system (a name in ~/.mbt/targets.toml)")
 	verbose := fl.Bool("v", false, "trace the 3270 data stream (passwords are never traced)")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
@@ -117,9 +117,7 @@ func cmdTestTSO(args []string) int {
 	if err := e.Before("test"); err != nil {
 		return fail(err)
 	}
-	v, _ := version.Parse(p.Version)
-	info := map[string]any{"user": tg.TN3270.User,
-		"testlib": fmt.Sprintf("%s.%s.%s.TESTLIB", tg.HLQ, deploy.MVSQualifier(p.Name), v.VRM())}
+	info := map[string]any{"user": tg.TN3270.User, "testlib": testLibrary(p, tg.HLQ)}
 	fmt.Printf("[mbt] %d interactive test(s) on %s (%s as %s)\n", len(tests), tg.Name, tg.TN3270.Addr(), tg.TN3270.User)
 	failed := 0
 	var rows []string
@@ -151,4 +149,14 @@ func cmdTestTSO(args []string) int {
 	}
 	fmt.Printf("[mbt] all %d interactive test(s) passed\n", len(tests))
 	return exitOK
+}
+
+// testLibrary is the library mbt test --mvs deploys to: [deploy]
+// test_target, or the versioned default (mvstest.Run).
+func testLibrary(p *project.Project, hlq string) string {
+	if t, _ := rawTable(p.Raw, "test_deploy")["target"].(string); t != "" {
+		return t
+	}
+	v, _ := version.Parse(p.Version)
+	return fmt.Sprintf("%s.%s.%s.TESTLIB", hlq, deploy.MVSQualifier(p.Name), v.VRM())
 }

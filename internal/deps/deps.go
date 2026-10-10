@@ -90,11 +90,16 @@ func Run(root, projectFile string, o Options) error {
 	}
 
 	lockPath := filepath.Join(root, "mbt.lock")
-	lock := map[string]LockEntry{}
-	if !o.Update {
-		if data, err := os.ReadFile(lockPath); err == nil {
-			json.Unmarshal(data, &lock)
-		}
+	// prev is the committed lock; lock is what resolution may keep (nothing
+	// under --update). An override keeps its entry from prev either way:
+	// it is a local detour, not a new resolution.
+	prev := map[string]LockEntry{}
+	if data, err := os.ReadFile(lockPath); err == nil {
+		json.Unmarshal(data, &prev)
+	}
+	lock := prev
+	if o.Update {
+		lock = map[string]LockEntry{}
 	}
 	overrides := readOverrides(filepath.Join(root, ".mbt", "deps.local.toml"))
 	if len(overrides) > 0 {
@@ -125,8 +130,8 @@ func Run(root, projectFile string, o Options) error {
 				return depErr("%s: path override failed: %v", key, err)
 			}
 			o.Log(fmt.Sprintf("%s -> LOCAL %s (%s.a, override)", key, ov, name))
-			if hasLock {
-				newLock[key] = locked
+			if pinned, ok := prev[key]; ok {
+				newLock[key] = pinned
 			}
 			continue
 		}
