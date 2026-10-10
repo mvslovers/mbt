@@ -235,7 +235,7 @@ func cmdBuild(args []string) int {
 	tests := fl.Bool("tests", false, "also the test load modules")
 	jobs := fl.Int("j", 0, "parallel steps (default: number of CPUs)")
 	verbose := fl.Bool("v", false, "print every command line")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	_, code := doBuild(*all, *tests, *jobs, *verbose, fl.Args())
@@ -375,7 +375,7 @@ func cmdDist() int {
 func cmdMigrate(args []string) int {
 	fl := flag.NewFlagSet("migrate", flag.ContinueOnError)
 	dry := fl.Bool("dry-run", false, "print mbt.toml instead of writing it")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
@@ -424,7 +424,7 @@ func cmdMigrate(args []string) int {
 func cmdRelease(args []string, pre bool) int {
 	fl := flag.NewFlagSet("release", flag.ContinueOnError)
 	next := fl.String("next", "", "the development version after the release (default: patch+1-dev)")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
@@ -797,7 +797,7 @@ func cmdTarget(args []string) int {
 	case "ping", "info":
 		fl := flag.NewFlagSet("target "+args[0], flag.ContinueOnError)
 		wait := fl.Int("wait", 0, "wait up to this many seconds for mvsMF to answer")
-		if err := fl.Parse(flagsFirst(args[1:])); err != nil {
+		if err := parseArgs(fl, args[1:]); err != nil {
 			return exitConfig
 		}
 		name := fl.Arg(0)
@@ -882,7 +882,7 @@ func cmdTarget(args []string) int {
 	case "import":
 		fl := flag.NewFlagSet("target import", flag.ContinueOnError)
 		name := fl.String("name", "", "the new target's name")
-		if err := fl.Parse(flagsFirst(args[1:])); err != nil {
+		if err := parseArgs(fl, args[1:]); err != nil {
 			return exitConfig
 		}
 		if fl.NArg() != 1 || *name == "" {
@@ -932,24 +932,36 @@ func orDash(s string) string {
 	return s
 }
 
-// flagsFirst moves "-x v" / "--x=v" ahead of the positional arguments, so
-// "mbt target import .env --name X" parses as written (Go's flag package
-// stops at the first non-flag).
-func flagsFirst(args []string) []string {
-	var flags, pos []string
+// parseArgs parses fl from args with the options anywhere among the
+// positional arguments, as the usage text writes them ("mbt release 1.4.0
+// --next 1.5.0-dev"); Go's flag package alone stops at the first
+// positional. An option's value is taken from the next argument only when
+// the option is not boolean; "--" ends the options.
+func parseArgs(fl *flag.FlagSet, args []string) error {
+	var opts, pos []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if strings.HasPrefix(a, "-") && a != "-" {
-			flags = append(flags, a)
-			if !strings.Contains(a, "=") && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
-				flags = append(flags, args[i+1])
-				i++
-			}
+		if a == "--" {
+			pos = append(pos, args[i+1:]...)
+			break
+		}
+		if len(a) < 2 || a[0] != '-' {
+			pos = append(pos, a)
 			continue
 		}
-		pos = append(pos, a)
+		opts = append(opts, a)
+		name, _, hasValue := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if f := fl.Lookup(name); f != nil && !hasValue && !isBoolFlag(f) && i+1 < len(args) {
+			opts = append(opts, args[i+1])
+			i++
+		}
 	}
-	return append(flags, pos...)
+	return fl.Parse(append(append(opts, "--"), pos...))
+}
+
+func isBoolFlag(f *flag.Flag) bool {
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return ok && b.IsBoolFlag()
 }
 
 // cmdRun: mbt run [NAME] [-v] [--dry-run] [-- ARGS...]
@@ -964,7 +976,7 @@ func cmdRun(args []string) int {
 	fl := flag.NewFlagSet("run", flag.ContinueOnError)
 	verbose := fl.Bool("v", false, "show each program run and its output")
 	dry := fl.Bool("dry-run", false, "run the Lua, but no program and no write")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
@@ -1022,7 +1034,7 @@ func cmdClean(dist bool) int {
 func cmdPackage(args []string) int {
 	fl := flag.NewFlagSet("package", flag.ContinueOnError)
 	jobs := fl.Int("j", 0, "parallel steps")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	p, code := doBuild(true, false, *jobs, false, nil)
@@ -1105,7 +1117,7 @@ func cmdModdata(args []string) int {
 	fl := flag.NewFlagSet("module-data", flag.ContinueOnError)
 	all := fl.Bool("all", false, "list every warning, not three per module")
 	raw := fl.Bool("raw", false, "scan the sources as written, without cc370 -E")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
@@ -1149,7 +1161,7 @@ func cmdTest(args []string) int {
 	noDeploy := fl.Bool("no-deploy", false, "with --mvs: reuse the TESTLIB already there")
 	targetName := fl.String("target", "", "with --mvs: the MVS system (a name in ~/.mbt/targets.toml)")
 	linklib := fl.String("linklib", "", "with --mvs: the runtime load library the tests run against")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	selectedTarget = *targetName
@@ -1313,7 +1325,7 @@ func doctorCC370(want string) {
 func cmdDoctor(args []string) int {
 	fl := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	offline := fl.Bool("offline", false, "check the host only: no MVS connection, no logon")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return exitOK
 		}
@@ -1461,7 +1473,7 @@ func cmdDeploy(args []string) int {
 	verbose := fl.Bool("v", false, "echo the ld370/RECEIVE commands")
 	ignoreSpace := fl.Bool("ignore-space", false, "copy although the library's free space looks too small (its secondary extents may cover it)")
 	reallocate := fl.Bool("reallocate", false, "delete the target and allocate it again, larger, on its volume (only while nothing holds it)")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
@@ -1518,7 +1530,7 @@ func rawTable(m map[string]any, key string) map[string]any {
 func cmdDeps(args []string) int {
 	fl := flag.NewFlagSet("deps", flag.ContinueOnError)
 	update := fl.Bool("update", false, "re-resolve every range and rewrite mbt.lock")
-	if err := fl.Parse(args); err != nil {
+	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
 	root, _ := os.Getwd()
