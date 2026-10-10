@@ -24,6 +24,12 @@ mbt is a reusable Git submodule that centralizes the full build pipeline for
 > **mbt 3** (a single installed program instead of the submodule) is on its
 > way: [docs/MIGRATION.md](docs/MIGRATION.md) takes a project from mbt 2 to mbt 3.
 >
+> **The MBT 3 manuals**, *MBT User's Guide* (ML02-0001) and *MBT Reference*
+> (ML02-0002), are read online at
+> [mvslovers.readthedocs.io/projects/mbt](https://mvslovers.readthedocs.io/projects/mbt/).
+> mbt 3 releases built after 2026-10-10 also carry them as PDFs. Their sources are in
+> [docs/books](docs/books).
+>
 > The legacy v1 (remote mvsMF/JCL) build documented below still works via
 > `include $(MBT_ROOT)/mk/legacy/core.mk` and lives under `mk/legacy/` +
 > `scripts/legacy/`. It is in maintenance mode.
