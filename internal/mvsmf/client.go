@@ -502,6 +502,27 @@ func (c *Client) Request(method, path, contentType string, body []byte) (int, []
 	return 200, data, nil
 }
 
+// consoleFailure classifies a console error answer by mvsMF's documented
+// codes (docs/endpoints/console/issue-command.md). A 4xx is a refusal
+// before the command (validation, logon, 429/8/16: another command in
+// progress), and so is 503/8/17 (quiescing, not issued). Any other 5xx may
+// come after the command ran -- 503/8/15 says so outright, 500/8/14 cannot
+// tell, and an empty or foreign body tells nothing -- so it is Unknown:
+// the next channel must not send it again (an S twice starts two servers).
+func consoleFailure(status int, body []byte) Delivery {
+	if status < 500 {
+		return NotDelivered
+	}
+	var r struct {
+		RC     int `json:"return-code"`
+		Reason int `json:"reason-code"`
+	}
+	if json.Unmarshal(body, &r) == nil && status == 503 && r.RC == 8 && r.Reason == 17 {
+		return NotDelivered
+	}
+	return Unknown
+}
+
 // Delivery says what became of an operator command on one channel.
 type Delivery int
 
@@ -543,7 +564,12 @@ func (c *Client) Console(name, cmd string, timeout time.Duration) ([]string, Del
 	defer resp.Body.Close()
 	data, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode >= 400 {
-		return nil, NotDelivered, errf("mvsMF console: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		d := consoleFailure(resp.StatusCode, data)
+		msg := fmt.Sprintf("mvsMF console: HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(data)))
+		if d == Unknown {
+			msg += " -- it may have been issued"
+		}
+		return nil, d, errf("%s", msg)
 	}
 	var r map[string]any
 	if err := json.Unmarshal(data, &r); err != nil {

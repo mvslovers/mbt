@@ -74,6 +74,9 @@ func TestMVSMFChannel(t *testing.T) {
 			json.NewEncoder(w).Encode(map[string]any{"cmd-response": "IEE136I LOCAL: TIME=12.00.00\r" + b["cmd"] + " ECHO\r"})
 		case "500":
 			w.WriteHeader(500)
+		case "429":
+			w.WriteHeader(429)
+			w.Write([]byte(`{"return-code":8,"reason-code":16,"reason":"busy"}`))
 		case "hang":
 			time.Sleep(2 * time.Second)
 		}
@@ -86,9 +89,15 @@ func TestMVSMFChannel(t *testing.T) {
 	if d != mvsmf.Delivered || err != nil || len(lines) != 2 || lines[0] != "IEE136I LOCAL: TIME=12.00.00" {
 		t.Errorf("ok: %q %v %v", lines, d, err)
 	}
+	// a bare 5xx may come after the command ran: no resend elsewhere
 	mode = "500"
-	if _, d, _ = ch.Send("D T"); d != mvsmf.NotDelivered {
+	if _, d, _ = ch.Send("D T"); d != mvsmf.Unknown {
 		t.Errorf("500: %v", d)
+	}
+	// refused before the command: the next channel may take it
+	mode = "429"
+	if _, d, _ = ch.Send("D T"); d != mvsmf.NotDelivered {
+		t.Errorf("429/8/16: %v", d)
 	}
 	mode = "hang"
 	if _, d, _ = ch.Send("D T"); d != mvsmf.Unknown {
