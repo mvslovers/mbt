@@ -1,4 +1,5 @@
 $ mbt deploy --dry-run
+[mbt] WARNING: no ~/.mbt/targets.toml: using the mbt 2 settings (MBT_MVS_*, .env) -- 'mbt target import .env --name NAME' turns them into a target
 [mbt] Deploy target: HELLO.DEV.LINKLIB
 [mbt] Modules (1): HELLO
 [mbt] Packed 1 module(s) -> hello.deploy.xmit

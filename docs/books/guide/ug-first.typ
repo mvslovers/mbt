@@ -153,7 +153,10 @@ shows what would happen, and needs no system and no password:
   #screen(raw(read("../ex/ug-first/deploy.txt")))
 ] <ug-first-deploy-fig>
 
-MBT packed the load module into a TSO TRANSMIT file, which it would upload
+The warning says that no target is defined yet, so MBT fell back on the
+settings of MBT 2. With none of those either, it uses their defaults,
+which is where #cmd("IBMUSER") in the data set names comes from\; @ug-targets
+shows how to define a target. MBT packed the load module into a TSO TRANSMIT file, which it would upload
 to MVS, receive into a staging library, and copy from there into the
 development library. @ug-deploy describes the deployment,
 and why it goes to a development library of its own.
