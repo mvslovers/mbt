@@ -143,10 +143,11 @@ and MBT derives the rest from the version:
     minor's FMID, which MBT does not build yet. Until it does, a patch
     release needs an explicit #cmd("fmid"), such as #cmd("TSUM141") for
     1.4.1, *and an explicit #cmd("delete")*, here #cmd("[\"TSUM140\"]"):
-    with an explicit #cmd("fmid"), #cmd("delete") is empty unless given,
-    and a SYSMOD that replaces nothing does not own the modules it ships
-    (@ug-package-check). MBT refuses to spend the minor's identifier a
-    second time.],
+    a SYSMOD that replaces nothing does not own the modules it ships
+    (@ug-package-check). MBT cannot tell a patch from a first level, so an
+    explicit #cmd("fmid") without #cmd("delete") is an error\; a product's
+    first level writes #cmd("delete = []"). MBT refuses to spend the
+    minor's identifier a second time.],
   [*Each release replaces its predecessor.*], [#cmd("delete") names the
     FMID the release replaces. With a derived FMID it is the previous
     minor by default. A release x.0.0 has no previous minor to derive, so
@@ -159,8 +160,9 @@ and MBT derives the rest from the version:
     tag of a 1.4 patch release, and asks for an explicit one.],
   [*No digit above 9.*], [There is no room for two: at patch 9 the next
     release is a new minor, at minor 9 a new major.],
-  [*When it is checked.*], [A missing #cmd("delete") for x.0.0 and a digit
-    above 9 make the project file invalid: every command stops, even
+  [*When it is checked.*], [A missing #cmd("delete") for x.0.0 or beside
+    an explicit #cmd("fmid"), and a digit above 9, make the project file
+    invalid: every command stops, even
     #cmd("mbt build"). A patch release without an explicit #cmd("fmid")
     stops #cmd("mbt package") and #cmd("mbt release") for a final
     version\; for a #cmd("-dev") version #cmd("mbt package") warns, leaves
@@ -193,8 +195,9 @@ SYSMOD: #cmd("LIST") shows it with #cmd("DELBY") naming the release that
 replaced it. It remains spent.
 
 Text libraries shipped with #cmd("[distribution.library]") are received
-afresh on every installation: changes made to them on the system are lost,
-so copy what you change into a library of your own.
+afresh on every installation, by design: a shipped library belongs to the
+product and is replaced with it. Changes made to it on the system are lost,
+so change a copy, in a library of your own.
 
 #idx("APF")
 Two things an upgrade does not do:

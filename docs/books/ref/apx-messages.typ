@@ -50,6 +50,9 @@ the way out.
       [make the data #cmd("const"), move it, or declare
       #cmd("rent = false"). The same text with #cmd("(ac = 1 ...)") or
       #cmd("(RENT by ld370's default)") is a warning.],
+    [#cmd("mbt.toml: [smp] fmid is explicit, so delete must be too: ...")],
+      [name the FMID this release replaces, or write #cmd("delete = []")
+      for a product's first level.],
     [#cmd("sources sharing a name: ... -- rename one")], [rename one of the
       two files.],
     [#cmd("... defines N targets and none is default")], [give

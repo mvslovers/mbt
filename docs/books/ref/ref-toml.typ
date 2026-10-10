@@ -236,10 +236,10 @@ first four characters of #var("NAME").
     seven characters, a letter and six letters or digits. Required for a
     version whose patch number is not 0.],
   [#cmd("delete")], [with a derived #cmd("fmid"): #var("prefix") + major +
-    (minor − 1) + #cmd("0")\; else #cmd("[]")], [the FMIDs this release
-    replaces. With a derived #cmd("fmid"), required for
-    #var("x")#cmd(".0.0")\; #cmd("[]") for a first level. It must not name
-    the release's own FMID.],
+    (minor − 1) + #cmd("0")\; with an explicit one: none], [the FMIDs this
+    release replaces. Required with an explicit #cmd("fmid"), and with a
+    derived one for #var("x")#cmd(".0.0")\; #cmd("[]") for a first level.
+    It must not name the release's own FMID.],
   [#cmd("system")], [#cmd("\"Z038\"")], [the SREL of the #cmd("++VER").],
   [#cmd("prereq")], [#cmd("[]")], [SYSMODs that must be installed.],
   [#cmd("accept_fmid")], [#cmd("true")], [accept the FMID in the
