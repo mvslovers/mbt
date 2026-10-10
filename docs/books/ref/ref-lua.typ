@@ -83,7 +83,10 @@ that made them changed: the task itself, the Lua files loaded, the
 #table(columns: (2.3in, 1fr),
   [Member], [Meaning],
   [#cmd("ctx.project")], [a copy: #cmd("name"), #cmd("version"),
-    #cmd("modules"), #cmd("tests").],
+    #cmd("modules"), #cmd("tests"), #cmd("deploy_target"):
+    #cmd("[deploy] target")\; in an #cmd("mbt.toml") with load modules and
+    no target, #var("NAME")#cmd(".DEV.LINKLIB")\; #cmd("nil") when neither
+    applies.],
   [#cmd("ctx.args")], [the arguments after #cmd("--") of #cmd("mbt run").],
   [#cmd("ctx.dry_run")], [#cmd("true") under #cmd("mbt run --dry-run") and
     #cmd("mbt deploy --dry-run").],

@@ -115,6 +115,7 @@ own.
   #table(columns: (1.9in, 1fr),
     [Name], [What it is],
     [#cmd("ctx.project")], [the project's name, version, modules and tests,
+      and #cmd("deploy_target"), the library #cmd("mbt deploy") writes to,
       as a copy.],
     [#cmd("ctx.exec{")#var("argv")#cmd("}")], [runs a program. The arguments
       are a list, and no shell is involved, so a value with blanks stays
@@ -183,3 +184,9 @@ for an interface MBT does not provide is refused with a message.
 
 #cmd(".mbt/deps.local.toml") can point a plugin at a working copy, as it
 does for a dependency (@ug-deps-local).
+
+#cmd("mvslovers/mbt-stc") (@ug-deploy-restart) shows how far the
+functions of #cmd("ctx") reach. Its command #cmd("restart") reads the
+library from #cmd("ctx.project.deploy_target"), submits a job through
+#cmd("ctx.mvs.request"), and stops and starts the server with
+#cmd("ctx.console"). It starts no program on the workstation.
