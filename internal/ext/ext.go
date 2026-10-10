@@ -440,6 +440,10 @@ func (e *Engine) luaCommand(t *rt.Thread, c *rt.GoCont) (rt.Cont, error) {
 		return nil, errors.New(`mbt.command: needs a name -- mbt.command("name", function(ctx) ... end)`)
 	}
 	if _, ok := cmd.fn.TryCallable(); !ok {
+		if _, isText := cmd.fn.TryString(); isText {
+			// a description as the second argument: the natural first try
+			return nil, fmt.Errorf(`mbt.command %q: the second argument is the function; a description goes in the table form -- mbt.command{ name = %q, description = "...", run = function(ctx) ... end }`, cmd.name, cmd.name)
+		}
 		return nil, fmt.Errorf("mbt.command %q: needs a function to run", cmd.name)
 	}
 	if _, dup := e.commands[cmd.name]; dup {
