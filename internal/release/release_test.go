@@ -160,3 +160,35 @@ func TestTagOwner(t *testing.T) {
 		t.Errorf("sub-project prerelease: %v", err)
 	}
 }
+
+// A prerelease moves its tag; on a final version that tag is a release, and
+// moving it would replace a published release with whatever HEAD holds.
+func TestPrereleaseRefusesAFinalVersion(t *testing.T) {
+	work, origin := repo(t, "1.4.0", "")
+	if err := Prerelease(work, load(t, work), opts(t)); err == nil || !strings.Contains(err.Error(), "not a prerelease") {
+		t.Errorf("final version: %v", err)
+	}
+	if tags := sh(t, origin, "git", "tag"); strings.TrimSpace(tags) != "" {
+		t.Errorf("tags on origin: %q", tags)
+	}
+}
+
+// After x.y.9 the default next version x.y.10-dev has no FMID: refuse it
+// before anything is tagged, and name the way out.
+func TestReleaseRefusesANextVersionAbove9(t *testing.T) {
+	extra := "fmid = \"TSBX149\"\ndelete = [\"TSBX148\"]\n"
+	work, origin := repo(t, "1.4.9-dev", extra)
+	err := Release(work, load(t, work), "1.4.9", "", opts(t))
+	if err == nil || !strings.Contains(err.Error(), "1.4.10-dev") || !strings.Contains(err.Error(), "--next 1.5.0-dev") {
+		t.Errorf("default next: %v", err)
+	}
+	if tags := sh(t, origin, "git", "tag"); strings.TrimSpace(tags) != "" {
+		t.Errorf("tags on origin: %q", tags)
+	}
+	if err := Release(work, load(t, work), "1.4.9", "1.4.10-dev", opts(t)); err == nil || !strings.Contains(err.Error(), "above 9") {
+		t.Errorf("explicit next: %v", err)
+	}
+	if err := Release(work, load(t, work), "1.4.9", "1.5.0-dev", opts(t)); err != nil {
+		t.Errorf("next minor: %v", err)
+	}
+}
