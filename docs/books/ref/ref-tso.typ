@@ -70,10 +70,15 @@ A test that works on data sets of its own -- an exec, a CLIST, a panel,
 input -- declares them in #cmd("mbt.toml"):
 
 ```
-[tso.FSSMENU]
-fixtures = { TSOTEST = ["test/tso/fssmenu.rexx"],
-             RXLIB   = ["rxlib/FSSMENU.rexx", "rxlib/FSSAPI.rexx"] }
+[tso.FSSMENU.fixtures]
+TSOTEST = ["test/tso/fssmenu.rexx"]
+RXLIB   = ["rxlib/FSSMENU.rexx", "rxlib/FSSAPI.rexx"]
 ```
+
+The table form, not an inline table across several lines: TOML 1.0 keeps
+an inline table on one line, and a tool of the project's own that reads
+#cmd("mbt.toml") with a TOML 1.0 parser (Python's #cmd("tomllib")) refuses
+the other.
 
 Before the sessions, and after the #cmd("before_test") hooks, MBT deletes
 and allocates one PDS per key, #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".FIX.")#var("TEST")#cmd(".")#var("KEY"),
