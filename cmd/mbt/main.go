@@ -274,6 +274,11 @@ func doBuild(all, tests bool, jobs int, verbose bool, only []string) (*project.P
 	for _, w := range t.Warnings {
 		fmt.Printf("[mbt] WARNING: %s\n", w)
 	}
+	if cobolSource(p) != "" {
+		if t.COBC, err = findCOBC(p); err != nil {
+			return nil, fail(err)
+		}
+	}
 	if _, err := stamp.Write(root, p.Name, p.Version); err != nil {
 		return nil, fail(err)
 	}

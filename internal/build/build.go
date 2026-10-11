@@ -139,6 +139,20 @@ func (b *Builder) asflags() []string {
 	return strings.Fields(strings.Join(b.P.ASFlags, " "))
 }
 
+func (b *Builder) cobflags() []string {
+	return strings.Fields(strings.Join(b.P.COBFlags, " "))
+}
+
+// cobolAsm and cobolDep are where a COBOL source's assembler and the
+// dependency file cobc370 writes for it go: build/cobol/<stem>.asm, .d.
+func cobolAsm(builddir, src string) string {
+	return strings.TrimSuffix(project.ObjectPath(path.Join(builddir, "cobol"), src), ".o") + ".asm"
+}
+
+func cobolDep(builddir, src string) string {
+	return strings.TrimSuffix(cobolAsm(builddir, src), ".asm") + ".d"
+}
+
 // -- steps ----------------------------------------------------------------
 
 type step struct {
@@ -146,7 +160,10 @@ type step struct {
 	inputs []string // project-relative or absolute
 	argv   []string
 	label  string
-	kind   string // cc, as, ar, ld
+	kind   string // cobc, cc, as, ar, ld
+	// depfile: the .d the tool writes, whose prerequisites are inputs too
+	// (cc370's headers, cobc370's copybooks)
+	depfile string
 }
 
 // Run builds what Options select.
@@ -197,6 +214,26 @@ func (b *Builder) Run() error {
 	}
 	if b.O.Lib && b.P.Lib != nil {
 		add(b.P.Lib.Sources)
+	}
+
+	// COBOL first: cobc370 writes the assembler as370 then reads
+	var translates []step
+	for _, o := range order {
+		if project.IsCOBOL(need[o]) {
+			s, err := b.translateStep(need[o])
+			if err != nil {
+				return err
+			}
+			translates = append(translates, s)
+		}
+	}
+	if len(translates) > 0 {
+		if err := os.MkdirAll(b.abs(path.Join(b.O.BuildDir, "cobol")), 0o755); err != nil {
+			return err
+		}
+		if err := b.runAll(translates); err != nil {
+			return err
+		}
 	}
 
 	var compiles []step
@@ -320,6 +357,13 @@ func (b *Builder) selectedUnits() []*project.Unit {
 
 func (b *Builder) compileStep(src, obj string) step {
 	ext := strings.ToLower(path.Ext(src))
+	if project.IsCOBOL(src) {
+		// as370 on what cobc370 wrote; the object keeps the .cbl's stem
+		asm := cobolAsm(b.O.BuildDir, src)
+		argv := append([]string{b.T.AS}, b.asflags()...)
+		argv = append(argv, "-o", obj, asm)
+		return step{out: obj, inputs: []string{asm}, argv: argv, label: "[as370] " + asm, kind: "as"}
+	}
 	if ext == ".asm" || ext == ".s" {
 		argv := append([]string{b.T.AS}, b.asflags()...)
 		argv = append(argv, "-o", obj, src)
@@ -327,7 +371,22 @@ func (b *Builder) compileStep(src, obj string) step {
 	}
 	argv := append([]string{b.T.CC}, b.cflags()...)
 	argv = append(argv, "-MMD", "-MP", "-c", src, "-o", obj)
-	return step{out: obj, inputs: []string{src}, argv: argv, label: "[cc370] " + src, kind: "cc"}
+	return step{out: obj, inputs: []string{src}, argv: argv, label: "[cc370] " + src, kind: "cc",
+		depfile: strings.TrimSuffix(obj, ".o") + ".d"}
+}
+
+// translateStep runs cobc370 on a COBOL source: assembler into
+// build/cobol/<stem>.asm, and with -MMD the copybooks it opened into
+// <stem>.d, so a changed copybook translates again.
+func (b *Builder) translateStep(src string) (step, error) {
+	if b.T.COBC == "" {
+		return step{}, &Error{2, src + ": a COBOL source, and no cobc370 was found"}
+	}
+	asm, dep := cobolAsm(b.O.BuildDir, src), cobolDep(b.O.BuildDir, src)
+	argv := []string{b.T.COBC, src, "-o", asm}
+	argv = append(argv, b.cobflags()...)
+	argv = append(argv, "-MMD", "-MP", "-MF", dep)
+	return step{out: asm, inputs: []string{src}, argv: argv, label: "[cobc370] " + src, kind: "cobc", depfile: dep}, nil
 }
 
 func (b *Builder) archiveStep(out string, members []string) step {
@@ -470,9 +529,9 @@ func (b *Builder) exec(s step) error {
 	if s.kind == "as" && rc < 8 {
 		failed = false
 	}
-	if s.kind == "cc" {
-		// Whatever the compile returned: cc370 writes the .d before as370 runs.
-		escapeDepfile(b.abs(strings.TrimSuffix(s.out, ".o") + ".d"))
+	if s.depfile != "" {
+		// Whatever the step returned: cc370 writes the .d before as370 runs.
+		escapeDepfile(b.abs(s.depfile))
 	}
 	if failed {
 		// A failed step leaves no output behind: as370 writes its deck even
@@ -504,8 +563,8 @@ func (b *Builder) stale(s step) bool {
 		return true
 	}
 	inputs := s.inputs
-	if s.kind == "cc" {
-		inputs = append(inputs, readDepfile(b.abs(strings.TrimSuffix(s.out, ".o")+".d"))...)
+	if s.depfile != "" {
+		inputs = append(inputs, readDepfile(b.abs(s.depfile))...)
 	}
 	for _, in := range inputs {
 		is, err := os.Stat(b.abs(in))

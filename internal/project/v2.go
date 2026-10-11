@@ -31,6 +31,7 @@ func fromRaw(root, file string, raw map[string]any) (*Project, error) {
 	build := table(raw, "build")
 	p.CFlags = strs(build, "cflags")
 	p.ASFlags = strs(build, "asflags")
+	p.COBFlags = strs(build, "cobflags")
 
 	if err := validateNames(raw); err != nil {
 		return nil, err
@@ -141,7 +142,34 @@ func (p *Project) unit(m map[string]any, test bool) (*Unit, error) {
 	srcs, empty := resolveSources(p.Root, strs(m, "sources"), strs(m, "exclude"))
 	p.warnEmpty(empty)
 	u.Sources = srcs
+	if err := checkCOBOL(u, m); err != nil {
+		return nil, err
+	}
 	return u, nil
+}
+
+// checkCOBOL: a unit with COBOL sources names its entry (the PROGRAM-ID);
+// the default @@CRT0 would autocall the C runtime and end unresolved at
+// MAIN. And it is not reentrant: cobc370 puts WORKING-STORAGE into the
+// module as a CSECT and writes it.
+func checkCOBOL(u *Unit, m map[string]any) error {
+	var cbl string
+	for _, s := range u.Sources {
+		if IsCOBOL(s) {
+			cbl = s
+			break
+		}
+	}
+	if cbl == "" {
+		return nil
+	}
+	if _, ok := m["entry"]; !ok {
+		return configErr("%s: has COBOL sources (%s) -- set 'entry' to the PROGRAM-ID that starts it", u.Name, cbl)
+	}
+	if r, _ := m["rent"].(bool); r {
+		return configErr("%s: rent = true, but cobc370's code is not reentrant (WORKING-STORAGE is a CSECT in the module) -- rent = false", u.Name)
+	}
+	return nil
 }
 
 func badStartup(name string, v any) error {

@@ -29,3 +29,11 @@ func TestObjectNameClash(t *testing.T) {
 		t.Error(".c and .asm of one stem passed")
 	}
 }
+
+// A COBOL source and a C source of one stem would share build/<stem>.o.
+func TestObjectNameClashCOBOL(t *testing.T) {
+	p := &project.Project{Modules: []*project.Unit{{Name: "M", Sources: []string{"src/menu.c", "cobol/menu.cbl"}}}}
+	if err := CheckObjectNames(p, "build"); err == nil || !strings.Contains(err.Error(), "cobol/menu.cbl") {
+		t.Errorf("%v", err)
+	}
+}

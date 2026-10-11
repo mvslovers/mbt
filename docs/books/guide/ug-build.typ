@@ -157,6 +157,44 @@ described in the _CC/370 User's Guide_, Chapter 5.
   #code(read("../ex/ug-build/addup.asm"), numbers: true)
 ] <ug-build-addup>
 
+== COBOL Sources <ug-build-cobol>
+
+#idx("COBOL")#idx("cobc370")
+A module can be written in COBOL. #cmd("cobc370"), a COBOL-74 compiler that
+emits S/370 assembler, turns each #cmd(".cbl") source into assembler, and
+#cmd("as370") and #cmd("ld370") do the rest, as for an assembler module:
+
+```
+[build]
+cobflags = ["-I", "copy"]          # where COPY finds its copybooks
+
+[module.PAYROLL]
+sources = ["src/payroll.cbl"]
+entry   = "PAYROLL"                # the PROGRAM-ID
+rent    = false
+reus    = false
+```
+
+The build shows both steps for each source, and the generated assembler
+stays in #cmd("build/cobol/") for a look:
+
+```
+[cobc370] src/payroll.cbl
+[as370] build/cobol/payroll.asm
+[ld370] PAYROLL (entry=PAYROLL)
+```
+
+A changed copybook translates the programs that copy it again:
+#cmd("cobc370") records them, as #cmd("cc370") records headers. The module
+carries the COBOL runtime #cmd("cobc370") emits into it. It needs no
+LIBC/370 and no C startup, which is why #cmd("entry") is required. The
+system macros the generated code uses (OPEN, DCB, SPIE, TIME and the rest)
+come from maclib370 beside #cmd("as370").
+
+#cmd("cobc370") is not part of CC/370. Put it on #cmd("PATH"), name it in
+#cmd("MBT_COBC370"), or declare it in #cmd("[tools]") (@ug-deps-tools). A
+rebuilt #cmd("cobc370") does not by itself translate the sources again.
+
 == Load Modules <ug-build-modules>
 
 #idx("load module", "declaring")

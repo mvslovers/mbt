@@ -34,6 +34,9 @@ on a workstation with a #cmd("targets.toml").
     and #cmd("ar370") by #cmd("build"), #cmd("package"), #cmd("deploy")
     and #cmd("module-data"). #cmd("mbt doctor") checks the standard
     names.],
+  [#cmd("MBT_COBC370")], [the #cmd("cobc370") for COBOL sources, a path or
+    a name on #cmd("PATH"). Ahead of a #cmd("[tools]") entry and of
+    #cmd("PATH").],
   [#cmd("CC")], [the C compiler of the workstation for #cmd("mbt test"),
     unless #cmd("[build.host] cc") names one. Default #cmd("cc").],
   [#cmd("ASMDATE"), #cmd("ASMTIME")], [read by #cmd("as370"): the date and
