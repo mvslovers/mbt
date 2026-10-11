@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -38,7 +39,7 @@ func LoadV3(root, file string) (*Project, error) {
 }
 
 var v3Keys = map[string][]string{
-	"":             {"schema", "project", "toolchain", "dependencies", "build", "lib", "internal", "module", "tests", "test", "deploy", "distribution", "smp", "release", "tools", "plugins"},
+	"":             {"schema", "project", "toolchain", "dependencies", "build", "lib", "internal", "module", "tests", "test", "deploy", "distribution", "smp", "release", "tools", "plugins", "tso"},
 	"project":      {"name", "version", "kind"},
 	"toolchain":    {"cc370", "libc370", "mbt"},
 	"build":        {"include", "cflags", "asflags", "host"},
@@ -53,6 +54,26 @@ var v3Keys = map[string][]string{
 	"library":      {"target"},
 	"smp":          {"prefix", "fmid", "delete", "system", "prereq", "accept_fmid", "lklib", "target", "distlib"},
 	"release":      {"version_files"},
+	"tso":          {"fixtures"},
+}
+
+var qualRE = regexp.MustCompile(`^[A-Z@#$][A-Z0-9@#$]{0,7}$`)
+
+// strList is a TOML list of strings.
+func strList(v any) ([]string, bool) {
+	l, ok := v.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([]string, 0, len(l))
+	for _, x := range l {
+		s, ok := x.(string)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, s)
+	}
+	return out, true
 }
 
 func checkKeys(t map[string]any, kind, where string) error {
@@ -194,6 +215,48 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 		out["distribution"], distErr = dist, msg
 	} else if table(in, "smp") != nil {
 		return nil, "", configErr("mbt.toml: [smp] without [distribution] -- nothing would be packaged")
+	}
+
+	// [tso.NAME] fixtures = { KEY = [files] }: data sets a TSO test needs
+	// (mbt test --tso, mbt#243); NAME is the test file's name, KEY the last
+	// qualifier of its data set
+	if ts := table(in, "tso"); ts != nil {
+		tso := map[string]any{}
+		for n, v := range ts {
+			e, ok := v.(map[string]any)
+			if !ok {
+				return nil, "", configErr("mbt.toml: [tso.%s] must be a table", quoteKey(n))
+			}
+			if err := checkKeys(e, "tso", "[tso."+quoteKey(n)+"]"); err != nil {
+				return nil, "", err
+			}
+			if !qualRE.MatchString(strings.ToUpper(n)) {
+				return nil, "", configErr("mbt.toml: [tso.%s]: the name of a TSO test is a data set qualifier (1-8 characters, a letter first) -- its file is test/tso/<name>.lua", quoteKey(n))
+			}
+			fx := map[string]any{}
+			if raw, ok := e["fixtures"]; ok {
+				fm, ok := raw.(map[string]any)
+				if !ok {
+					return nil, "", configErr("mbt.toml: [tso.%s] fixtures must be a table: { KEY = [\"file\", ...] }", quoteKey(n))
+				}
+				for k, l := range fm {
+					if !qualRE.MatchString(strings.ToUpper(k)) {
+						return nil, "", configErr("mbt.toml: [tso.%s] fixtures: %q is the last qualifier of a data set (1-8 characters, a letter first)", quoteKey(n), k)
+					}
+					files, ok := strList(l)
+					if !ok || len(files) == 0 {
+						return nil, "", configErr("mbt.toml: [tso.%s] fixtures.%s must be a non-empty list of files", quoteKey(n), k)
+					}
+					fx[strings.ToUpper(k)] = files
+				}
+			}
+			up := strings.ToUpper(n)
+			if _, dup := tso[up]; dup {
+				return nil, "", configErr("mbt.toml: [tso.%s] is declared twice (names are not case-sensitive)", quoteKey(n))
+			}
+			tso[up] = map[string]any{"fixtures": fx}
+		}
+		out["tso"] = tso
 	}
 
 	// checked where they are used (internal/tools, internal/plugins)

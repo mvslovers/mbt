@@ -53,12 +53,40 @@ end
   [#cmd("t.user")], [the TN3270 user.],
   [#cmd("t.testlib")], [the name of the test library of #cmd("mbt test
     --mvs").],
+  [#cmd("t.fixtures")], [the data sets of #cmd("[tso.NAME] fixtures"):
+    #var("KEY")#cmd(" = ")#var("name") (@ref-tso-fixtures). Empty for a
+    test without any.],
 )
 
 All methods except #cmd("screen"), #cmd("text") and #cmd("cursor") return
 the session, so calls can be chained: #cmd("t:type(\"TIME\"):enter()").
 Enter, Clear, PF and PA wait for the keyboard to be unlocked, at most 60
 seconds, and then for 300 milliseconds without output.
+
+== Fixtures <ref-tso-fixtures>
+
+#idx("mbt test", "--tso fixtures")
+A test that works on data sets of its own -- an exec, a CLIST, a panel,
+input -- declares them in #cmd("mbt.toml"):
+
+```
+[tso.FSSMENU]
+fixtures = { TSOTEST = ["test/tso/fssmenu.rexx"],
+             RXLIB   = ["rxlib/FSSMENU.rexx", "rxlib/FSSAPI.rexx"] }
+```
+
+Before the sessions, and after the #cmd("before_test") hooks, MBT deletes
+and allocates one PDS per key, #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".FIX.")#var("TEST")#cmd(".")#var("KEY"),
+FB 80, and loads the files into it with one job, #cmd("MBTTSOFX"), whose
+number it prints. Member names and the load are those of the
+#cmd("mbt test --mvs") fixtures (@ref-toml-test): each line becomes a
+record, nothing is numbered. A member that did not load fails the command
+with return code 5 before any session. Only the tests selected with
+#cmd("--only") are loaded. The test allocates what it needs itself:
+
+```
+t:type("ALLOC F(RXLIB) DA('" .. t.fixtures.RXLIB .. "') SHR"):enter()
+```
 
 == Logging Off <ref-tso-logoff>
 
