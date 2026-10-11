@@ -49,6 +49,10 @@ on:
         description: "libc370 git ref (branch, tag or SHA) to build the sysroot from"
         type: string
         default: "main"
+      maclib370_version:
+        description: "maclib370 release to install into the sysroot (a version, or latest)"
+        type: string
+        default: "latest"
 
 jobs:
   build:
@@ -104,6 +108,32 @@ jobs:
           export PATH="$HOME/.local/bin:$PATH"
           # 2. libc370 sysroot (headers, crt*.o, libc.a, macros); built with cc370
           make -C /tmp/libc370 install
+
+      - name: Install maclib370 (SYS1.MACLIB + AMODGEN for as370)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MACLIB370_VERSION: ${{ inputs.maclib370_version }}
+        run: |
+          # IBM's system macros as a sysroot package of their own (mbt#234):
+          # as370 finds <sysroot>/maclib370/macros by itself from cc370 1.6.0,
+          # and libc370 2.8.0 no longer carries IBM copies. Not part of the
+          # toolchain cache: the content is fixed per version, the step is a
+          # download, and a new release must not wait for a cache key.
+          v="$MACLIB370_VERSION"
+          if [ -z "$v" ] || [ "$v" = latest ]; then
+            v=$(gh release view -R mvslovers/maclib370 --json tagName -q .tagName)
+          else
+            v="v${v#v}"
+          fi
+          d="$HOME/.local/cc370/maclib370"
+          rm -rf "$d" && mkdir -p "$d"
+          cd "$RUNNER_TEMP"
+          gh release download "$v" -R mvslovers/maclib370 -p "maclib370-*.tar.gz" -p SHA256SUMS --clobber
+          sha256sum -c --ignore-missing SHA256SUMS
+          tar -xzf maclib370-*.tar.gz -C "$d"
+          n=$(find "$d/macros" -name '*.macro' | wc -l)
+          [ "$n" -gt 0 ] || { echo "[mbt] ERROR: maclib370 $v: no members in $d/macros" >&2; exit 1; }
+          echo "[mbt] maclib370 $v -> $d/macros ($n members)"
 
       - name: Add cc370 to PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
