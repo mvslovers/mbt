@@ -157,6 +157,20 @@ Look into `.gitmodules` first: an old project may still list entries that
 have not been submodules for a long time (`contrib/*_sdk`). Those go with
 the file.
 
+**Before removing it, look for code of your own that imports from it**
+(`git grep -n "mbt/scripts"`): a project with MVS tooling of its own -- a
+test runner, an install helper -- may put `mbt/scripts` on `sys.path` and use
+mbt 2's `MbtConfig`, `MvsMFClient` or `to_vrm`. Those are gone with the
+submodule, and mbt 3 offers no Python library in their place. The route is a
+command in `mbt/init.lua` (section 6) that hands the tool what it needs in its
+environment: `ctx.target()` for host, user, HLQ, volume and classes,
+`ctx.mvs.token()` for mbt's mvsMF session (sent as `Cookie: LtpaToken2=…`),
+`ctx.project.deploy_target`. The tool keeps a small mvsMF client of its own,
+fails on an empty token rather than trying anything else, and runs as
+`mbt run NAME -- ARGS`. brexx370's `mbt/init.lua` and `scripts/mvsmf.py` are
+the worked example. A tool that logs on to TSO needs a password, which Lua
+never sees; its place is `mbt test --tso` (section 7).
+
 `git rm mbt` already removes mbt's entry from `.gitmodules` and stages that.
 So a second, separate `git rm .gitmodules` fails with "the following file has
 changes staged in the index". Then clear what git keeps of the submodule
@@ -499,7 +513,9 @@ and `MBT_TARGET_HLQ`, `MBT_TARGET_VOLUME` where needed.
 1. Install mbt 3; `mbt doctor --offline` (no MVS needed yet).
 2. `mbt migrate --dry-run`, read it, then `mbt migrate`.
 3. Add `[toolchain] mbt = "3.0"`.
-4. `git rm Makefile mbt .gitmodules`, keep `.mbt/` in `.gitignore`.
+4. `git grep -n "mbt/scripts"` first: own tools that import mbt 2's Python
+   become `mbt run` commands (section 3). Then
+   `git rm Makefile mbt .gitmodules`, keep `.mbt/` in `.gitignore`.
 5. Remove `.env.example`, and point the README at targets. Creating a target
    (`mbt target import .env --name <name>`) is per machine and can come
    later.
