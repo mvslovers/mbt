@@ -123,16 +123,6 @@ jobs:
           path: ~/.local
           key: cc370-${{ runner.os }}-${{ env.TC_KEY }}
 
-      - name: Build + install toolchain
-        if: steps.tc-cache.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential bison flex
-          # as mbt 2's build.yml: compiler + tools, then the libc370 sysroot
-          make -C /tmp/cc370 install PREFIX="$HOME/.local"
-          export PATH="$HOME/.local/bin:$PATH"
-          make -C /tmp/libc370 install
-
       - name: Install maclib370 (SYS1.MACLIB + AMODGEN for as370)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -140,7 +130,8 @@ jobs:
         run: |
           # IBM's system macros as a sysroot package of their own (mbt#234):
           # as370 finds <sysroot>/maclib370/macros by itself from cc370 1.6.0,
-          # and libc370 2.8.0 no longer carries IBM copies. Not part of the
+          # and libc370 2.8.0 no longer carries IBM copies -- so this comes
+          # BEFORE the toolchain build: libc370's own build needs it. Not part of the
           # toolchain cache: the content is fixed per version, the step is a
           # download, and a new release must not wait for a cache key.
           v="$MACLIB370_VERSION"
@@ -158,6 +149,16 @@ jobs:
           n=$(find "$d/macros" -name '*.macro' | wc -l)
           [ "$n" -gt 0 ] || { echo "[mbt] ERROR: maclib370 $v: no members in $d/macros" >&2; exit 1; }
           echo "[mbt] maclib370 $v -> $d/macros ($n members)"
+
+      - name: Build + install toolchain
+        if: steps.tc-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential bison flex
+          # as mbt 2's build.yml: compiler + tools, then the libc370 sysroot
+          make -C /tmp/cc370 install PREFIX="$HOME/.local"
+          export PATH="$HOME/.local/bin:$PATH"
+          make -C /tmp/libc370 install
 
       - name: Toolchain on PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
