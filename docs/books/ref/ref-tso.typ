@@ -63,8 +63,12 @@ seconds, and then for 300 milliseconds without output.
 == Logging Off <ref-tso-logoff>
 
 When the function ends, after a successful #cmd("logon") and without a
-#cmd("logoff") of its own, MBT logs the session off. When that fails, the
-test fails, even if it had passed.
+#cmd("logoff") of its own, MBT logs the session off, whether the test
+passed or failed. When that fails, the test fails, even if it had passed,
+and MBT says so beside the test's own error: the user is most likely still
+logged on, and every later logon fails until it is cancelled (operator
+command #cmd("C U=")#var("user")). The tests after it are therefore not
+run and are shown as #cmd("not run").
 
 A TSO user can be logged on only once. The tests run one after the other,
 and the target's TN3270 user should not be one you are logged on with

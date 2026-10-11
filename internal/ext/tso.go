@@ -70,8 +70,16 @@ func (e *Engine) TSOTest(file string, s TSO, info map[string]any) (err error) {
 	loggedOn := false
 	defer func() {
 		if loggedOn {
-			if lerr := s.Logoff(); lerr != nil && err == nil {
-				err = fmt.Errorf("logoff: %v", lerr)
+			// reported whether the test passed or not: after a failed test
+			// the logoff is the more likely to fail, and a user left logged
+			// on fails every later logon (mbt#244 review)
+			if lerr := s.Logoff(); lerr != nil {
+				le := &LogoffError{User: fmt.Sprint(info["user"]), Err: lerr}
+				if err == nil {
+					err = le
+				} else {
+					err = &LogoffError{User: le.User, Err: lerr, Test: err}
+				}
 			}
 		}
 	}()
@@ -83,6 +91,23 @@ func (e *Engine) TSOTest(file string, s TSO, info map[string]any) (err error) {
 		return &Error{Msg: luaFull(cerr)}
 	}
 	return nil
+}
+
+// LogoffError is a TSO session that could not be logged off: the user is
+// most likely still logged on, and every later logon fails (IKJ56425I)
+// until it is cancelled. Test is the test's own error, when it failed too.
+type LogoffError struct {
+	User string
+	Err  error
+	Test error
+}
+
+func (e *LogoffError) Error() string {
+	msg := fmt.Sprintf("logoff failed: %v -- %s is probably still logged on; later logons fail until it is cancelled (operator: C U=%s)", e.Err, e.User, e.User)
+	if e.Test != nil {
+		return e.Test.Error() + "\n" + msg
+	}
+	return msg
 }
 
 // luaFull is a Lua error without golua's "error: " prefix and without its

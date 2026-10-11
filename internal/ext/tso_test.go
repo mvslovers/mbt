@@ -8,9 +8,10 @@ import (
 )
 
 type fakeTSO struct {
-	log      []string
-	screen   []string
-	loggedOn bool
+	log       []string
+	screen    []string
+	loggedOn  bool
+	logoffErr error
 }
 
 func (f *fakeTSO) Logon() error {
@@ -21,6 +22,9 @@ func (f *fakeTSO) Logon() error {
 }
 func (f *fakeTSO) Logoff() error {
 	f.log = append(f.log, "logoff")
+	if f.logoffErr != nil {
+		return f.logoffErr
+	}
 	f.loggedOn = false
 	return nil
 }
@@ -81,5 +85,29 @@ end`,
 	}
 	if err := e.TSOTest("test/tso/notafunc.lua", &fakeTSO{}, nil); err == nil || !strings.Contains(err.Error(), "must return a function(t)") {
 		t.Errorf("%v", err)
+	}
+}
+
+// A logoff that fails is reported also when the test failed already: the
+// user is left logged on, and every later logon fails (mbt#244 review).
+func TestTSOLogoffFailureReported(t *testing.T) {
+	v := setup(t, map[string]string{
+		"test/tso/broken.lua": "return function(t) t:logon(); t:expect(\"NEVER\") end",
+		"test/tso/ok.lua":     "return function(t) t:logon() end",
+	})
+	e := v.mustLoad(t)
+	info := map[string]any{"user": "IBMUSER"}
+	f := &fakeTSO{logoffErr: errors.New("LOGGED OFF not seen")}
+	err := e.TSOTest("test/tso/broken.lua", f, info)
+	var le *LogoffError
+	if !errors.As(err, &le) || !strings.Contains(err.Error(), `expected "NEVER"`) ||
+		!strings.Contains(err.Error(), "logoff failed: LOGGED OFF not seen -- IBMUSER is probably still logged on") ||
+		!strings.Contains(err.Error(), "C U=IBMUSER") {
+		t.Errorf("failed test + failed logoff: %v", err)
+	}
+	f = &fakeTSO{logoffErr: errors.New("timeout")}
+	err = e.TSOTest("test/tso/ok.lua", f, info)
+	if !errors.As(err, &le) || le.Test != nil || !strings.HasPrefix(err.Error(), "logoff failed: timeout") {
+		t.Errorf("passed test + failed logoff: %v", err)
 	}
 }
