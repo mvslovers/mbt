@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -152,6 +153,17 @@ func cmdTestTSO(args []string) int {
 			fmt.Fprintf(os.Stderr, "[mbt] %s: %v\n", t[0], err)
 		}
 		rows = append(rows, fmt.Sprintf("  %-10s %s", t[0], res))
+		// a user left logged on fails every logon after it: stop here
+		// rather than report the rest as failures of their own
+		var le *ext.LogoffError
+		if errors.As(err, &le) && len(rows) < len(tests) {
+			fmt.Fprintf(os.Stderr, "[mbt] ERROR: %d test(s) not run: %s could not be logged off\n", len(tests)-len(rows), le.User)
+			for _, rest := range tests[len(rows):] {
+				rows = append(rows, fmt.Sprintf("  %-10s %s", rest[0], "not run"))
+				failed++
+			}
+			break
+		}
 	}
 	fmt.Printf("\n  %-10s %s\n  ---------- ----\n%s\n\n", "TEST", "TSO", strings.Join(rows, "\n"))
 	if code := after(p, "test", map[string]any{"kind": "tso", "passed": failed == 0}); code != exitOK {
