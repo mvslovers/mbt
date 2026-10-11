@@ -591,7 +591,13 @@ target = "mvsdev"
 Goal: the toolchain is pinned per project and identical locally and in CI,
 and every prebuilt artifact says what it was built with.
 
-### 8.0 Status (2026-10-03)
+### 8.0 Status (2026-10-03; maclib370 2026-10-11)
+
+**2026-10-11:** IBM's system macros (SYS1.MACLIB and SYS1.AMODGEN of TK5) are
+a sysroot package of their own, **maclib370** 1.0.0 (#234). as370 finds it
+from cc370 1.6.0 on, cc370 and libc370 depend on it, libc370 2.8.0 dropped its
+IBM copies, and mbt's CI workflows install it before the toolchain build.
+
 
 The toolchain half of this section has been carried out in cc370 and libc370;
 what is left is mbt's own half.
@@ -836,7 +842,21 @@ one model.
 | Lua 5.4 reference implementation via cgo | the same Lua as lua370 | CI needs native runners per platform instead of `GOOS=… go build` |
 | **A pure-Go Lua** — chosen: arnodel/golua v0.3.0, **Lua 5.5** | trivial cross-compilation; close to lua370 (5.4) | young; measured in a spike first: sandbox, limits, start-up, errors (`mbt-3-extensions.md` §9) |
 
-## 10. Languages — **Proposed**
+## 10. Languages — **Proposed** (COBOL built in, 2026-10-11)
+
+> **Status (2026-10-11).** COBOL is built in (#252): a `.cbl`/`.cob` source is
+> translated by cobc370 (`-MMD`, so copybooks are inputs) into
+> `build/cobol/<stem>.asm` and assembled by as370. Options come from
+> `[build] cobflags` (chosen over `[lang.cobol] copybooks` below: one key in
+> the pattern of `asflags`). cobc370 comes from `MBT_COBC370`, a `[tools]`
+> entry or `PATH`, and is pinned once it publishes binary releases (its
+> author built the workflow on 2026-10-11; #238 covers building from a tag).
+> The three questions below are answered (#235): as370 matches IFOX00 on
+> cobc370's 184-program corpus apart from the END card, after cc370#919
+> fixed an RLD bug the corpus found; cobc370 writes `-MMD`; ld370 keeps one
+> `COBRT` of two, as IEWL does. IBM's system macros come from the sysroot
+> package maclib370 (section 8). Open: the generic `[rule."*.ext"]` engine,
+> mixing COBOL and C, the native IKFCBL00 path.
 
 The build engine treats languages as rules, not as a special case for C:
 
@@ -1277,8 +1297,10 @@ on in its project file instead of copying workflow YAML.
      webroot image with a pinned `ufsd-utils` (`make webroot`), now the
      `mvslovers/mbt-ufs` plugin.
    - **Migrate the projects one by one** with `mbt migrate` and the
-     differential comparison — **open**. crypto370 is the pilot (2026-10-06);
-     the other ten are still on mbt 2.
+     differential comparison — **mostly done** (2026-10-11): crypto370 (the
+     pilot), lstring370, lua370, httprexx, httplua, httpd, mvsmf, ufsd, ftpd
+     and brexx370 are on mbt 3. Still on mbt 2: rexx370, ufsd-utils and
+     nsf370.
    - PTF packaging (section 6.4, #93) after its measurements, and USERMODs
      (#168) — **open**. Step 3 ported v2's `++FUNCTION` path unchanged,
      because the differential comparison accepts exactly that.
@@ -1287,8 +1309,10 @@ on in its project file instead of copying workflow YAML.
      5.5 hooks, tasks and commands (#170), targets with one mvsMF session per
      run (#176), the console chain mvsMF → Hercules (#172, #178), plugins
      (#174), a TN3270 client (#173) and `mbt test --tso` (#177).
-   - Open: MCP server, workspaces, `lint`, `size`, `smp verify`, languages,
-     native backends and foreign build systems, a Homebrew formula.
+   - ~~COBOL~~ — **built in** (2026-10-11, #252; section 10).
+   - Open: MCP server, workspaces, `lint`, `size`, `smp verify`, further
+     languages and the generic rule engine, native backends and foreign
+     build systems, a Homebrew formula.
 
 ## Appendix A — open mbt v2 issues, sorted (2026-10-03)
 
