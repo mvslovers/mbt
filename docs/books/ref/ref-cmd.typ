@@ -44,7 +44,8 @@ Before it links, #cmd("mbt build") runs the check of
 #cmd("mbt module-data"). It also checks that the installed LIBC/370 is not
 older than #cmd("[toolchain] libc370") (return code 1 otherwise), and that
 the declared dependencies are staged (return code 3). A #var("NAME") that
-is no module or test builds nothing.
+is no module or test stops the build before anything runs (return code 2),
+as #cmd("mbt deploy --module") does.
 
 == mbt check <ref-cmd-check>
 

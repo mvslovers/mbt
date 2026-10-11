@@ -151,6 +151,9 @@ type step struct {
 
 // Run builds what Options select.
 func (b *Builder) Run() error {
+	if err := CheckNames(b.P, b.O.Only); err != nil {
+		return err
+	}
 	if err := CheckStaged(b.P.Root, b.P.Raw); err != nil {
 		return err
 	}
@@ -268,6 +271,28 @@ func objs(builddir string, srcs []string) []string {
 		out = append(out, project.ObjectPath(builddir, s))
 	}
 	return out
+}
+
+// CheckNames refuses a name that is neither a module nor a test: it would
+// select nothing, and a build of nothing succeeds (mbt#209).
+func CheckNames(p *project.Project, names []string) error {
+	known := map[string]bool{}
+	for _, u := range p.Units() {
+		known[u.Name] = true
+	}
+	var unknown []string
+	seen := map[string]bool{}
+	for _, n := range names {
+		n = strings.ToUpper(n)
+		if !known[n] && !seen[n] {
+			unknown = append(unknown, n)
+			seen[n] = true
+		}
+	}
+	if len(unknown) > 0 {
+		return &Error{Code: 2, Msg: "unknown module or test: " + strings.Join(unknown, ", ")}
+	}
+	return nil
 }
 
 func (b *Builder) selectedUnits() []*project.Unit {
