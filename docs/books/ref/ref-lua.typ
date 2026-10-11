@@ -69,7 +69,8 @@ mbt.task {
 A task's #cmd("description") is shown by #cmd("mbt run"). Errors in a task
 declaration: #cmd("before") naming no command of the list above, a path
 outside the project, a name used twice or by a command. Under
-#cmd("--dry-run") a task runs, but its outputs are left in place.
+#cmd("--dry-run") a task runs, but its outputs and its record of the last
+run are left in place, also when it fails.
 
 Tasks run before the #cmd("before_") hooks of a command, each at most once
 per run. A task with inputs but no outputs, or an input pattern that
@@ -115,7 +116,8 @@ that made them changed: the task itself, the Lua files loaded, the
     #cmd("--dry-run") nothing runs. In a plugin, only the programs its
     #cmd("plugin.toml") names, by the base name of the first argument.],
   [#cmd("ctx.tool(")#var("name")#cmd(")")], [the path of a #cmd("[tools]")
-    program, fetched and checked if need be.],
+    program, fetched and checked if need be. Under #cmd("--dry-run"), only
+    the path: nothing is fetched and #cmd("mbt.lock") is not written.],
   [#cmd("ctx.fs.read(")#var("p")#cmd(")"), #cmd("write(")#var("p")#cmd(", ")#var("s")#cmd(")"),
     #cmd("exists"), #cmd("mkdir"), #cmd("remove"), #cmd("list")], [files,
     inside the project only: an absolute path, #cmd("..") or a link
@@ -140,12 +142,13 @@ that made them changed: the task itself, the Lua files loaded, the
     status and body. An HTTP error status is returned\; only a failed
     connection raises an error.],
   [#cmd("ctx.mvs.token()")], [the session token, for another program's
-    environment.],
+    environment\; under #cmd("--dry-run"), an empty string.],
 )
 
 *Dry run.* Under #cmd("--dry-run"), #cmd("ctx.exec") runs nothing and
 #cmd("ctx.mvs.request") sends only #cmd("GET") requests. #cmd("ctx.tool")
-still fetches its tool, and #cmd("ctx.mvs.token") still logs on.
+fetches nothing and pins nothing, and #cmd("ctx.mvs.token") does not log
+on: both serve a program that a dry run does not start.
 
 == Plugins <ref-lua-plugins>
 

@@ -146,6 +146,18 @@ func lockKey(name, goos, goarch string) string {
 	return deps.ToolPrefix + name + "@" + goos + "-" + goarch
 }
 
+// Staged: t is in root at the version mbt.lock pins for this platform, so
+// Ensure would neither download nor write.
+func Staged(root string, t Tool, o Options) bool {
+	o.fill()
+	pinned, ok := deps.ReadLock(root)[lockKey(t.Name, o.GOOS, o.GOARCH)]
+	if !ok || pinned.Version != t.Version || o.Update {
+		return false
+	}
+	_, err := os.Stat(t.Path(root))
+	return err == nil
+}
+
 // Ensure stages t in root (if it is not staged at the pinned version yet)
 // and returns the binary's path.
 func Ensure(root string, t Tool, o Options) (string, error) {
@@ -154,10 +166,8 @@ func Ensure(root string, t Tool, o Options) (string, error) {
 	lock := deps.ReadLock(root)
 	pinned, hasPin := lock[key]
 	dest := t.Path(root)
-	if hasPin && pinned.Version == t.Version && !o.Update {
-		if _, err := os.Stat(dest); err == nil {
-			return dest, nil
-		}
+	if Staged(root, t, o) {
+		return dest, nil
 	}
 
 	asset := t.expand(t.Asset, o)

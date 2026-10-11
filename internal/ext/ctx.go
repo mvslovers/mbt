@@ -162,6 +162,12 @@ func (e *Engine) ctx(ci callInfo) rt.Value {
 		return k.PushingNext(t.Runtime, rt.IntValue(int64(code)), rt.StringValue(string(data))), nil
 	})
 	e.fn(mvs, "token", 0, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
+		// the token is for an external program, which a dry run does not
+		// start: no logon for it either (mbt#210)
+		if e.o.DryRun {
+			e.o.Log("[mbt] (dry run) no session token")
+			return k.PushingNext1(t.Runtime, rt.StringValue("")), nil
+		}
 		m, err := session()
 		if err != nil {
 			return nil, err
@@ -391,6 +397,14 @@ func (e *Engine) exec(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
 func (e *Engine) tool(name string) (string, error) {
 	for _, t := range e.o.Tools {
 		if t.Name == name {
+			// a dry run neither downloads nor pins: the path is only for
+			// ctx.exec, which does not run either (mbt#210)
+			if e.o.DryRun {
+				if !tools.Staged(e.o.Root, t, e.o.ToolOpt) {
+					e.o.Log(fmt.Sprintf("[mbt] (dry run) would stage tool %s %s", t.Name, t.Version))
+				}
+				return t.Path(e.o.Root), nil
+			}
 			return tools.Ensure(e.o.Root, t, e.o.ToolOpt)
 		}
 	}
