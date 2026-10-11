@@ -212,6 +212,10 @@ A project with none of them has no lock file, under mbt 2 as under mbt 3.
   first `mbt deps` of a project that depends on a `-dev` prerelease**: mbt 2
   re-pinned quietly, so the committed lock may name an archive that is gone. Archives are cached by
   SHA, so a locked prerelease stays buildable after its tag has moved.
+- **`mbt deploy` builds first.** `make deploy` packed whatever the last build
+  had left, so a deploy after a commit shipped modules stamped with the
+  previous one (mbt 2 #92, #66). `mbt deploy` builds as `mbt build` does,
+  and ships the tree as it is.
 - **`mbt deploy` never deletes the library.** It RECEIVEs into a staging
   library of the project's own and replaces the members with IEBCOPY,
   `DISP=SHR`, so a running server that holds the library need not stop. A

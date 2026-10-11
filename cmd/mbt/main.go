@@ -1498,6 +1498,12 @@ func cmdDeploy(args []string) int {
 		fmt.Printf("[mbt] nothing to deploy: %s builds no load modules (kind = %q)\n", p.Name, p.Type)
 		return exitOK
 	}
+	// build first: a deploy ships what the tree says now, stamped with the
+	// current commit -- not whatever an earlier build left in build/ (#92, #66)
+	var code int
+	if p, code = doBuild(false, false, 0, *verbose, nil); code != exitOK {
+		return code
+	}
 	selectedTarget = *targetName
 	if code := before(p, "deploy", *verbose, *dry); code != exitOK {
 		return code

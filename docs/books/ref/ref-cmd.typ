@@ -87,8 +87,8 @@ mbt deploy [--target name] [--linklib dsn] [--module M]... [--dry-run] [-v]
            [--ignore-space] [--reallocate]
 ```
 
-Puts the built load modules into the development library on a target,
-replacing members of the same name. The library is never deleted unless
+Builds the load modules, as #cmd("mbt build") does, and puts them into the
+development library on a target, replacing members of the same name. The library is never deleted unless
 #cmd("--reallocate") is given.
 
 #deflist(width: 1.5in,
@@ -107,8 +107,8 @@ replacing members of the same name. The library is never deleted unless
 )
 
 A project without load modules has nothing to deploy and ends with return
-code 0. An unknown #cmd("--module") is return code 2, a failed pack 1, every
-failure on MVS 4.
+code 0. An unknown #cmd("--module") is return code 2, a failed build or pack
+1, every failure on MVS 4.
 
 == mbt deps <ref-cmd-deps>
 
