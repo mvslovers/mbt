@@ -30,6 +30,9 @@ type TestDecl struct {
 	Name                 string
 	Parm, ParmBatch, TSO *string
 	Fixtures             []FixtureDecl
+	// COBOL: the test has COBOL sources, so its steps get a SYSOUT DD for
+	// DISPLAY (without it the OPEN fails and the first DISPLAY abends).
+	COBOL bool
 }
 
 // FixtureDecl is one [[test.fixture]] as declared.
@@ -244,7 +247,11 @@ func Run(o Options) int {
 		}
 	}
 	jc := mvsmf.Jobcard("MBTTEST", o.Config.JobClass(), o.Config.MsgClass(), "MBT TEST")
-	jcl, steps, fxSteps, stepOrder, fxOrder := GenRunner(jc, tests, testlib, linklib, fixtures, parms)
+	cobol := map[string]bool{}
+	for _, t := range tests {
+		cobol[t] = decl[t].COBOL
+	}
+	jcl, steps, fxSteps, stepOrder, fxOrder := GenRunner(jc, tests, testlib, linklib, fixtures, parms, cobol)
 	runnerPath := filepath.Join(o.BuildDir, "test-runner.jcl")
 	os.WriteFile(filepath.Join(o.Root, runnerPath), []byte(jcl), 0o644)
 	o.log("Runner JCL -> %s (%d step(s))", runnerPath, len(steps)+len(fxSteps))

@@ -1336,6 +1336,13 @@ func cmdTestMVS(only []string, noDeploy bool, target string, verbose bool) int {
 	for _, tt := range p.RawTables("test") {
 		d := mvstest.TestDecl{Parm: opt(tt, "parm"), ParmBatch: opt(tt, "parm_batch"), TSO: opt(tt, "parm_tso")}
 		d.Name, _ = tt["name"].(string)
+		for _, u := range p.Tests {
+			if u.Name == d.Name {
+				for _, s := range u.Sources {
+					d.COBOL = d.COBOL || project.IsCOBOL(s)
+				}
+			}
+		}
 		for _, fx := range anyTables(tt["fixture"]) {
 			dd, _ := fx["dd"].(string)
 			d.Fixtures = append(d.Fixtures, mvstest.FixtureDecl{DD: dd, Members: project.RawStrs(fx, "members")})
