@@ -546,6 +546,7 @@ func exts(p *project.Project, verbose, dry bool) (*ext.Engine, error) {
 			}
 			return c, nil
 		},
+		Open: func(a ext.Access) (ext.Conn, error) { return openConn(p.Root, selectedTarget, a) },
 		Console: func(cmd string) ([]string, string, error) {
 			ch, err := consoleChain(p.Root, selectedTarget)
 			if err != nil {
@@ -720,8 +721,62 @@ func consoleChain(root, name string) (*console.Chain, error) {
 	return ch, nil
 }
 
+// openConn opens a connection of its own for Lua (mbt#239): a private
+// session, Basic, anonymous or a given token, as one of the target's users.
+// The password is resolved here and never handed to Lua.
+func openConn(root, name string, a ext.Access) (ext.Conn, error) {
+	t, err := chooseTarget(root, name)
+	if err != nil {
+		return nil, err
+	}
+	host, port, err := t.MVSMF.HostPort()
+	if err != nil {
+		return nil, err
+	}
+	switch a.Mode {
+	case "none":
+		return mvsmf.NewAnonymous(host, port), nil
+	case "token":
+		return mvsmf.NewWithToken(host, port, a.Token), nil
+	}
+	user, secret := t.MVSMF.User, t.MVSMF.Password
+	if a.User != "" {
+		u, ok := t.MVSMF.Users[a.User]
+		if !ok {
+			known := strings.Join(t.MVSMF.UserNames(), ", ")
+			if known == "" {
+				known = "none"
+			}
+			return nil, fmt.Errorf("target %s has no user %q ([target.%s.mvsmf.users.%s]; defined: %s)", t.Name, a.User, t.Name, a.User, known)
+		}
+		user, secret = u.User, u.Password
+		if user == "" {
+			// only the environment can leave it empty: targets.toml requires it
+			return nil, fmt.Errorf("target %s: user %q has no user ID (MBT_TARGET_MVSMF_USER_%s is not set)", t.Name, a.User,
+				strings.ToUpper(strings.ReplaceAll(a.User, "-", "_")))
+		}
+	}
+	pw := ""
+	if a.Password != nil {
+		pw = *a.Password
+	} else if pw, err = secret.Resolve(); err != nil {
+		return nil, fmt.Errorf("user %s: %v", user, err)
+	}
+	c := mvsmf.New(host, port, user, pw)
+	if a.Mode == "session" {
+		c.NoRelogin = true
+		if err := c.Login(); err != nil {
+			return nil, err
+		}
+	}
+	return c, nil
+}
+
 // closeSession logs off; it runs at the end of every command and on Ctrl-C.
 func closeSession() {
+	if engine != nil {
+		engine.CloseSessions()
+	}
 	if session != nil {
 		if err := session.Logout(); err != nil {
 			fmt.Fprintf(os.Stderr, "[mbt] WARNING: mvsMF logoff: %v (httpd expires the session by itself)\n", err)
@@ -750,6 +805,13 @@ func onSignal() func() {
 func targetInfo(t *target.Target) map[string]any {
 	m := map[string]any{"name": t.Name, "hlq": t.HLQ, "volume": t.Volume, "jobclass": t.JobClass, "msgclass": t.MsgClass,
 		"console": t.Console, "mvsmf": map[string]any{"url": t.MVSMF.URL, "user": t.MVSMF.User}}
+	if len(t.MVSMF.Users) > 0 {
+		us := map[string]any{}
+		for alias, u := range t.MVSMF.Users {
+			us[alias] = u.User
+		}
+		m["mvsmf"].(map[string]any)["users"] = us
+	}
 	if t.Hercules != nil {
 		m["hercules"] = map[string]any{"url": t.Hercules.URL, "user": t.Hercules.User}
 	}
@@ -792,6 +854,9 @@ func cmdTarget(args []string) int {
 			}
 			if t.TN3270 != nil {
 				extra = append(extra, "tn3270")
+			}
+			if len(t.MVSMF.Users) > 0 {
+				extra = append(extra, "users: "+strings.Join(t.MVSMF.UserNames(), ","))
 			}
 			fmt.Printf("%s %-12s %-28s %-10s password: %-18s %s\n", mark, n, t.MVSMF.URL, t.MVSMF.User, t.MVSMF.Password.Source(), strings.Join(extra, " "))
 		}

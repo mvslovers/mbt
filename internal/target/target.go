@@ -13,6 +13,9 @@
 //	url      = "http://lab:1080"
 //	user     = "IBMUSER"
 //	password = { keychain = "mbt/lab" }
+//	[target.lab.mvsmf.users.test2] # optional: further users, for Lua only
+//	user     = "TEST2"
+//	password = { keychain = "mbt/lab-test2" }
 //	[target.lab.hercules]          # optional: the console fallback
 //	[target.lab.ssh]               # optional: host, user, identity, port
 //	[target.lab.tn3270]            # optional: host, port, tls, user, password
@@ -35,6 +38,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -128,6 +132,25 @@ type Endpoint struct {
 	URL      string
 	User     string
 	Password Secret
+	// Users are further mvsMF users by alias ([target.X.mvsmf.users.ALIAS]):
+	// Lua opens sessions or sends requests as them, the password stays in mbt.
+	Users map[string]*User
+}
+
+// User is one further mvsMF user of a target.
+type User struct {
+	User     string
+	Password Secret
+}
+
+// UserNames lists the aliases of the further users, sorted.
+func (e *Endpoint) UserNames() []string {
+	var n []string
+	for k := range e.Users {
+		n = append(n, k)
+	}
+	sort.Strings(n)
+	return n
 }
 
 // HostPort splits the URL for mbt's mvsMF client (http only).
@@ -254,7 +277,8 @@ func Load(home string) (*File, error) {
 
 var knownKeys = map[string][]string{
 	"":         {"default", "hlq", "volume", "jobclass", "msgclass", "mvsmf", "hercules", "ssh", "tn3270", "console"},
-	"mvsmf":    {"url", "user", "password"},
+	"mvsmf":    {"url", "user", "password", "users"},
+	"users":    {"user", "password"},
 	"hercules": {"url", "user", "password"},
 	"ssh":      {"host", "user", "identity", "port"},
 	"tn3270":   {"host", "port", "tls", "user", "password"},
@@ -278,6 +302,8 @@ func check(m map[string]any, section, where string) error {
 	}
 	return nil
 }
+
+var aliasRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 
 func str(m map[string]any, k string) string { s, _ := m[k].(string); return s }
 
@@ -319,6 +345,39 @@ func parse(name string, m map[string]any) (*Target, bool, error) {
 	}
 	if t.MVSMF.User == "" {
 		return nil, false, fmt.Errorf("[target.%s.mvsmf]: user is required", name)
+	}
+	if mm, _ := m["mvsmf"].(map[string]any); mm != nil {
+		if us, ok := mm["users"]; ok {
+			um, ok := us.(map[string]any)
+			if !ok {
+				return nil, false, fmt.Errorf("[target.%s.mvsmf]: users must be tables: [target.%s.mvsmf.users.ALIAS]", name, name)
+			}
+			t.MVSMF.Users = map[string]*User{}
+			for alias, v := range um {
+				w := fmt.Sprintf("[target.%s.mvsmf.users.%s]", name, alias)
+				if !aliasRE.MatchString(alias) {
+					return nil, false, fmt.Errorf("%s: an alias is lower case letters, digits, - and _", w)
+				}
+				s, ok := v.(map[string]any)
+				if !ok {
+					return nil, false, fmt.Errorf("%s must be a table", w)
+				}
+				if err := check(s, "users", w); err != nil {
+					return nil, false, err
+				}
+				u := &User{User: str(s, "user")}
+				if u.User == "" {
+					return nil, false, fmt.Errorf("%s: user is required", w)
+				}
+				pw, lit, err := secret(s["password"], w)
+				if err != nil {
+					return nil, false, err
+				}
+				literal = literal || lit
+				u.Password = pw
+				t.MVSMF.Users[alias] = u
+			}
+		}
 	}
 	if t.Hercules, err = endpoint("hercules"); err != nil {
 		return nil, false, err
@@ -431,6 +490,20 @@ func FromEnv(get func(string) string) (*Target, bool) {
 	t := &Target{Name: "env", Source: "environment (MBT_TARGET_*)",
 		HLQ: get("MBT_TARGET_HLQ"), Volume: get("MBT_TARGET_VOLUME"), JobClass: get("MBT_TARGET_JOBCLASS"), MsgClass: get("MBT_TARGET_MSGCLASS"),
 		MVSMF: &Endpoint{URL: u, User: get("MBT_TARGET_MVSMF_USER"), Password: Secret{Env: "MBT_TARGET_MVSMF_PASSWORD", set: true}},
+	}
+	// further users: MBT_TARGET_MVSMF_USERS="test2,ro" names the aliases,
+	// MBT_TARGET_MVSMF_USER_TEST2 / MBT_TARGET_MVSMF_PASSWORD_TEST2 each one
+	for _, a := range strings.Split(get("MBT_TARGET_MVSMF_USERS"), ",") {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		v := strings.ToUpper(strings.ReplaceAll(a, "-", "_"))
+		if t.MVSMF.Users == nil {
+			t.MVSMF.Users = map[string]*User{}
+		}
+		t.MVSMF.Users[a] = &User{User: get("MBT_TARGET_MVSMF_USER_" + v),
+			Password: Secret{Env: "MBT_TARGET_MVSMF_PASSWORD_" + v, set: true}}
 	}
 	t.Console = []string{"mvsmf"}
 	if h := get("MBT_TARGET_HERCULES_URL"); h != "" {

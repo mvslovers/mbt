@@ -128,7 +128,9 @@ that made them changed: the task itself, the Lua files loaded, the
     nothing.],
   [#cmd("ctx.target()")], [the selected target, defaults applied, never a
     password: #cmd("name"), #cmd("hlq"), #cmd("volume"), #cmd("jobclass"),
-    #cmd("msgclass"), #cmd("console"), #cmd("mvsmf = {url, user}"), and
+    #cmd("msgclass"), #cmd("console"), #cmd("mvsmf = {url, user}") (with
+    #cmd("users = {")#var("alias")#cmd(" = user}") where the target has
+    further users), and
     where the target has them #cmd("hercules = {url, user}"),
     #cmd("ssh = {host, user, port}"), #cmd("tn3270 = {host, port, tls,
     user}"). An error when the command has no target.],
@@ -136,19 +138,40 @@ that made them changed: the task itself, the Lua files loaded, the
     the target's console chain. Returns the reply lines and the channel
     that delivered it\; under #cmd("--dry-run"), an empty list.],
   [#cmd("ctx.mvs.request{ method, path, body, content_type }")], [a request
-    to mvsMF in MBT's session. #cmd("method") defaults to #cmd("GET");
-    #cmd("path") starts with #cmd("/") and lies below #cmd("/zosmf");
-    #cmd("content_type") defaults to JSON when there is a body. Returns
-    status and body. An HTTP error status is returned\; only a failed
-    connection raises an error.],
+    to mvsMF, in MBT's session unless #cmd("auth") says otherwise.
+    #cmd("method") defaults to #cmd("GET"); #cmd("path") starts with
+    #cmd("/") and lies below #cmd("/zosmf"); #cmd("content_type") defaults
+    to JSON when there is a body. Returns the HTTP status as the server sent
+    it (#cmd("201"), #cmd("204"), #cmd("401") ...), the body, and the
+    response headers: a table keyed by the name in lower case, several
+    values joined by #cmd(", "), those of #cmd("set-cookie") by a newline.
+    Only a failed connection raises an error.],
+  [#cmd("  auth = \"basic\"")], [HTTP Basic with the stored password of the
+    main user, or of #cmd("user = \"")#var("alias")#cmd("\"")
+    (@ref-targets-users). #cmd("password = \"...\"") sends a literal of
+    the caller's own instead, for a test of a wrong one.],
+  [#cmd("  auth = \"none\"")], [no credentials at all.],
+  [#cmd("  auth = \"token\"")], [#cmd("token = \"...\"") as the session
+    cookie, and no logon if it is refused.],
   [#cmd("ctx.mvs.token()")], [the session token, for another program's
-    environment\; under #cmd("--dry-run"), an empty string.],
+    environment\; under #cmd("--dry-run"), an empty string. A program that
+    gets it must never log it off: the session is MBT's.],
+  [#cmd("ctx.mvs.session{ user }")], [a session of its own, logged on as the
+    main user or as #cmd("user = \"")#var("alias")#cmd("\""): every logon
+    is a session of its own. #cmd("s:request{ method, path, body,
+    content_type }") as above\; #cmd("s:token()")\; #cmd("s:logout()")
+    returns the status of the logoff (#cmd("204")). After a 401 it does not
+    log on again, so a test sees it. A session still open is logged off when
+    the command ends.],
 )
 
 *Dry run.* Under #cmd("--dry-run"), #cmd("ctx.exec") runs nothing and
-#cmd("ctx.mvs.request") sends only #cmd("GET") requests. #cmd("ctx.tool")
+#cmd("ctx.mvs.request") sends only #cmd("GET") requests\; anything else
+answers #cmd("0"), #cmd("\"\"") and no headers. #cmd("ctx.tool")
 fetches nothing and pins nothing, and #cmd("ctx.mvs.token") does not log
-on: both serve a program that a dry run does not start.
+on: both serve a program that a dry run does not start. #cmd("ctx.mvs.session")
+logs on to nothing: its token is empty, and its requests and its logoff
+answer #cmd("0").
 
 == Plugins <ref-lua-plugins>
 

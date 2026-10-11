@@ -37,6 +37,9 @@ type Client struct {
 	token string // the LtpaToken2 of a session (Login), sent instead of Basic
 	// Sleep is the poll delay; tests replace it so a stub run does not wait.
 	Sleep func(time.Duration)
+	// NoRelogin keeps a 401 a 401: a session Lua opened to test logons
+	// must see it, not have it hidden by a fresh logon.
+	NoRelogin bool
 }
 
 // New returns a client for host:port with HTTP Basic credentials.
@@ -44,6 +47,17 @@ func New(host string, port int, user, pass string) *Client {
 	return &Client{host: host, port: port,
 		auth:  base64.StdEncoding.EncodeToString([]byte(user + ":" + pass)),
 		Sleep: time.Sleep}
+}
+
+// NewAnonymous returns a client that sends no credentials at all.
+func NewAnonymous(host string, port int) *Client {
+	return &Client{host: host, port: port, Sleep: time.Sleep, NoRelogin: true}
+}
+
+// NewWithToken returns a client that presents a given session token and
+// never logs on itself.
+func NewWithToken(host string, port int, token string) *Client {
+	return &Client{host: host, port: port, token: token, Sleep: time.Sleep, NoRelogin: true}
 }
 
 const safeChars = "/?=&()"
@@ -69,7 +83,9 @@ type request struct {
 	body                              []byte
 	extra                             map[string]string
 	timeout                           time.Duration
-	noRelogin                         bool // the logoff, and the one repeat after a re-logon
+	noRelogin                         bool         // the logoff, and the one repeat after a re-logon
+	header                            *http.Header // the response headers, when asked for
+	status                            *int         // the HTTP status, when asked for
 }
 
 func (c *Client) do(r request) ([]byte, error) {
@@ -91,7 +107,7 @@ func (c *Client) do(r request) ([]byte, error) {
 	}
 	if c.token != "" {
 		req.Header.Set("Cookie", "LtpaToken2="+c.token)
-	} else {
+	} else if c.auth != "" {
 		req.Header.Set("Authorization", "Basic "+c.auth)
 	}
 	req.Header.Set("Accept", r.accept)
@@ -119,10 +135,16 @@ func (c *Client) do(r request) ([]byte, error) {
 	if err != nil {
 		return nil, errf("Connection lost during %s %s: %v", r.method, r.path, err)
 	}
+	if r.header != nil {
+		*r.header = resp.Header
+	}
+	if r.status != nil {
+		*r.status = resp.StatusCode // a repeat after a re-logon overwrites it
+	}
 	// a server that restarted (mbt run restart stops and starts HTTPD)
 	// has forgotten the session: log on again once and repeat. Safe for a
 	// PUT as well -- mvsMF checks the logon before it acts on anything.
-	if resp.StatusCode == 401 && c.token != "" && !r.noRelogin {
+	if resp.StatusCode == 401 && c.token != "" && !r.noRelogin && !c.NoRelogin {
 		if err := c.Login(); err == nil {
 			r.noRelogin = true
 			return c.do(r)
@@ -488,18 +510,40 @@ func (c *Client) Logout() error {
 // Request is any mvsMF call within the session: path below /zosmf, an
 // optional body; it returns the HTTP status and the body.
 func (c *Client) Request(method, path, contentType string, body []byte) (int, []byte, error) {
-	data, err := c.do(request{method: method, path: path, contentType: contentType, body: body})
+	code, data, _, err := c.RequestHeaders(method, path, contentType, body)
+	return code, data, err
+}
+
+// RequestHeaders is Request that also returns the response headers.
+func (c *Client) RequestHeaders(method, path, contentType string, body []byte) (int, []byte, http.Header, error) {
+	var h http.Header
+	status := 0
+	data, err := c.do(request{method: method, path: path, contentType: contentType, body: body, header: &h, status: &status})
+	if err != nil {
+		return status, nil, h, err
+	}
+	return status, data, h, nil
+}
+
+// LogoutStatus ends the session like Logout but reports the HTTP status of
+// the logoff (204, or 401 for a session the server no longer knows).
+func (c *Client) LogoutStatus() (int, error) {
+	if c.token == "" {
+		return 0, errf("no session to log off")
+	}
+	_, err := c.do(request{method: "DELETE", path: "/services/authenticate", timeout: 10 * time.Second, noRelogin: true})
+	c.token = ""
 	if err != nil {
 		var me *Error
+		var code int
 		if errors.As(err, &me) {
-			var code int
 			if _, scanErr := fmt.Sscanf(me.Msg, "HTTP %d", &code); scanErr == nil {
-				return code, nil, err
+				return code, nil
 			}
 		}
-		return 0, nil, err
+		return 0, err
 	}
-	return 200, data, nil
+	return 204, nil
 }
 
 // consoleFailure classifies a console error answer by mvsMF's documented

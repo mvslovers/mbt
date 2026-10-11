@@ -37,8 +37,10 @@ type callInfo struct {
 //	ctx.fs.read/write/exists/mkdir/remove/list   inside the project only
 //	ctx.target()           the selected MVS system (no passwords)
 //	ctx.console(cmd)       an operator command -> reply lines, channel
-//	ctx.mvs.request{ method, path, body, content_type } -> status, body
+//	ctx.mvs.request{ method, path, body, content_type, auth, user, password, token }
+//	                       -> status, body, headers
 //	ctx.mvs.token()        the session token, for an external program (env!)
+//	ctx.mvs.session{ user } a private session: s:request{}, s:token(), s:logout()
 func (e *Engine) ctx(ci callInfo) rt.Value {
 	c := rt.NewTable()
 	set := func(k string, v rt.Value) { c.Set(rt.StringValue(k), v) }
@@ -120,61 +122,7 @@ func (e *Engine) ctx(ci callInfo) rt.Value {
 		e.o.Log(fmt.Sprintf("[mbt] console (%s): %s", ch, cmd))
 		return k.PushingNext(t.Runtime, toLua(nonNil(lines)), rt.StringValue(ch)), nil
 	})
-	mvs := rt.NewTable()
-	session := func() (MVS, error) {
-		if e.o.MVS == nil {
-			return nil, errors.New("ctx.mvs: no MVS target in this command")
-		}
-		return e.o.MVS()
-	}
-	e.fn(mvs, "request", 1, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
-		tb, err := k.TableArg(0)
-		if err != nil {
-			return nil, errors.New(`ctx.mvs.request wants a table: { method = "GET", path = "/restfiles/ds?dslevel=X" }`)
-		}
-		method, path := tstr(tb, "method"), tstr(tb, "path")
-		if method == "" {
-			method = "GET"
-		}
-		if !strings.HasPrefix(path, "/") {
-			return nil, fmt.Errorf("ctx.mvs.request: path %q must start with / (below /zosmf)", path)
-		}
-		ctype := tstr(tb, "content_type")
-		var body []byte
-		if b, ok := tb.Get(rt.StringValue("body")).TryString(); ok {
-			body = []byte(b)
-			if ctype == "" {
-				ctype = "application/json"
-			}
-		}
-		if e.o.DryRun && method != "GET" {
-			e.o.Log(fmt.Sprintf("[mbt] (dry run) would send %s %s", method, path))
-			return k.PushingNext(t.Runtime, rt.IntValue(0), rt.StringValue("")), nil
-		}
-		m, err := session()
-		if err != nil {
-			return nil, err
-		}
-		code, data, err := m.Request(method, path, ctype, body)
-		if err != nil && code == 0 {
-			return nil, fmt.Errorf("ctx.mvs.request %s %s: %v", method, path, err)
-		}
-		return k.PushingNext(t.Runtime, rt.IntValue(int64(code)), rt.StringValue(string(data))), nil
-	})
-	e.fn(mvs, "token", 0, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
-		// the token is for an external program, which a dry run does not
-		// start: no logon for it either (mbt#210)
-		if e.o.DryRun {
-			e.o.Log("[mbt] (dry run) no session token")
-			return k.PushingNext1(t.Runtime, rt.StringValue("")), nil
-		}
-		m, err := session()
-		if err != nil {
-			return nil, err
-		}
-		return k.PushingNext1(t.Runtime, rt.StringValue(m.Token())), nil
-	})
-	set("mvs", rt.TableValue(mvs))
+	set("mvs", rt.TableValue(e.mvsTable()))
 
 	fs := rt.NewTable()
 	e.fn(fs, "read", 1, func(t *rt.Thread, k *rt.GoCont) (rt.Cont, error) {

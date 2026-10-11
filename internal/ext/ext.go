@@ -86,6 +86,9 @@ type Options struct {
 	// asked only when Lua uses them; nil: there is none.
 	Target func() (map[string]any, error)
 	MVS    func() (MVS, error)
+	// Open opens a connection of its own for ctx.mvs.session and for
+	// ctx.mvs.request with auth other than the session (mbt#239).
+	Open func(a Access) (Conn, error)
 	// Console issues an operator command through the target's console chain
 	// and returns the reply lines and the channel that delivered it.
 	Console func(cmd string) ([]string, string, error)
@@ -118,6 +121,7 @@ type Engine struct {
 	done     map[string]bool
 	loaded   map[string]rt.Value // require's modules
 	stream   bool                // mbt run: programs write to the terminal
+	opened   []Conn              // private sessions Lua opened (ctx.mvs.session)
 }
 
 type hook struct {
