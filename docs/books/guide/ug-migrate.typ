@@ -103,6 +103,16 @@ rm -rf .git/modules/mbt
 git config --remove-section submodule.mbt
 ```
 
+Look first for code of your own that imports from the submodule
+(#cmd("git grep -n \"mbt/scripts\"")): a test runner or install helper may
+use MBT 2's Python classes, which go with it, and MBT 3 offers no Python
+library in their place. Such a tool becomes a command in #cmd("mbt/init.lua")
+that hands it #cmd("ctx.target()") and #cmd("ctx.mvs.token()") in its
+environment (@ug-extend-ctx), and runs as #cmd("mbt run") #var("NAME"). The
+tool keeps a small mvsMF client of its own and fails on an empty token. A
+tool that logs on to TSO needs a password, which the Lua never sees\; its
+place is #cmd("mbt test --tso").
+
 Keep #cmd(".mbt/"), #cmd("build/") and #cmd("dist/") in #cmd(".gitignore").
 The directory #cmd("mbt/") is the project's own from now on: it holds the
 project's Lua (@ug-extend), so do not ignore it. Commit #cmd("mbt.lock") as
