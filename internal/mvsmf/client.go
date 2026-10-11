@@ -155,7 +155,8 @@ func (c *Client) do(r request) ([]byte, error) {
 		if len(data) > 0 {
 			msg += ": " + string(data)
 		}
-		return nil, &Error{msg}
+		// the body as well: a caller testing the server reads it (mbt#246)
+		return data, &Error{msg}
 	}
 	return data, nil
 }
@@ -519,10 +520,7 @@ func (c *Client) RequestHeaders(method, path, contentType string, body []byte) (
 	var h http.Header
 	status := 0
 	data, err := c.do(request{method: method, path: path, contentType: contentType, body: body, header: &h, status: &status})
-	if err != nil {
-		return status, nil, h, err
-	}
-	return status, data, h, nil
+	return status, data, h, err
 }
 
 // LogoutStatus ends the session like Logout but reports the HTTP status of
