@@ -538,7 +538,12 @@ func (b *Builder) exec(s step) error {
 		// at RC 8, and a later build would take it for up to date.
 		os.Remove(b.abs(s.out))
 		os.Remove(b.cmdFile(s.out))
-		return &Error{1, fmt.Sprintf("%s failed (rc=%d)", s.label, rc)}
+		msg := fmt.Sprintf("%s failed (rc=%d)", s.label, rc)
+		if s.kind == "cobc" && !exists(b.abs(s.depfile)) {
+			// a cobc370 that predates -MMD stops on it and writes no .d
+			msg += fmt.Sprintf(" -- and wrote no %s: if it does not know -MMD, it predates commit c531019 (after the tag v2026.10.09); use a newer cobc370", s.depfile)
+		}
+		return &Error{1, msg}
 	}
 	return os.WriteFile(b.cmdFile(s.out), []byte(signature(s.argv)), 0o644)
 }
@@ -664,3 +669,5 @@ func (b *Builder) checkDepStartup() error {
 	}
 	return nil
 }
+
+func exists(p string) bool { _, err := os.Stat(p); return err == nil }

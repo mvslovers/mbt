@@ -39,6 +39,10 @@ on:
         description: "maclib370 release to install into the sysroot (a version, or latest)"
         type: string
         default: "latest"
+      cobc370_ref:
+        description: "build cobc370 (brazilofmux/cobc370) at this ref (a tag, branch or full commit SHA) and put it on PATH, for COBOL sources; empty = none"
+        type: string
+        default: ""
       mbt_ref:
         description: "build mbt from this ref of mvslovers/mbt instead of installing a release"
         type: string
@@ -162,6 +166,25 @@ jobs:
 
       - name: Toolchain on PATH
         run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Build cobc370 (COBOL sources)
+        if: inputs.cobc370_ref != ''
+        env:
+          COBC370_REF: ${{ inputs.cobc370_ref }}
+        run: |
+          # opt-in, for a project with .cbl/.cob sources, until cobc370 is
+          # pinned through [tools]. A ref at or after c531019 (-MMD).
+          git init -q /tmp/cobc370
+          git -C /tmp/cobc370 remote add origin https://github.com/brazilofmux/cobc370.git
+          if ! git -C /tmp/cobc370 fetch -q --depth 1 origin "$COBC370_REF"; then
+            echo "[mbt] ERROR: cobc370: no such ref '$COBC370_REF'" >&2
+            exit 1
+          fi
+          git -C /tmp/cobc370 checkout -q --detach FETCH_HEAD
+          make -C /tmp/cobc370/src cobc370
+          mkdir -p "$HOME/.cobc370-bin" && cp /tmp/cobc370/src/cobc370 "$HOME/.cobc370-bin/"
+          echo "$HOME/.cobc370-bin" >> "$GITHUB_PATH"
+          echo "[mbt] cobc370 @ $(git -C /tmp/cobc370 rev-parse --short HEAD)"
 
       - name: Dependencies
         run: mbt deps

@@ -132,6 +132,11 @@ Both install MBT, which then switches to the version
     development state.],
 )
 
+Both install maclib370 for the system macros. A project with COBOL sources
+also needs #cmd("cobc370"): #cmd("with: cobc370_ref:") #var("ref") builds it
+from that tag, branch or full commit SHA of #cmd("brazilofmux/cobc370") and
+puts it on #cmd("PATH") (@ug-build-cobol).
+
 Once MBT 3.0.0 is released, pin #cmd("uses:") to its tag instead of
 #cmd("@main"), so that workflow and tool do not drift apart.
 

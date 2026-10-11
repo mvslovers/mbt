@@ -9,10 +9,19 @@ import (
 	"github.com/mvslovers/mbt/internal/tools"
 )
 
-// cobolSource is the first COBOL source of the project's units, "" if none.
+// cobolSource is the first COBOL source the build compiles -- of a module,
+// a test, the [lib] archive or [internal] -- "" if none.
 func cobolSource(p *project.Project) string {
+	var all [][]string
 	for _, u := range p.Units() {
-		for _, s := range u.Sources {
+		all = append(all, u.Sources)
+	}
+	if p.Lib != nil {
+		all = append(all, p.Lib.Sources)
+	}
+	all = append(all, p.Internal)
+	for _, l := range all {
+		for _, s := range l {
 			if project.IsCOBOL(s) {
 				return s
 			}
