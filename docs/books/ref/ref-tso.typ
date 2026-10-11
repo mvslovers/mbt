@@ -80,7 +80,7 @@ and allocates one PDS per key, #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".FIX.")#
 FB 80, and loads the files into it with one job, #cmd("MBTTSOFX"), whose
 number it prints. Member names and the load are those of the
 #cmd("mbt test --mvs") fixtures (@ref-toml-test): each line becomes a
-record, nothing is numbered. A member that did not load fails the command
+record, columns 73 to 80 included, nothing is numbered. A member that did not load fails the command
 with return code 5 before any session. Only the tests selected with
 #cmd("--only") are loaded. The test allocates what it needs itself:
 

@@ -88,7 +88,8 @@ func fixtureDDs(fx map[string][]Fixture, test string) string {
 
 // fixtureSteps are the IEBGENER steps that load the fixture members, one
 // per member (FX001, ...). The instream data is the file's lines as they
-// are, nothing numbered.
+// are, nothing numbered; columns 73-80 arrive (measured on MVS/CE with
+// brexx370's RXLIB, 779/779 records, JOB01979).
 func fixtureSteps(tests []string, fx map[string][]Fixture) ([]string, map[string]FxStep, []string) {
 	var lines, order []string
 	steps := map[string]FxStep{}

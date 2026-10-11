@@ -129,7 +129,8 @@ func AllocFixtures(c *mvsmf.Client, hlq, name string, tests []string, fixtures m
 		for _, fx := range blocks {
 			if c.DatasetExists(fx.PDS) {
 				if err := c.DeleteDataset(fx.PDS); err != nil {
-					return t, err
+					// mvsMF answers a data set in use with a bare 500
+					return t, fmt.Errorf("%v -- most likely in use: a TSO user still logged on, or a job holding it ('D TS,L', 'D A,L')", err)
 				}
 			}
 			sp := FixtureSpace(fx.Members)
