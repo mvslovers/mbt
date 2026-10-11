@@ -86,6 +86,38 @@ func fixtureDDs(fx map[string][]Fixture, test string) string {
 	return b.String()
 }
 
+// fixtureSteps are the IEBGENER steps that load the fixture members, one
+// per member (FX001, ...). The instream data is the file's lines as they
+// are, nothing numbered; columns 73-80 arrive (measured on MVS/CE with
+// brexx370's RXLIB, 779/779 records, JOB01979).
+func fixtureSteps(tests []string, fx map[string][]Fixture) ([]string, map[string]FxStep, []string) {
+	var lines, order []string
+	steps := map[string]FxStep{}
+	i := 0
+	for _, t := range tests {
+		for _, f := range fx[t] {
+			for _, m := range f.Members {
+				i++
+				name := fmt.Sprintf("FX%03d", i)
+				steps[name] = FxStep{t, f.DD, m[0], f.PDS}
+				order = append(order, name)
+				lines = append(lines, fmt.Sprintf("//%s  EXEC PGM=IEBGENER", name), "//SYSPRINT DD SYSOUT=*", "//SYSIN    DD DUMMY",
+					ddCard("SYSUT2", fmt.Sprintf("%s(%s)", f.PDS, m[0])), "//SYSUT1   DD *,DLM="+fixDLM)
+				lines = append(lines, splitLines(m[1])...)
+				lines = append(lines, fixDLM)
+			}
+		}
+	}
+	return lines, steps, order
+}
+
+// GenFixtureJob is a job that only loads fixtures (mbt test --tso, where
+// no runner job follows).
+func GenFixtureJob(jobcard string, tests []string, fx map[string][]Fixture) (string, map[string]FxStep, []string) {
+	lines, steps, order := fixtureSteps(tests, fx)
+	return strings.Join(append([]string{jobcard}, lines...), "\n") + "\n", steps, order
+}
+
 // Step maps a runner step to its test and leg.
 type Step struct{ Test, Leg string }
 
@@ -100,25 +132,10 @@ func GenRunner(jobcard string, tests []string, testlib, linklib string, fx map[s
 	if linklib != "" {
 		steplib += fmt.Sprintf("//         DD DSN=%s,DISP=SHR\n", linklib)
 	}
-	lines := []string{jobcard}
 	steps := map[string]Step{}
-	fxSteps := map[string]FxStep{}
-	var stepOrder, fxOrder []string
-	i := 0
-	for _, t := range tests {
-		for _, f := range fx[t] {
-			for _, m := range f.Members {
-				i++
-				name := fmt.Sprintf("FX%03d", i)
-				fxSteps[name] = FxStep{t, f.DD, m[0], f.PDS}
-				fxOrder = append(fxOrder, name)
-				lines = append(lines, fmt.Sprintf("//%s  EXEC PGM=IEBGENER", name), "//SYSPRINT DD SYSOUT=*", "//SYSIN    DD DUMMY",
-					ddCard("SYSUT2", fmt.Sprintf("%s(%s)", f.PDS, m[0])), "//SYSUT1   DD *,DLM="+fixDLM)
-				lines = append(lines, splitLines(m[1])...)
-				lines = append(lines, fixDLM)
-			}
-		}
-	}
+	var stepOrder []string
+	fxLines, fxSteps, fxOrder := fixtureSteps(tests, fx)
+	lines := append([]string{jobcard}, fxLines...)
 	for n, t := range tests {
 		b := fmt.Sprintf("B%02d", n+1)
 		parm := ""

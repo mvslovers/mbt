@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mvslovers/mbt/internal/config"
 	"github.com/mvslovers/mbt/internal/deploy"
@@ -74,6 +75,74 @@ func memberOf(path string) string {
 	return b
 }
 
+// BuildFixtures reads the fixture files of one test: one PDS per key (a DD
+// for mbt test --mvs, the last qualifier for --tso), {hlq}.{name}.FIX.
+// {test}.{key}, a member per file. A line past column 80 is an error: the
+// member's records are 80 columns, and the load would cut it.
+func BuildFixtures(root, hlq, name, test string, decls []FixtureDecl) ([]Fixture, error) {
+	var blocks []Fixture
+	keys := map[string]bool{}
+	for _, fx := range decls {
+		key := strings.ToUpper(fx.DD)
+		if keys[key] {
+			return nil, fmt.Errorf("test %s: fixture %s is declared twice -- list all its members in one block", test, key)
+		}
+		keys[key] = true
+		var members [][2]string
+		seen := map[string]bool{}
+		for _, mf := range fx.Members {
+			m := memberOf(mf)
+			if seen[m] {
+				continue
+			}
+			seen[m] = true
+			data, err := os.ReadFile(filepath.Join(root, mf))
+			if err != nil {
+				return nil, err
+			}
+			for i, l := range splitLines(string(data)) {
+				if n := utf8.RuneCountInString(l); n > 80 {
+					return nil, fmt.Errorf("%s line %d has %d columns -- a fixture member's records are 80, and the load would cut it", mf, i+1, n)
+				}
+			}
+			members = append(members, [2]string{m, string(data)})
+		}
+		blocks = append(blocks, Fixture{DD: fx.DD, PDS: fmt.Sprintf("%s.%s.FIX.%s.%s", hlq, name, test, key), Members: members})
+	}
+	return blocks, nil
+}
+
+// AllocFixtures deletes and allocates the fixture PDSs of the tests afresh,
+// so they hold exactly the repo's files; it returns the test it failed for.
+func AllocFixtures(c *mvsmf.Client, hlq, name string, tests []string, fixtures map[string][]Fixture, log func(string, ...any)) (string, error) {
+	for _, t := range tests {
+		blocks, ok := fixtures[t]
+		if !ok {
+			continue
+		}
+		legacy := fmt.Sprintf("%s.%s.FIX.%s", hlq, name, t)
+		if c.DatasetExists(legacy) {
+			if err := c.DeleteDataset(legacy); err != nil {
+				return t, err
+			}
+		}
+		for _, fx := range blocks {
+			if c.DatasetExists(fx.PDS) {
+				if err := c.DeleteDataset(fx.PDS); err != nil {
+					// mvsMF answers a data set in use with a bare 500
+					return t, fmt.Errorf("%v -- most likely in use: a TSO user still logged on, or a job holding it ('D TS,L', 'D A,L')", err)
+				}
+			}
+			sp := FixtureSpace(fx.Members)
+			if err := c.CreateDataset(fx.PDS, "PO", "FB", 80, 3120, sp, "SYSDA", ""); err != nil {
+				return t, err
+			}
+			log("Fixture %s (%d member(s) for %s %s, TRK(%v,%v,%v))", fx.PDS, len(fx.Members), t, fx.DD, sp[1], sp[2], sp[3])
+		}
+	}
+	return "", nil
+}
+
 // Run executes test-mvs and returns the exit code.
 func Run(o Options) int {
 	var tests []string
@@ -113,31 +182,10 @@ func Run(o Options) int {
 		if len(d.Fixtures) == 0 {
 			continue
 		}
-		var blocks []Fixture
-		dds := map[string]bool{}
-		for _, fx := range d.Fixtures {
-			dd := strings.ToUpper(fx.DD)
-			if dds[dd] {
-				o.fail("fixture: test %s: fixture DD %s is declared twice -- list all its members in one [[test.fixture]] block", t, dd)
-				return ExitConfig
-			}
-			dds[dd] = true
-			var members [][2]string
-			seen := map[string]bool{}
-			for _, mf := range fx.Members {
-				m := memberOf(mf)
-				if seen[m] {
-					continue
-				}
-				seen[m] = true
-				data, err := os.ReadFile(filepath.Join(o.Root, mf))
-				if err != nil {
-					o.fail("fixture: %v", err)
-					return ExitConfig
-				}
-				members = append(members, [2]string{m, string(data)})
-			}
-			blocks = append(blocks, Fixture{DD: fx.DD, PDS: fmt.Sprintf("%s.%s.FIX.%s.%s", hlq, name, t, dd), Members: members})
+		blocks, err := BuildFixtures(o.Root, hlq, name, t, d.Fixtures)
+		if err != nil {
+			o.fail("fixture: %v", err)
+			return ExitConfig
 		}
 		fixtures[t] = blocks
 	}
@@ -176,36 +224,9 @@ func Run(o Options) int {
 		}
 	}
 
-	for _, t := range tests {
-		blocks, ok := fixtures[t]
-		if !ok {
-			continue
-		}
-		legacy := fmt.Sprintf("%s.%s.FIX.%s", hlq, name, t)
-		err := func() error {
-			if c.DatasetExists(legacy) {
-				if err := c.DeleteDataset(legacy); err != nil {
-					return err
-				}
-			}
-			for _, fx := range blocks {
-				if c.DatasetExists(fx.PDS) {
-					if err := c.DeleteDataset(fx.PDS); err != nil {
-						return err
-					}
-				}
-				sp := FixtureSpace(fx.Members)
-				if err := c.CreateDataset(fx.PDS, "PO", "FB", 80, 3120, sp, "SYSDA", ""); err != nil {
-					return err
-				}
-				o.log("Fixture %s (%d member(s) for %s %s, TRK(%v,%v,%v))", fx.PDS, len(fx.Members), t, fx.DD, sp[1], sp[2], sp[3])
-			}
-			return nil
-		}()
-		if err != nil {
-			o.fail("fixture alloc failed for %s: %v", t, err)
-			return ExitMainframe
-		}
+	if t, err := AllocFixtures(c, hlq, name, tests, fixtures, o.log); err != nil {
+		o.fail("fixture alloc failed for %s: %v", t, err)
+		return ExitMainframe
 	}
 
 	parms := map[string]Parm{}

@@ -251,4 +251,8 @@ end
 
 Each file gets its own logon, and the session is logged off whatever
 happens. #cmd("mbt test --tso") does not deploy the test modules itself:
-run #cmd("mbt test --mvs") first when a session needs them.
+run #cmd("mbt test --mvs") first when a session needs them. Data sets a
+session works on -- an exec, a CLIST, input -- come from the repository:
+#cmd("[tso.")#var("NAME")#cmd("] fixtures") in #cmd("mbt.toml") names them
+by key, MBT loads them before the session, and the test finds their names in
+#cmd("t.fixtures") (_MBT Reference_, "The TSO Test API").

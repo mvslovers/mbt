@@ -239,3 +239,29 @@ func TestReleasedPatchesGit(t *testing.T) {
 		t.Errorf("no repository: %v", got)
 	}
 }
+
+// mbt#243: [tso.NAME] fixtures for mbt test --tso.
+func TestV3TSOFixtures(t *testing.T) {
+	root := v3Tree(t, v3Base+"[tso.fssmenu]\nfixtures = { tsotest = [\"t/a.rexx\"], RXLIB = [\"r/X.rexx\", \"r/Y.rexx\"] }\n")
+	p, err := LoadV3(root, FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx := table(table(p.Raw, "tso"), "FSSMENU")["fixtures"].(map[string]any)
+	if !reflect.DeepEqual(fx["TSOTEST"], []string{"t/a.rexx"}) || !reflect.DeepEqual(fx["RXLIB"], []string{"r/X.rexx", "r/Y.rexx"}) {
+		t.Errorf("fixtures %v", fx)
+	}
+	for add, want := range map[string]string{
+		"[tso.FSS]\nfixture = {}\n":                      "unknown key 'fixture' in [tso.FSS]",
+		"[tso.toolongname]\n":                            "a data set qualifier",
+		"[tso.FSS]\nfixtures = { \"1ABC\" = [\"x\"] }\n": "last qualifier",
+		"[tso.FSS]\nfixtures = { RXLIB = \"x\" }\n":      "non-empty list of files",
+		"[tso.FSS]\nfixtures = { RXLIB = [] }\n":         "non-empty list of files",
+		"[tso.FSS]\nfixtures = [\"x\"]\n":                "must be a table",
+		"[tso.FSS]\n[tso.fss]\n":                         "declared twice",
+	} {
+		if _, err := LoadV3(v3Tree(t, v3Base+add), FileV3); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: got %v", want, err)
+		}
+	}
+}

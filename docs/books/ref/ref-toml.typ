@@ -178,12 +178,28 @@ its file in upper case, with that file as its only source, unless it is in
   [#cmd("parm")], [none], [the program argument: a string for both runs,
     or #cmd("{ batch = ..., tso = ... }").],
   [#cmd("fixtures")], [none], [#cmd("{ ")#var("DD")#cmd(" = [")#var("files")#cmd("] }"):
-    members loaded into a data set per DD.],
+    members loaded into a data set per DD, #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".FIX.")#var("TEST")#cmd(".")#var("DD"),
+    FB 80. A member is the file's name without its extension, in upper
+    case\; its lines are the records, columns 73 to 80 included, nothing is
+    numbered. A line longer than 80 columns is an error (return code 2).],
 )
 
 The keys of a load module, #cmd("exclude"), #cmd("entry"),
 #cmd("startup"), #cmd("dep_startup"), #cmd("ac"), #cmd("rent"),
 #cmd("reus") and #cmd("refr"), are allowed too.
+
+=== [tso.NAME] <ref-toml-tso>
+
+The data sets the interactive test #cmd("test/tso/")#var("name")#cmd(".lua")
+needs (@ref-tso-fixtures). #var("NAME") is the file's name, in any case\; a
+table that names no such file is an error.
+
+#table(columns: (1.3in, 1.2in, 1fr),
+  [Key], [Default], [Meaning],
+  [#cmd("fixtures")], [none], [#cmd("{ ")#var("KEY")#cmd(" = [")#var("files")#cmd("] }"):
+    a data set per #var("KEY"), the last qualifier of its name, loaded as
+    the fixtures of #cmd("[test.NAME]") are.],
+)
 
 == [deploy] <ref-toml-deploy>
 

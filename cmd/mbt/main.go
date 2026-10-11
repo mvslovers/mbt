@@ -54,6 +54,7 @@ const (
 	exitBuild    = 1
 	exitConfig   = 2
 	exitMVS      = 4
+	exitDataset  = 5
 	exitInternal = 99
 )
 

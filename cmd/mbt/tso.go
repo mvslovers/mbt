@@ -5,12 +5,16 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mvslovers/mbt/internal/deploy"
 	"github.com/mvslovers/mbt/internal/ext"
+	"github.com/mvslovers/mbt/internal/mvsmf"
+	"github.com/mvslovers/mbt/internal/mvstest"
 	"github.com/mvslovers/mbt/internal/project"
 	"github.com/mvslovers/mbt/internal/tn3270"
 	"github.com/mvslovers/mbt/internal/version"
@@ -117,6 +121,11 @@ func cmdTestTSO(args []string) int {
 	if err := e.BeforeKind("test", "tso"); err != nil {
 		return fail(err)
 	}
+	// after the hooks: a task may write the files a fixture names
+	fixtures, code := stageTSOFixtures(p, tests)
+	if code != exitOK {
+		return code
+	}
 	info := map[string]any{"user": tg.TN3270.User, "testlib": testLibrary(p, tg.HLQ)}
 	fmt.Printf("[mbt] %d interactive test(s) on %s (%s as %s)\n", len(tests), tg.Name, tg.TN3270.Addr(), tg.TN3270.User)
 	failed := 0
@@ -128,7 +137,12 @@ func cmdTestTSO(args []string) int {
 		}
 		s, err := tn3270.Dial(context.Background(), tg.TN3270.Addr(), opt)
 		if err == nil {
-			err = e.TSOTest(t[1], &tsoSession{s: s, user: tg.TN3270.User, pass: pw}, info)
+			ti := map[string]any{}
+			for k, v := range info {
+				ti[k] = v
+			}
+			ti["fixtures"] = fixtures[t[0]]
+			err = e.TSOTest(t[1], &tsoSession{s: s, user: tg.TN3270.User, pass: pw}, ti)
 			s.Close()
 		}
 		res := "ok"
@@ -149,6 +163,112 @@ func cmdTestTSO(args []string) int {
 	}
 	fmt.Printf("[mbt] all %d interactive test(s) passed\n", len(tests))
 	return exitOK
+}
+
+// stageTSOFixtures loads the [tso.NAME] fixtures of the selected tests
+// (mbt#243): one PDS per key, recreated, filled by a job of IEBGENER steps,
+// the same load as mbt test --mvs. It returns per test key -> data set name.
+func stageTSOFixtures(p *project.Project, tests [][2]string) (map[string]map[string]any, int) {
+	out := map[string]map[string]any{}
+	decl := rawTable(p.Raw, "tso")
+	files := map[string]bool{}
+	for _, t := range tests {
+		files[t[0]] = true
+	}
+	var names []string
+	for n := range decl {
+		if !files[n] {
+			if _, err := os.Stat(filepath.Join(p.Root, "test", "tso", strings.ToLower(n)+".lua")); err != nil {
+				fmt.Fprintf(os.Stderr, "[mbt] ERROR: [tso.%s] names no test: there is no test/tso/%s.lua\n", n, strings.ToLower(n))
+				return nil, exitConfig
+			}
+			continue // a test --only left out
+		}
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, t := range tests {
+		out[t[0]] = map[string]any{}
+	}
+	if len(names) == 0 {
+		return out, exitOK
+	}
+	cfg, c, code := connect(p.Root, selectedTarget, true)
+	if code != exitOK {
+		return nil, code
+	}
+	hlq, name := cfg.HLQ(), deploy.MVSQualifier(p.Name)
+	fx := map[string][]mvstest.Fixture{}
+	var withFx []string
+	for _, n := range names {
+		t, _ := decl[n].(map[string]any)
+		keys, _ := t["fixtures"].(map[string]any)
+		var ks []string
+		for k := range keys {
+			ks = append(ks, k)
+		}
+		sort.Strings(ks)
+		var decls []mvstest.FixtureDecl
+		for _, k := range ks {
+			decls = append(decls, mvstest.FixtureDecl{DD: k, Members: anyStrs(keys[k])})
+		}
+		if len(decls) == 0 {
+			continue
+		}
+		blocks, err := mvstest.BuildFixtures(p.Root, hlq, name, n, decls)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[mbt] ERROR: fixture: %v\n", err)
+			return nil, exitConfig
+		}
+		fx[n] = blocks
+		withFx = append(withFx, n)
+		for _, b := range blocks {
+			out[n][b.DD] = b.PDS
+		}
+	}
+	if len(withFx) == 0 {
+		return out, exitOK
+	}
+	logf := func(f string, a ...any) { fmt.Printf("[mbt] "+f+"\n", a...) }
+	if t, err := mvstest.AllocFixtures(c, hlq, name, withFx, fx, logf); err != nil {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: fixture alloc failed for %s: %v\n", t, err)
+		return nil, exitMVS
+	}
+	jcl, steps, order := mvstest.GenFixtureJob(mvsmf.Jobcard("MBTTSOFX", cfg.JobClass(), cfg.MsgClass(), "MBT TSO FIXTURES"), withFx, fx)
+	res, err := c.Submit(jcl, mvsmf.SubmitOptions{Timeout: time.Duration(120+10*len(steps)) * time.Second})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: fixture load job: %v\n", err)
+		return nil, exitMVS
+	}
+	job := res.JobName
+	if job == "" {
+		job = "MBTTSOFX"
+	}
+	if h, d := mvstest.FixtureFailures(res.Spool, job, steps, order, res.SpoolErrors); h != "" {
+		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %s %s: %s\n", job, res.JobID, h)
+		for _, l := range d {
+			fmt.Fprintf(os.Stderr, "[mbt]        %s\n", l)
+		}
+		return nil, exitDataset
+	}
+	logf("Fixtures loaded: %s %s, %d member(s)", job, res.JobID, len(steps))
+	return out, exitOK
+}
+
+func anyStrs(v any) []string {
+	switch l := v.(type) {
+	case []string:
+		return l
+	case []any:
+		var out []string
+		for _, x := range l {
+			if s, ok := x.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // testLibrary is the library mbt test --mvs deploys to: [deploy]
