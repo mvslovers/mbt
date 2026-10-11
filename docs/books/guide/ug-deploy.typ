@@ -57,8 +57,10 @@ in the #cmd("STEPLIB"), it runs a development build silently.
 == What a Deploy Does <ug-deploy-steps>
 
 #idx("mbt deploy", "steps")
-#cmd("mbt deploy") deploys the load modules the last build left. Build
-first. Then:
+#cmd("mbt deploy") first builds, as #cmd("mbt build") does: what it ships
+is the tree as it is now, stamped with the current commit, never what an
+earlier build left in #cmd("build/"). When everything is up to date, that
+step prints nothing. Then:
 
 + *Pack.* The modules go into one TSO TRANSMIT file of a load library.
 + *Check the room.* If the library exists, MBT reads how many tracks are
