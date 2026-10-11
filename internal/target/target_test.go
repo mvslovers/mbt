@@ -260,3 +260,48 @@ func TestHerculesInfo(t *testing.T) {
 		t.Errorf("no user: %+v", anon)
 	}
 }
+
+// mbt#239: further mvsMF users of a target, for Lua sessions and requests.
+func TestFurtherUsers(t *testing.T) {
+	home := write(t, 0o600, `
+[target.lab.mvsmf]
+url = "http://lab:1080"
+user = "IBMUSER"
+[target.lab.mvsmf.users.test2]
+user = "TEST2"
+password = { env = "LAB_TEST2" }
+[target.lab.mvsmf.users.ro-user]
+user = "ROUSER"
+password = "lit"
+`)
+	f, err := Load(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := f.Targets["lab"].MVSMF
+	if got := strings.Join(m.UserNames(), ","); got != "ro-user,test2" {
+		t.Errorf("aliases %q", got)
+	}
+	if u := m.Users["test2"]; u.User != "TEST2" || u.Password.Source() != "env LAB_TEST2" {
+		t.Errorf("test2 %+v", u)
+	}
+	for body, want := range map[string]string{
+		"[target.x.mvsmf]\nurl=\"http://x\"\nuser=\"U\"\n[target.x.mvsmf.users.Test2]\nuser=\"T\"":         "lower case",
+		"[target.x.mvsmf]\nurl=\"http://x\"\nuser=\"U\"\n[target.x.mvsmf.users.t2]\npassword=\"p\"":        "user is required",
+		"[target.x.mvsmf]\nurl=\"http://x\"\nuser=\"U\"\n[target.x.mvsmf.users.t2]\nuser=\"T\"\nurl=\"u\"": "unknown key 'url'",
+		"[target.x.mvsmf]\nurl=\"http://x\"\nuser=\"U\"\nusers=\"t2\"":                                     "users must be tables",
+		"[target.x.hercules]\nurl=\"http://h\"\nusers=1\n[target.x.mvsmf]\nurl=\"http://x\"\nuser=\"U\"":   "unknown key 'users'",
+	} {
+		if _, err := Load(write(t, 0o600, body)); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: %v", want, err)
+		}
+	}
+	// CI: the aliases through the environment
+	env := map[string]string{"MBT_TARGET_MVSMF_URL": "http://ci:8080", "MBT_TARGET_MVSMF_USER": "IBMUSER",
+		"MBT_TARGET_MVSMF_USERS": "test2, ro-user", "MBT_TARGET_MVSMF_USER_TEST2": "TEST2", "MBT_TARGET_MVSMF_USER_RO_USER": "ROUSER"}
+	et, ok := FromEnv(func(k string) string { return env[k] })
+	if !ok || et.MVSMF.Users["test2"].User != "TEST2" || et.MVSMF.Users["ro-user"].User != "ROUSER" ||
+		et.MVSMF.Users["ro-user"].Password.Source() != "env MBT_TARGET_MVSMF_PASSWORD_RO_USER" {
+		t.Errorf("env users: %+v", et.MVSMF.Users)
+	}
+}

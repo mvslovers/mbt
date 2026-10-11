@@ -57,6 +57,12 @@ builds byte-identical (_MBT User's Guide_, "Migrating from MBT 2").
     #cmd("MBT_TARGET") names another.],
   [#cmd("MBT_TARGET_MVSMF_USER"), #cmd("MBT_TARGET_MVSMF_PASSWORD")], [its
     user and password.],
+  [#cmd("MBT_TARGET_MVSMF_USERS")], [further users by alias, comma
+    separated (#cmd("test2,ro-user")), as
+    #cmd("[target.NAME.mvsmf.users.ALIAS]"). Each one's user and password
+    are #cmd("MBT_TARGET_MVSMF_USER_")#var("ALIAS") and
+    #cmd("MBT_TARGET_MVSMF_PASSWORD_")#var("ALIAS"), the alias in upper case
+    with #cmd("-") as #cmd("_").],
   [#cmd("MBT_TARGET_HLQ"), #cmd("MBT_TARGET_VOLUME")], [#cmd("hlq") and
     #cmd("volume").],
   [#cmd("MBT_TARGET_JOBCLASS"), #cmd("MBT_TARGET_MSGCLASS")],

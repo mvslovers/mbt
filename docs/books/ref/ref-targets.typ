@@ -36,6 +36,27 @@ Required.
   [#cmd("password")], [none], [a password (@ref-targets-password).],
 )
 
+== [target.NAME.mvsmf.users.ALIAS] <ref-targets-users>
+
+#idx("targets.toml", "further users")
+Further mvsMF users, for Lua only: #cmd("ctx.mvs.session") and
+#cmd("ctx.mvs.request") with #cmd("auth = \"basic\"") act as one of them by
+its alias (@ref-lua-ctx). The alias is lower case letters, digits,
+#cmd("-") and #cmd("_"). MBT itself (deploy, tests) always uses the user
+of #cmd("[target.NAME.mvsmf]"), and Lua never sees a password.
+
+#table(columns: (1.2in, 1.3in, 1fr),
+  [Key], [Default], [Meaning],
+  [#cmd("user")], [required], [the user ID.],
+  [#cmd("password")], [none], [its password (@ref-targets-password).],
+)
+
+```
+[target.lab.mvsmf.users.test2]
+user     = "TEST2"
+password = { keychain = "mbt/lab-test2" }
+```
+
 == [target.NAME.hercules] <ref-targets-hercules>
 
 The web interface of Hercules, for operator commands when mvsMF does not

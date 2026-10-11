@@ -140,9 +140,14 @@ own.
       (@ug-targets-console)\; returns the reply lines and the channel that
       delivered it.],
     [#cmd("ctx.mvs.request{")...#cmd("}")], [a request to mvsMF in MBT's
-      session: method, path, body\; returns status and body.],
+      session: method, path, body\; returns status, body and headers. With
+      #cmd("auth") it goes with Basic, with no credentials or with a given
+      token instead, for tests of the logon itself.],
     [#cmd("ctx.mvs.token()")], [the session token, to hand to another
       program in its environment.],
+    [#cmd("ctx.mvs.session{ user }")], [a session of its own, as the target's
+      user or as a further one (_MBT Reference_, "targets.toml"):
+      #cmd("s:request{}"), #cmd("s:token()"), #cmd("s:logout()").],
     [#cmd("ctx.out"), #cmd("ctx.inputs")], [in a task: its outputs, and the
       files its inputs matched.],
     [#cmd("ctx.result")], [in an #cmd("after_") hook: what the command
