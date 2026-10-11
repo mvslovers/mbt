@@ -126,8 +126,8 @@ func (e *Engine) runTask(t *Task) error {
 			for _, f := range t.Outputs {
 				os.RemoveAll(filepath.Join(e.o.Root, f))
 			}
+			os.Remove(sigPath)
 		}
-		os.Remove(sigPath)
 		return &Error{Msg: fmt.Sprintf("task %s (%s): %s", t.Name, t.from, msg)}
 	}
 	ctx := e.ctx(callInfo{outputs: nonNil(t.Outputs), inputs: nonNil(inputs)})

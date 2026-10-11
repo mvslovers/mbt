@@ -3,11 +3,15 @@ package ext
 import (
 	"bytes"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mvslovers/mbt/internal/tools"
 )
 
 type env struct {
@@ -349,7 +353,7 @@ mbt.hook("after_deploy", function(ctx)
   local code, body = ctx.mvs.request { path = "/restfiles/ds?dslevel=HTTPD" }
   assert(code == 200 and body == '{"items":[]}', body)
   ctx.mvs.request { method = "PUT", path = "/restconsoles/consoles/MBT", body = '{"cmd":"D T"}' }
-  assert(ctx.mvs.token() == "tok")
+  assert(ctx.mvs.token() == (ctx.dry_run and "" or "tok"))
 end)
 mbt.command("bad", function(ctx) ctx.mvs.request { path = "zosmf/x" } end)`})
 	f := &fakeMVS{}
@@ -474,5 +478,64 @@ mbt.hook("before_build", function(ctx) ctx.log("build " .. tostring(ctx.kind)) e
 		if !strings.Contains(got, want) {
 			t.Errorf("missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+// mbt#210: a dry run downloaded and pinned a tool, logged on for a token
+// and removed the signature of a task that failed.
+func TestDryRunWritesNothingElse(t *testing.T) {
+	v := setup(t, map[string]string{"mbt/init.lua": `
+mbt.command("x", function(ctx)
+  assert(ctx.tool("ufsd-utils"):match("%.mbt/tools/ufsd%-utils%-1%.2%.3/ufsd%-utils$"))
+  assert(ctx.mvs.token() == "")
+end)
+mbt.task { name = "t", before = { "package" }, inputs = { "in.txt" }, outputs = { "build/out.txt" },
+  run = function(ctx)
+    if ctx.dry_run then error("broken") end
+    ctx.fs.write("build/out.txt", "x")
+  end }`, "in.txt": "a"})
+	fetched := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fetched++
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	logins := 0
+	tweak := func(o *Options) {
+		o.DryRun = true
+		o.Tools = []tools.Tool{{Name: "ufsd-utils", Repo: "mvslovers/ufsd-utils", Version: "1.2.3"}}
+		o.ToolOpt = tools.Options{API: srv.URL, Cache: t.TempDir()}
+		o.MVS = func() (MVS, error) { logins++; return &fakeMVS{}, nil }
+	}
+	e := v.mustLoad(t, tweak)
+	if err := e.Run("x", nil); err != nil {
+		t.Fatal(err)
+	}
+	if fetched != 0 || logins != 0 {
+		t.Errorf("dry run: %d download request(s), %d logon(s)", fetched, logins)
+	}
+	if _, err := os.Stat(filepath.Join(v.root, "mbt.lock")); err == nil {
+		t.Error("dry run wrote mbt.lock")
+	}
+	if !strings.Contains(v.logged(), "(dry run) would stage tool ufsd-utils 1.2.3") {
+		t.Errorf("log:\n%s", v.logged())
+	}
+
+	// the task ran for real once, then its input changed; a failing dry run
+	// keeps the signature of the real run
+	if err := v.mustLoad(t).Before("package"); err != nil {
+		t.Fatal(err)
+	}
+	sig := filepath.Join(v.root, ".mbt", "cmd", "task-t")
+	if _, err := os.Stat(sig); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(2 * time.Second)
+	os.Chtimes(filepath.Join(v.root, "in.txt"), later, later)
+	if err := v.mustLoad(t, tweak).Before("package"); err == nil || !strings.Contains(err.Error(), "broken") {
+		t.Fatalf("dry run: %v", err)
+	}
+	if _, err := os.Stat(sig); err != nil {
+		t.Errorf("dry run removed the signature: %v", err)
 	}
 }
