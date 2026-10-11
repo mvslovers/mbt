@@ -83,7 +83,9 @@ range that names one.
     MBT's #cmd("-O1 -std=gnu99 -Wall -Wextra -Werror").],
   [#cmd("asflags")], [#cmd("[]")], [options for #cmd("as370").],
   [#cmd("cobflags")], [#cmd("[]")], [options for #cmd("cobc370"), for every
-    COBOL source: #cmd("-I") for copybook directories, #cmd("-s").],
+    COBOL source: #cmd("-I") for copybook directories, #cmd("-s"). The
+    #cmd("include/") of every dependency follows, so #cmd("COPY") finds the
+    copybooks a dependency ships.],
 )
 
 A source ending in #cmd(".cbl") or #cmd(".cob") is COBOL. #cmd("cobc370")

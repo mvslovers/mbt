@@ -89,3 +89,15 @@ func TestOldCobc370Named(t *testing.T) {
 		t.Errorf("a COBOL error with a .d: %v", err)
 	}
 }
+
+// mbt#255: a dependency's include/ is on cobc370's path, after the
+// project's own copybook directories.
+func TestCobflagsDependencies(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, ".mbt", "deps", "mbt-example-lib", "include"), 0o755)
+	b := New(&project.Project{Root: root, COBFlags: []string{"-I", "copy"}}, &toolchain.Toolchain{COBC: "cobc370"}, Options{BuildDir: "build"})
+	want := []string{"-I", "copy", "-I", ".mbt/deps/mbt-example-lib/include"}
+	if got := b.cobflags(); !reflect.DeepEqual(got, want) {
+		t.Errorf("%q", got)
+	}
+}

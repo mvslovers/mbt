@@ -139,8 +139,15 @@ func (b *Builder) asflags() []string {
 	return strings.Fields(strings.Join(b.P.ASFlags, " "))
 }
 
+// cobflags: the project's own, then -I for every dependency's include/,
+// so COPY finds a copybook a dependency ships, as #include finds its
+// headers (mbt#255).
 func (b *Builder) cobflags() []string {
-	return strings.Fields(strings.Join(b.P.COBFlags, " "))
+	f := strings.Fields(strings.Join(b.P.COBFlags, " "))
+	for _, d := range b.depIncludes() {
+		f = append(f, "-I", d)
+	}
+	return f
 }
 
 // cobolAsm and cobolDep are where a COBOL source's assembler and the
