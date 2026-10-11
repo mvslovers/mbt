@@ -562,11 +562,16 @@ func exts(p *project.Project, verbose, dry bool) (*ext.Engine, error) {
 }
 
 func before(p *project.Project, point string, verbose, dry bool) int {
+	return beforeKind(p, point, "", verbose, dry)
+}
+
+// beforeKind is before with ctx.kind set for the hooks (test: host, mvs, tso).
+func beforeKind(p *project.Project, point, kind string, verbose, dry bool) int {
 	e, err := exts(p, verbose, dry)
 	if err != nil {
 		return fail(err)
 	}
-	if err := e.Before(point); err != nil {
+	if err := e.BeforeKind(point, kind); err != nil {
 		return fail(err)
 	}
 	return exitOK
@@ -1193,7 +1198,7 @@ func cmdTest(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	if code := before(p, "test", *verbose, false); code != exitOK {
+	if code := beforeKind(p, "test", "host", *verbose, false); code != exitOK {
 		return code
 	}
 	stamp.Write(root, p.Name, p.Version)
@@ -1246,7 +1251,7 @@ func cmdTestMVS(only []string, noDeploy bool, target string, verbose bool) int {
 	if code != exitOK {
 		return code
 	}
-	if code := before(p, "test", verbose, false); code != exitOK {
+	if code := beforeKind(p, "test", "mvs", verbose, false); code != exitOK {
 		return code
 	}
 	t, _ := toolchain.Find()

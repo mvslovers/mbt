@@ -114,7 +114,7 @@ func cmdTestTSO(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
-	if err := e.Before("test"); err != nil {
+	if err := e.BeforeKind("test", "tso"); err != nil {
 		return fail(err)
 	}
 	info := map[string]any{"user": tg.TN3270.User, "testlib": testLibrary(p, tg.HLQ)}

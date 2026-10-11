@@ -498,6 +498,12 @@ func (e *Engine) Commands() [][2]string {
 // Before runs, ahead of a command: the tasks declared for it, then the
 // before_ hooks. An error stops the command before it does anything.
 func (e *Engine) Before(point string) error {
+	return e.BeforeKind(point, "")
+}
+
+// BeforeKind is Before for a command that already knows which kind of run
+// it is (test: host, mvs or tso); the hooks see it as ctx.kind (mbt#211).
+func (e *Engine) BeforeKind(point, kind string) error {
 	if !e.Active() {
 		return nil
 	}
@@ -510,7 +516,7 @@ func (e *Engine) Before(point string) error {
 			}
 		}
 	}
-	return e.callHooks("before_"+point, nil)
+	return e.callHooks("before_"+point, nil, kind)
 }
 
 // After runs the after_ hooks with what the command produced. An error
@@ -519,7 +525,7 @@ func (e *Engine) After(point string, result map[string]any) error {
 	if !e.Active() {
 		return nil
 	}
-	return e.callHooks("after_"+point, result)
+	return e.callHooks("after_"+point, result, kindOf(result))
 }
 
 // Failure runs the on_failure hooks; their own errors are only reported.
@@ -531,14 +537,14 @@ func (e *Engine) Failure(command string, failure error) {
 	if failure != nil {
 		msg = failure.Error()
 	}
-	if err := e.callHooks("on_failure", map[string]any{"command": command, "error": msg}); err != nil {
+	if err := e.callHooks("on_failure", map[string]any{"command": command, "error": msg}, ""); err != nil {
 		e.o.Log(fmt.Sprintf("[mbt] WARNING: %v", err))
 	}
 }
 
-func (e *Engine) callHooks(name string, result map[string]any) error {
+func (e *Engine) callHooks(name string, result map[string]any, kind string) error {
 	for _, h := range e.hooks[name] {
-		ctx := e.ctx(callInfo{result: result, kind: kindOf(result)})
+		ctx := e.ctx(callInfo{result: result, kind: kind})
 		if err := e.limited(func() error {
 			_, err := rt.Call1(e.r.MainThread(), h.fn, ctx)
 			return err

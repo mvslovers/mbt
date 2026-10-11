@@ -92,8 +92,8 @@ that made them changed: the task itself, the Lua files loaded, the
   [#cmd("ctx.args")], [the arguments after #cmd("--") of #cmd("mbt run").],
   [#cmd("ctx.dry_run")], [#cmd("true") under #cmd("mbt run --dry-run") and
     #cmd("mbt deploy --dry-run").],
-  [#cmd("ctx.kind")], [in #cmd("after_test"): #cmd("host"), #cmd("mvs") or
-    #cmd("tso").],
+  [#cmd("ctx.kind")], [in #cmd("before_test") and #cmd("after_test"):
+    #cmd("host"), #cmd("mvs") or #cmd("tso").],
   [#cmd("ctx.result")], [in #cmd("after_") hooks: what the command produced
     -- #cmd("build"): #cmd("modules"), #cmd("tests")\; #cmd("package"),
     #cmd("dist"): #cmd("artifacts")\; #cmd("release"): #cmd("version"),
