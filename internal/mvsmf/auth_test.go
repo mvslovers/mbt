@@ -116,3 +116,19 @@ func TestAuthRequests(t *testing.T) {
 		t.Error("a second logoff of one client must say there is no session")
 	}
 }
+
+// mbt#246: an error status comes back with its body, as the server sent it.
+func TestErrorStatusKeepsBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(401)
+		w.Write([]byte(`{"returnCode":8,"reasonCode":1,"message":"Login failed."}`))
+	}))
+	defer srv.Close()
+	host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	p, _ := strconv.Atoi(port)
+	code, body, h, err := NewAnonymous(host, p).RequestHeaders("POST", "/services/authenticate", "", nil)
+	if code != 401 || err == nil || string(body) != `{"returnCode":8,"reasonCode":1,"message":"Login failed."}` || h.Get("Content-Type") != "application/json" {
+		t.Errorf("%d %q %v %v", code, body, h, err)
+	}
+}

@@ -145,7 +145,8 @@ that made them changed: the task itself, the Lua files loaded, the
     it (#cmd("201"), #cmd("204"), #cmd("401") ...), the body, and the
     response headers: a table keyed by the name in lower case, several
     values joined by #cmd(", "), those of #cmd("set-cookie") by a newline.
-    Only a failed connection raises an error.],
+    An error status comes with the body the server sent. Only a failed
+    connection raises an error.],
   [#cmd("  auth = \"basic\"")], [HTTP Basic with the stored password of the
     main user, or of #cmd("user = \"")#var("alias")#cmd("\"")
     (@ref-targets-users). #cmd("password = \"...\"") sends a literal of
