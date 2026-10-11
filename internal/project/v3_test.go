@@ -265,3 +265,25 @@ func TestV3TSOFixtures(t *testing.T) {
 		}
 	}
 }
+
+// COBOL units: cobflags pass through; entry is required; rent = true is refused.
+func TestV3COBOL(t *testing.T) {
+	base := "schema = 3\n[project]\nname = \"cob\"\nversion = \"0.1.0\"\n[build]\ncobflags = [\"-I\", \"copy\"]\n" +
+		"[module.HELLO]\nsources = [\"src/hello.cbl\"]\nrent = false\nreus = false\n"
+	files := func(toml string) string {
+		return writeTree(t, map[string]string{"mbt.toml": toml, "src/hello.cbl": ""})
+	}
+	p, err := LoadV3(files(base+"entry = \"HELLO\"\n"), FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(p.COBFlags, []string{"-I", "copy"}) || p.Modules[0].Entry != "HELLO" {
+		t.Errorf("%v %q", p.COBFlags, p.Modules[0].Entry)
+	}
+	if _, err := LoadV3(files(base), FileV3); err == nil || !strings.Contains(err.Error(), "set 'entry' to the PROGRAM-ID") {
+		t.Errorf("no entry: %v", err)
+	}
+	if _, err := LoadV3(files(strings.Replace(base, "rent = false", "rent = true", 1)+"entry = \"HELLO\"\n"), FileV3); err == nil || !strings.Contains(err.Error(), "not reentrant") {
+		t.Errorf("rent: %v", err)
+	}
+}

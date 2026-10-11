@@ -82,7 +82,19 @@ range that names one.
   [#cmd("cflags")], [#cmd("[]")], [options for #cmd("cc370"), after
     MBT's #cmd("-O1 -std=gnu99 -Wall -Wextra -Werror").],
   [#cmd("asflags")], [#cmd("[]")], [options for #cmd("as370").],
+  [#cmd("cobflags")], [#cmd("[]")], [options for #cmd("cobc370"), for every
+    COBOL source: #cmd("-I") for copybook directories, #cmd("-s").],
 )
+
+A source ending in #cmd(".cbl") or #cmd(".cob") is COBOL. #cmd("cobc370")
+translates it into #cmd("build/cobol/")#var("stem")#cmd(".asm") with
+#cmd("-MMD"), so a changed copybook translates it again, and #cmd("as370")
+assembles that into #cmd("build/")#var("stem")#cmd(".o"). #cmd("cobc370") is
+found in #cmd("MBT_COBC370"), else a #cmd("[tools]") entry named
+#cmd("cobc370"), else on #cmd("PATH"). A unit with COBOL sources needs
+#cmd("entry"), the PROGRAM-ID that starts it, and cannot be
+#cmd("rent = true"): #cmd("cobc370")'s code keeps WORKING-STORAGE in the
+module.
 
 The compile line is MBT's options, the #cmd("-I") options, #cmd("cflags"),
 then #cmd("-I") for the dependencies, MBT's headers and #cmd(".mbt").

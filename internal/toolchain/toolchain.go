@@ -14,8 +14,11 @@ import (
 // Toolchain is the resolved cc370 installation.
 type Toolchain struct {
 	CC, AS, LD, AR string // commands as given (on PATH, or absolute)
-	Sysroot        string // <bindir>/../cc370, symlinks followed
-	LibcDir        string // where libc.a is
+	// COBC is cobc370, set by the caller only for a project with COBOL
+	// sources (it is no part of the cc370 toolchain).
+	COBC    string
+	Sysroot string // <bindir>/../cc370, symlinks followed
+	LibcDir string // where libc.a is
 	// CRTInLibc: libc.a defines @@CRT0 (libc370 >= 2.3.0, libc370#159).
 	CRTInLibc bool
 	// EntryAutocall: ld370 pulls an unreferenced entry out of an archive by

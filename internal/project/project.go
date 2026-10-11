@@ -61,9 +61,11 @@ type Project struct {
 	Type    string // application, library, module
 	CFlags  []string
 	ASFlags []string
-	Modules []*Unit
-	Tests   []*Unit
-	Lib     *Lib
+	// COBFlags go to cobc370 for every COBOL source (-I copybook dirs, -s).
+	COBFlags []string
+	Modules  []*Unit
+	Tests    []*Unit
+	Lib      *Lib
 	// HasInternal: the project declares [internal], the private autocall
 	// archive every module and test links against.
 	HasInternal bool
@@ -97,6 +99,12 @@ func ObjectPath(builddir, src string) string {
 		base = base[:i]
 	}
 	return path.Join(builddir, base+".o")
+}
+
+// IsCOBOL: a COBOL source, translated by cobc370 to assembler first.
+func IsCOBOL(src string) bool {
+	e := strings.ToLower(path.Ext(src))
+	return e == ".cbl" || e == ".cob"
 }
 
 // Units returns modules and tests, in that order.
