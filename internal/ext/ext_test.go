@@ -450,3 +450,29 @@ mbt.command("mine", function(ctx) ctx.exec { "touch", "project-may" } end)`,
 		t.Errorf("undeclared: %v", err)
 	}
 }
+
+// mbt#211: before_test did not know which run it prepared; ctx.kind was nil.
+func TestBeforeTestKnowsKind(t *testing.T) {
+	v := setup(t, map[string]string{"mbt/init.lua": `
+mbt.hook("before_test", function(ctx) ctx.log("before " .. tostring(ctx.kind)) end)
+mbt.hook("after_test", function(ctx) ctx.log("after " .. tostring(ctx.kind)) end)
+mbt.hook("before_build", function(ctx) ctx.log("build " .. tostring(ctx.kind)) end)`})
+	e := v.mustLoad(t)
+	for _, k := range []string{"host", "mvs", "tso"} {
+		if err := e.BeforeKind("test", k); err != nil {
+			t.Fatal(err)
+		}
+		if err := e.After("test", map[string]any{"kind": k, "passed": true}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := e.Before("build"); err != nil {
+		t.Fatal(err)
+	}
+	got := v.logged()
+	for _, want := range []string{"before host", "after host", "before mvs", "after mvs", "before tso", "after tso", "build nil"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q in:\n%s", want, got)
+		}
+	}
+}

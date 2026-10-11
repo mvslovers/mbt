@@ -41,8 +41,8 @@ project, then your own file.
     [#cmd("before_build"), #cmd("after_build")], [generate a source\;
       report module sizes],
     [#cmd("before_test"), #cmd("after_test")], [prepare test data\; pass
-      the results on. In #cmd("after_test"), #cmd("ctx.kind") says
-      #cmd("host"), #cmd("mvs") or #cmd("tso").],
+      the results on. In both, #cmd("ctx.kind") says #cmd("host"),
+      #cmd("mvs") or #cmd("tso").],
     [#cmd("before_package"), #cmd("after_package")], [build a file that
       ships in the package],
     [#cmd("before_dist"), #cmd("after_dist")], [add to the installation

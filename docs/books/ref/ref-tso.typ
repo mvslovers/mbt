@@ -8,8 +8,8 @@ session of its own over TN3270, as the user of the target's
 #cmd("[tn3270]")\; a target without one is an error (return code 2). The
 test is named after its file in upper case\; #cmd("--only") #var("NAME"),
 repeatable, in any case, runs a subset. The hooks and tasks of
-#cmd("before_test") run first, those of #cmd("after_test") afterwards, with
-#cmd("ctx.kind") #cmd("\"tso\"").
+#cmd("before_test") run first, those of #cmd("after_test") afterwards\; the
+hooks of both see #cmd("ctx.kind") #cmd("\"tso\"").
 
 The file must return a function, which is called with the session
 #var("t"). The test passes when the function returns without an error.
