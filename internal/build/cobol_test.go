@@ -66,3 +66,26 @@ func TestDepfileMakesStale(t *testing.T) {
 		t.Error("a newer copybook did not make the translation stale")
 	}
 }
+
+// mbt#253: a cobc370 that predates -MMD stops without writing the .d; the
+// error says so. One that fails after writing it does not get the hint.
+func TestOldCobc370Named(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "build", "cobol"), 0o755)
+	os.MkdirAll(filepath.Join(root, ".mbt", "cmd"), 0o755)
+	os.WriteFile(filepath.Join(root, "p.cbl"), []byte("x"), 0o644)
+	old := filepath.Join(root, "old-cobc370")
+	os.WriteFile(old, []byte("#!/bin/sh\necho 'unknown option -MMD' >&2\nexit 2\n"), 0o755)
+	b := New(&project.Project{Root: root}, &toolchain.Toolchain{COBC: old}, Options{BuildDir: "build"})
+	s, _ := b.translateStep("p.cbl")
+	if err := b.exec(s); err == nil || !strings.Contains(err.Error(), "predates commit c531019") {
+		t.Errorf("old cobc370: %v", err)
+	}
+	broken := filepath.Join(root, "broken-cobc370")
+	os.WriteFile(broken, []byte("#!/bin/sh\nshift; shift; shift\nwhile [ $# -gt 0 ]; do [ \"$1\" = -MF ] && : > \"$2\"; shift; done\nexit 8\n"), 0o755)
+	b.T.COBC = broken
+	s, _ = b.translateStep("p.cbl")
+	if err := b.exec(s); err == nil || strings.Contains(err.Error(), "predates") {
+		t.Errorf("a COBOL error with a .d: %v", err)
+	}
+}
