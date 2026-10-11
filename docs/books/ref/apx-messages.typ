@@ -13,7 +13,7 @@
     test failed on the workstation, on MVS or under TSO\; an extension
     failed for a reason other than its configuration.],
   [2], [configuration], [an error in #cmd("mbt.toml") or
-    #cmd("targets.toml"), a wrong argument, an unknown #cmd("--module"),
+    #cmd("targets.toml"), a wrong argument, an unknown #cmd("--module") or build name,
     two sources of one name, a fixture that is wrong, a plugin for another
     interface, a failed #cmd("mbt doctor"), a launcher pin that is no
     version, any failed #cmd("mbt release") or #cmd("prerelease").],
