@@ -750,6 +750,11 @@ func openConn(root, name string, a ext.Access) (ext.Conn, error) {
 			return nil, fmt.Errorf("target %s has no user %q ([target.%s.mvsmf.users.%s]; defined: %s)", t.Name, a.User, t.Name, a.User, known)
 		}
 		user, secret = u.User, u.Password
+		if user == "" {
+			// only the environment can leave it empty: targets.toml requires it
+			return nil, fmt.Errorf("target %s: user %q has no user ID (MBT_TARGET_MVSMF_USER_%s is not set)", t.Name, a.User,
+				strings.ToUpper(strings.ReplaceAll(a.User, "-", "_")))
+		}
 	}
 	pw := ""
 	if a.Password != nil {
