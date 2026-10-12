@@ -103,10 +103,14 @@ func BuildFixtures(root, hlq, name, test string, decls []FixtureDecl) ([]Fixture
 			if err != nil {
 				return nil, err
 			}
-			for i, l := range splitLines(string(data)) {
+			lines := splitLines(string(data))
+			for i, l := range lines {
 				if n := utf8.RuneCountInString(l); n > 80 {
 					return nil, fmt.Errorf("%s line %d has %d columns -- a fixture member's records are 80, and the load would cut it", mf, i+1, n)
 				}
+			}
+			if fixDelimiter(lines) == "" {
+				return nil, fmt.Errorf("%s has lines starting with each of $A to $Z -- no delimiter is left for its instream data", mf)
 			}
 			members = append(members, [2]string{m, string(data)})
 		}

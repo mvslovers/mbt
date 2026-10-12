@@ -48,8 +48,11 @@ func TestRunnerMatchesV2(t *testing.T) {
 	parms := map[string]Parm{"TSTLOAD": {Batch: s("0"), TSO: s("1")}, "TSTP": {TSO: s("x y")}}
 	jc := "//MBTTEST JOB (A),'MBT TEST',\n//          CLASS=A,MSGCLASS=H,\n//          MSGLEVEL=(1,1),\n//          NOTIFY=&SYSUID"
 	jcl, steps, fxs, stepOrder, fxOrder := GenRunner(jc, []string{"TSTLOAD", "TSTJCL", "TSTP"}, "IBMUSER.REXX370.V1R0M0D.TESTLIB", "REXX370.DEV.LINKLIB", fx, parms, nil)
-	if jcl != g.JCL {
-		t.Errorf("runner JCL differs from v2:\n--- got\n%s\n--- want\n%s", jcl, g.JCL)
+	// the one intended difference (#261): fixtures go in as DD DATA, which
+	// v2's DD * could not do for a member holding JCL
+	want := strings.ReplaceAll(g.JCL, "//SYSUT1   DD *,DLM=$A", "//SYSUT1   DD DATA,DLM=$A")
+	if jcl != want {
+		t.Errorf("runner JCL differs from v2:\n--- got\n%s\n--- want\n%s", jcl, want)
 	}
 	if jcl2, _, _, _, _ := GenRunner(jc, []string{"TSTP"}, "T.TESTLIB", "", nil, nil, nil); jcl2 != g.JCL2 {
 		t.Errorf("runner JCL without a LINKLIB differs:\n%s\n---\n%s", jcl2, g.JCL2)

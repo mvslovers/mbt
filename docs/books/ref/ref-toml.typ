@@ -197,7 +197,8 @@ its file in upper case, with that file as its only source, unless it is in
     members loaded into a data set per DD, #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".FIX.")#var("TEST")#cmd(".")#var("DD"),
     FB 80. A member is the file's name without its extension, in upper
     case\; its lines are the records, columns 73 to 80 included, nothing is
-    numbered. A line longer than 80 columns is an error (return code 2).],
+    numbered. A line longer than 80 columns is an error (return code 2).
+    Lines starting #cmd("//") or #cmd("/*"), JCL included, arrive as data.],
 )
 
 The keys of a load module, #cmd("exclude"), #cmd("entry"),

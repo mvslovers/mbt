@@ -19,9 +19,29 @@ import (
 // RunnerRegion: REGION=0M on an EXEC is not "unlimited" on MVS 3.8j.
 const RunnerRegion = "8M"
 
-// fixDLM: '/*' cannot end the IEBGENER instream data, a REXX exec starts
-// with one.
-const fixDLM = "$A"
+// fixDelimiter is the DLM= for a fixture member's instream data: the
+// first of $A, $B, ... that no line starts with. DD DATA, not DD *: a
+// line starting '//' ends a DD * stream whatever DLM says, and JES2 then
+// reads it as JCL -- a fixture holding JCL opened a job of its own and
+// took the test steps with it (#261). With DD DATA only the delimiter
+// ends the stream, so it must not start a line of the member; '/*', which
+// starts every REXX exec, is plain data there.
+func fixDelimiter(lines []string) string {
+	for c := 'A'; c <= 'Z'; c++ {
+		d := "$" + string(c)
+		used := false
+		for _, l := range lines {
+			if strings.HasPrefix(l, d) {
+				used = true
+				break
+			}
+		}
+		if !used {
+			return d
+		}
+	}
+	return "" // every one taken: BuildFixtures refuses such a member
+}
 
 // Fixture is one [[test.fixture]] block: its DD, its PDS, its members.
 type Fixture struct {
@@ -102,9 +122,12 @@ func fixtureSteps(tests []string, fx map[string][]Fixture) ([]string, map[string
 				steps[name] = FxStep{t, f.DD, m[0], f.PDS}
 				order = append(order, name)
 				lines = append(lines, fmt.Sprintf("//%s  EXEC PGM=IEBGENER", name), "//SYSPRINT DD SYSOUT=*", "//SYSIN    DD DUMMY",
-					ddCard("SYSUT2", fmt.Sprintf("%s(%s)", f.PDS, m[0])), "//SYSUT1   DD *,DLM="+fixDLM)
-				lines = append(lines, splitLines(m[1])...)
-				lines = append(lines, fixDLM)
+					ddCard("SYSUT2", fmt.Sprintf("%s(%s)", f.PDS, m[0])))
+				data := splitLines(m[1])
+				dlm := fixDelimiter(data)
+				lines = append(lines, "//SYSUT1   DD DATA,DLM="+dlm)
+				lines = append(lines, data...)
+				lines = append(lines, dlm)
 			}
 		}
 	}
