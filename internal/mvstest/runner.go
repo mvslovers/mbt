@@ -127,7 +127,7 @@ type FxStep struct{ Test, DD, Member, PDS string }
 // GenRunner builds the runner JCL: fixture loads first, then a batch step per
 // test, then a TSO step per test, each COND=EVEN so one failure blocks none.
 // linklib "" means no production library is deployed.
-func GenRunner(jobcard string, tests []string, testlib, linklib string, fx map[string][]Fixture, parms map[string]Parm) (string, map[string]Step, map[string]FxStep, []string, []string) {
+func GenRunner(jobcard string, tests []string, testlib, linklib string, fx map[string][]Fixture, parms map[string]Parm, cobol map[string]bool) (string, map[string]Step, map[string]FxStep, []string, []string) {
 	steplib := fmt.Sprintf("//STEPLIB  DD DSN=%s,DISP=SHR\n", testlib)
 	if linklib != "" {
 		steplib += fmt.Sprintf("//         DD DSN=%s,DISP=SHR\n", linklib)
@@ -147,6 +147,9 @@ func GenRunner(jobcard string, tests []string, testlib, linklib string, fx map[s
 			lines = append(lines, strings.TrimRight(d, "\n"))
 		}
 		lines = append(lines, "//SYSPRINT DD SYSOUT=*", "//SYSTERM  DD SYSOUT=*", "//SYSTSPRT DD SYSOUT=*", "//SYSUDUMP DD SYSOUT=*")
+		if cobol[t] {
+			lines = append(lines, "//SYSOUT   DD SYSOUT=*")
+		}
 		steps[b] = Step{t, "batch"}
 		stepOrder = append(stepOrder, b)
 	}
@@ -156,7 +159,11 @@ func GenRunner(jobcard string, tests []string, testlib, linklib string, fx map[s
 		if d := fixtureDDs(fx, t); d != "" {
 			lines = append(lines, strings.TrimRight(d, "\n"))
 		}
-		lines = append(lines, "//SYSTSPRT DD SYSOUT=*", "//SYSPRINT DD SYSOUT=*", "//SYSTERM  DD SYSOUT=*", "//SYSTSIN  DD *")
+		lines = append(lines, "//SYSTSPRT DD SYSOUT=*", "//SYSPRINT DD SYSOUT=*", "//SYSTERM  DD SYSOUT=*")
+		if cobol[t] {
+			lines = append(lines, "//SYSOUT   DD SYSOUT=*")
+		}
+		lines = append(lines, "//SYSTSIN  DD *")
 		arg := ""
 		if p, ok := parms[t]; ok && p.TSO != nil {
 			arg = fmt.Sprintf(" '%s'", *p.TSO)

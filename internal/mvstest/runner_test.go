@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -46,11 +47,11 @@ func TestRunnerMatchesV2(t *testing.T) {
 	}
 	parms := map[string]Parm{"TSTLOAD": {Batch: s("0"), TSO: s("1")}, "TSTP": {TSO: s("x y")}}
 	jc := "//MBTTEST JOB (A),'MBT TEST',\n//          CLASS=A,MSGCLASS=H,\n//          MSGLEVEL=(1,1),\n//          NOTIFY=&SYSUID"
-	jcl, steps, fxs, stepOrder, fxOrder := GenRunner(jc, []string{"TSTLOAD", "TSTJCL", "TSTP"}, "IBMUSER.REXX370.V1R0M0D.TESTLIB", "REXX370.DEV.LINKLIB", fx, parms)
+	jcl, steps, fxs, stepOrder, fxOrder := GenRunner(jc, []string{"TSTLOAD", "TSTJCL", "TSTP"}, "IBMUSER.REXX370.V1R0M0D.TESTLIB", "REXX370.DEV.LINKLIB", fx, parms, nil)
 	if jcl != g.JCL {
 		t.Errorf("runner JCL differs from v2:\n--- got\n%s\n--- want\n%s", jcl, g.JCL)
 	}
-	if jcl2, _, _, _, _ := GenRunner(jc, []string{"TSTP"}, "T.TESTLIB", "", nil, nil); jcl2 != g.JCL2 {
+	if jcl2, _, _, _, _ := GenRunner(jc, []string{"TSTP"}, "T.TESTLIB", "", nil, nil, nil); jcl2 != g.JCL2 {
 		t.Errorf("runner JCL without a LINKLIB differs:\n%s\n---\n%s", jcl2, g.JCL2)
 	}
 	for k, v := range g.Steps {
@@ -139,4 +140,21 @@ func stringsRepeat(s string, n int) string {
 		out += s
 	}
 	return out[:len(out)-1]
+}
+
+// A test with COBOL sources gets a SYSOUT DD in both steps (DISPLAY);
+// the others keep the JCL mbt 2 wrote.
+func TestRunnerSYSOUTForCOBOL(t *testing.T) {
+	jcl, _, _, _, _ := GenRunner("//J JOB", []string{"CTEST", "COBTEST"}, "T.TESTLIB", "", nil, nil, map[string]bool{"COBTEST": true})
+	if n := strings.Count(jcl, "//SYSOUT   DD SYSOUT=*"); n != 2 {
+		t.Errorf("%d SYSOUT DDs:\n%s", n, jcl)
+	}
+	b := jcl[strings.Index(jcl, "PGM=COBTEST"):]
+	if !strings.Contains(b[:strings.Index(b, "//T01")], "//SYSOUT ") {
+		t.Errorf("no SYSOUT in COBTEST's batch step:\n%s", jcl)
+	}
+	tso := jcl[strings.Index(jcl, "//T02"):]
+	if i, j := strings.Index(tso, "//SYSOUT "), strings.Index(tso, "//SYSTSIN"); i < 0 || i > j {
+		t.Errorf("SYSOUT must come before the instream SYSTSIN:\n%s", tso)
+	}
 }
