@@ -64,6 +64,12 @@ the way out.
     [#cmd("deploy failed: --reallocate: cannot delete ..., most likely a
       running server holds it -- stop it first")], [stop the server
       first.],
+    [#cmd("--reallocate: ... has no room for N+M tracks ... -- nothing was
+      deleted")], [free space on the volume, or compress the library while
+      nothing holds it.],
+    [#cmd("deploy job ... -- ... does not exist: the job did not allocate
+      it")], [read the job's messages, then deploy again: a plain
+      #cmd("mbt deploy") allocates the library.],
     [#cmd("the deploy job ended clean, but ... lacks ...")], [read
       #cmd("build/deploy.spool").],
     [#cmd("cannot release ...: the tree is at ..., expected ...-dev")],
