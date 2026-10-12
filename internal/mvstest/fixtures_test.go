@@ -34,6 +34,31 @@ func TestBuildFixturesAndJob(t *testing.T) {
 		t.Errorf("a fixture job runs no test:\n%s", jcl)
 	}
 
+	// #261: JCL in a fixture is data. DD DATA, so '//' does not end the
+	// stream (with DD * JES2 opened a job of its own from it), and a
+	// delimiter that starts no line of the member
+	os.WriteFile(filepath.Join(root, "job.jcl"), []byte("//ZIPTEST JOB (1),'X'\n//STEP1 EXEC PGM=IEFBR14\n/*\n$A starts this line\n"), 0o644)
+	fx, err = BuildFixtures(root, "IBMUSER", "ZLIB370", "TSTZIPDS", []FixtureDecl{{DD: "INPUT", Members: []string{"job.jcl"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	jcl, _, _ = GenFixtureJob("//MBTTSOFX JOB (1),'X',CLASS=A", []string{"TSTZIPDS"}, map[string][]Fixture{"TSTZIPDS": fx})
+	want := "//SYSUT1   DD DATA,DLM=$B\n//ZIPTEST JOB (1),'X'\n//STEP1 EXEC PGM=IEFBR14\n/*\n$A starts this line\n$B\n"
+	if !strings.Contains(jcl, want) || strings.Contains(jcl, "DD *") {
+		t.Errorf("JCL as data:\n%s", jcl)
+	}
+	if d := fixDelimiter([]string{"say 'hi'"}); d != "$A" {
+		t.Errorf("plain member: %q", d)
+	}
+	var all []string
+	for c := 'A'; c <= 'Z'; c++ {
+		all = append(all, "$"+string(c))
+	}
+	os.WriteFile(filepath.Join(root, "all.txt"), []byte(strings.Join(all, "\n")+"\n"), 0o644)
+	if _, err = BuildFixtures(root, "IBMUSER", "ZLIB370", "TSTZIPDS", []FixtureDecl{{DD: "INPUT", Members: []string{"all.txt"}}}); err == nil || !strings.Contains(err.Error(), "no delimiter is left") {
+		t.Errorf("all delimiters taken: %v", err)
+	}
+
 	// a line past column 80 would be cut by the load: refused, naming it
 	os.WriteFile(filepath.Join(root, "long.rexx"), []byte("ok\n"+strings.Repeat("Y", 81)+"\n"), 0o644)
 	_, err = BuildFixtures(root, "IBMUSER", "BREXX370", "FSSMENU", []FixtureDecl{{DD: "RXLIB", Members: []string{"long.rexx"}}})
