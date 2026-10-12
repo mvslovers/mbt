@@ -94,7 +94,9 @@ translates it into #cmd("build/cobol/")#var("stem")#cmd(".asm") with
 assembles that into #cmd("build/")#var("stem")#cmd(".o"). #cmd("cobc370") is
 found in #cmd("MBT_COBC370"), else a #cmd("[tools]") entry named
 #cmd("cobc370"), else on #cmd("PATH"). A unit with COBOL sources needs
-#cmd("entry"), the PROGRAM-ID that starts it, and cannot be
+#cmd("entry"), the PROGRAM-ID that starts it, unless one of its C sources
+defines #cmd("main()") at the start of a line; then the default
+#cmd("@@CRT0") stays. It cannot be
 #cmd("rent = true"): #cmd("cobc370")'s code keeps WORKING-STORAGE in the
 module.
 
