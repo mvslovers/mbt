@@ -1,6 +1,7 @@
 package deploy
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -52,5 +53,51 @@ func TestAllocStep(t *testing.T) {
 	}
 	if (*Alloc)(nil).step(dsn) != "" {
 		t.Error("a nil Alloc made a step")
+	}
+}
+
+// --reallocate run after run (#258): the new size follows what the modules
+// need, with the old size as a floor. It used to be four times the old size,
+// so five runs took a 3390 library from 32 to (32768,8192) tracks for 16
+// modules of three tracks each, and the volume refused it.
+func TestReallocSpace(t *testing.T) {
+	bytes := 16 * 3 * 56664 * 3 / 4 // 16 modules, about three 3390 tracks each
+	need, _ := NeededTracks("3390", bytes, 16)
+	total := 32
+	for run := 1; run <= 5; run++ {
+		s := ReallocSpace(map[string]string{"dev": "3390", "spacu": "TRACKS", "sizex": strconv.Itoa(total), "used": "67"}, bytes, 16)
+		want := 4 * need
+		if total > want {
+			want = total
+		}
+		if s[1] != want || s[2] != need {
+			t.Fatalf("run %d from %d tracks: %v, want (%d,%d)", run, total, s, want, need)
+		}
+		total = s[1].(int)
+	}
+	if total != 4*need {
+		t.Errorf("grew to %d tracks, want %d", total, 4*need)
+	}
+	// never smaller than it was: a large library keeps its size
+	if s := ReallocSpace(map[string]string{"dev": "3390", "spacu": "TRACKS", "sizex": "900", "used": "10"}, bytes, 16); s[1] != 900 {
+		t.Errorf("shrank: %v", s)
+	}
+	// an unknown device: the fallback, as for a new library
+	if s := ReallocSpace(map[string]string{"dev": "9999"}, bytes, 16); s[1] != 120 || s[2] != 30 {
+		t.Errorf("unknown device: %v", s)
+	}
+}
+
+// The probe allocates what the ALLOC step would, and lets it go again.
+func TestProbeStep(t *testing.T) {
+	a := &Alloc{Volume: "TSO001", Space: []any{"TRK", 300, 60, 20}}
+	st := a.dd("PROBE", "HERC01.PL1C370.MBTPROBE", "(NEW,DELETE,DELETE)")
+	for _, want := range []string{"//PROBE   EXEC PGM=IEFBR14", "DISP=(NEW,DELETE,DELETE)", "VOL=SER=TSO001,", "SPACE=(TRK,(300,60,20))"} {
+		if !strings.Contains(st, want) {
+			t.Errorf("missing %q in\n%s", want, st)
+		}
+	}
+	if !strings.HasPrefix(a.step("X.Y"), "//ALLOC   EXEC PGM=IEFBR14\n") {
+		t.Errorf("%s", a.step("X.Y"))
 	}
 }

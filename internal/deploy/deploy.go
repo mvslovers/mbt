@@ -212,18 +212,17 @@ func Run(o Options) int {
 		var alloc *Alloc
 		if exists && o.Reallocate {
 			vol := attrs["vol"]
-			o.log("Reallocating %s on %s (--reallocate: deleted and allocated again, larger)...", target, vol)
+			alloc = &Alloc{Volume: vol, Space: ReallocSpace(attrs, bytes, len(built))}
+			// the delete cannot be undone, so first prove the volume has
+			// room for the new size: a job that allocates it and lets go
+			o.log("Reallocating %s on %s as %v tracks (--reallocate: deleted and allocated again)...", target, vol, alloc.Space[1])
+			probe := fmt.Sprintf("%s.%s.MBTPROBE", o.Config.HLQ(), MVSQualifier(o.Project))
+			if err := Probe(&o, c, probe, alloc); err != nil {
+				return err
+			}
 			if err := c.DeleteDataset(target); err != nil {
 				return fmt.Errorf("--reallocate: cannot delete %s, most likely a running server holds it -- stop it first: %v", target, err)
 			}
-			n, ok := NeededTracks(attrs["dev"], bytes, len(built))
-			if !ok {
-				n = 30
-			}
-			if _, total, ok := FreeTracks(attrs); ok && total > n {
-				n = total // never smaller than it was
-			}
-			alloc = &Alloc{Volume: vol, Space: NewLibrarySpace(n)}
 			fresh = true
 		}
 		if fresh {
@@ -302,6 +301,14 @@ func Run(o Options) int {
 		return nil
 	}
 	if err := step(); err != nil {
+		if se, ok := err.(*SpaceError); ok && se.Probe {
+			o.fail("%s", se.Msg)
+			for _, d := range se.Details {
+				o.cont("%s", d)
+			}
+			o.cont("compress %s while nothing holds it (stop the server), or free space on the volume", target)
+			return ExitMainframe
+		}
 		if se, ok := err.(*SpaceError); ok {
 			o.fail("%s", se.Msg)
 			o.cont("nothing was copied. Either compress it while nothing holds it (stop the server), or")
@@ -327,7 +334,11 @@ func Run(o Options) int {
 }
 
 // SpaceError: the target has too little room for the modules.
-type SpaceError struct{ Msg string }
+type SpaceError struct {
+	Msg     string
+	Details []string
+	Probe   bool // --reallocate's probe allocation failed
+}
 
 func (e *SpaceError) Error() string { return e.Msg }
 
@@ -349,13 +360,18 @@ func (a *Alloc) step(target string) string {
 	if a == nil {
 		return ""
 	}
+	return a.dd("ALLOC", target, "(NEW,CATLG,DELETE)")
+}
+
+// dd is an IEFBR14 step that allocates dsn as a with disp.
+func (a *Alloc) dd(step, dsn, disp string) string {
 	vol := ""
 	if a.Volume != "" {
 		vol = "VOL=SER=" + a.Volume + ","
 	}
 	// one card per operand: a 44-character DSN leaves no room beside it
-	return fmt.Sprintf("//ALLOC   EXEC PGM=IEFBR14\n//LIB      DD DSN=%s,\n//            DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,%s\n//            SPACE=(%s,(%v,%v,%v)),\n//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)\n",
-		target, vol, a.Space[0], a.Space[1], a.Space[2], a.Space[3])
+	return fmt.Sprintf("//%-7s EXEC PGM=IEFBR14\n//LIB      DD DSN=%s,\n//            DISP=%s,\n//            UNIT=SYSDA,%s\n//            SPACE=(%s,(%v,%v,%v)),\n//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)\n",
+		step, dsn, disp, vol, a.Space[0], a.Space[1], a.Space[2], a.Space[3])
 }
 
 // Merge submits the deploy job -- allocate the target when alloc says so,
@@ -387,11 +403,49 @@ func Merge(o *Options, c *mvsmf.Client, xmitDSN, stage, target, spoolPath string
 	}
 	if h, d := ReceiveFailure(res, target, timeout, spoolPath); h != "" {
 		h = strings.Replace(h, "RECEIVE job", "deploy job", 1)
-		h = strings.Replace(h, target+" was not written", target+" may hold some of the new members (IEBCOPY replaces one by one) -- see the spool", 1)
+		// a job flushed at its ALLOC step leaves no library at all
+		state := target + " may hold some of the new members (IEBCOPY replaces one by one) -- see the spool"
+		if alloc != nil && !c.DatasetExists(target) {
+			state = target + " does not exist: the job did not allocate it"
+			d = append(d, "a plain 'mbt deploy' allocates it again")
+		}
+		h = strings.Replace(h, target+" was not written", state, 1)
 		return &ReceiveError{h, d}
 	}
 	return nil
 }
+
+// Probe submits a job that allocates what alloc describes under the name
+// dsn and deletes it again at once (DISP=(NEW,DELETE)): it proves the
+// volume has the room before --reallocate deletes the library it replaces.
+// The old library still occupies its space during the probe, so the answer
+// errs on the safe side.
+func Probe(o *Options, c *mvsmf.Client, dsn string, alloc *Alloc) error {
+	jc := mvsmf.Jobcard("MBTPROBE", o.Config.JobClass(), o.Config.MsgClass(), "MBT REALLOC PROBE")
+	jcl := jc + "\n" + alloc.dd("PROBE", dsn, "(NEW,DELETE,DELETE)")
+	if o.Verbose {
+		o.log("+ probe: IEFBR14 %s SPACE=(%v,(%v,%v,%v)) on %s", dsn, alloc.Space[0], alloc.Space[1], alloc.Space[2], alloc.Space[3], orAny(alloc.Volume))
+	}
+	res, err := c.Submit(jcl, mvsmf.SubmitOptions{Timeout: 120 * time.Second})
+	if err != nil {
+		return err
+	}
+	if res.Status == "CC" && res.RC == 0 {
+		return nil
+	}
+	msg := fmt.Sprintf("--reallocate: %s has no room for %v+%v tracks (probe job %s %s: %s) -- nothing was deleted",
+		orAny(alloc.Volume), alloc.Space[1], alloc.Space[2], res.JobName, res.JobID, res.Status)
+	// the allocation's own message, IEF257I SPACE REQUESTED NOT AVAILABLE,
+	// says why; the interpreter's IEF6nnI lines cover the rest
+	var details []string
+	for _, l := range allocMsgRE.FindAllString(res.Spool, 5) {
+		details = append(details, strings.TrimSpace(l))
+	}
+	details = append(details, mvsmf.JCLDiagnostics(res.Spool)...)
+	return &SpaceError{Msg: msg, Details: details, Probe: true}
+}
+
+var allocMsgRE = regexp.MustCompile(`IEF2[0-9][0-9]I [^\n]*NOT AVAILABLE[^\n]*`)
 
 // ReceiveError is a RECEIVE job that did not come back clean, with its
 // diagnosis.

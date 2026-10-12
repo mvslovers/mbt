@@ -239,7 +239,8 @@ A project with none of them has no lock file, under mbt 2 as under mbt 3.
   until the library is compressed, so mbt checks the free space first,
   refuses rather than half-copies, and reports the library's fill after
   each deploy. `--reallocate` (while nothing holds the library) allocates
-  it again, larger, on the same volume; `--ignore-space` trusts the
+  it again on the same volume, sized for several deploys and never smaller
+  than before, after a probe job has checked the volume has the room; `--ignore-space` trusts the
   secondary extents. A library that mbt 2 or an older mbt 3 deployed was
   sized to its contents, so the first deploy into it needs `--reallocate`.
   The plugin [`mvslovers/mbt-stc`](https://github.com/mvslovers/mbt-stc)

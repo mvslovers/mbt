@@ -121,10 +121,14 @@ the numbers and the three ways out:
   is stopped. The plugin #cmd("mvslovers/mbt-stc") does it on the restart
   that activates a deploy anyway (below).
 - *#cmd("mbt deploy --reallocate")* deletes the library and allocates it
-  again, larger, on the same volume, then deploys. The new library is never
-  smaller than the old one. It works only while nothing holds the library:
-  otherwise the delete fails, and MBT stops with "most likely a running
-  server holds it -- stop it first".
+  again on the same volume, then deploys. The new library has room for
+  several deploys of the current modules and is never smaller than the old
+  one, so running it again does not make it grow. Before the delete, a
+  short job allocates the new size on the volume and releases it again: if
+  the volume has no room, MBT stops there and the old library stays as it
+  was. It works only while nothing holds the library: otherwise the delete
+  fails, and MBT stops with "most likely a running server holds it -- stop
+  it first".
 - *#cmd("mbt deploy --ignore-space")* copies all the same, for a library
   whose secondary extents will take it.
 

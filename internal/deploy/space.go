@@ -71,6 +71,23 @@ func NewLibrarySpace(needed int) []any {
 	return []any{"TRK", primary, secondary, 20}
 }
 
+// ReallocSpace sizes the library --reallocate allocates in place of the one
+// described by a (its data set list attributes): what the modules need, as
+// NewLibrarySpace has it, and never smaller than the old library. The old
+// size is a floor, not a base: multiplying it again on every run made the
+// library grow fourfold per --reallocate until the volume refused it.
+func ReallocSpace(a map[string]string, bytes, members int) []any {
+	need, ok := NeededTracks(a["dev"], bytes, members)
+	if !ok {
+		need = 30
+	}
+	s := NewLibrarySpace(need)
+	if _, total, ok := FreeTracks(a); ok && total > s[1].(int) {
+		s[1] = total
+	}
+	return s
+}
+
 // Fill describes a library's use for the log line after a deploy.
 func Fill(dsn string, a map[string]string) string {
 	if _, total, ok := FreeTracks(a); ok {
