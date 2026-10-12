@@ -286,4 +286,20 @@ func TestV3COBOL(t *testing.T) {
 	if _, err := LoadV3(files(strings.Replace(base, "rent = false", "rent = true", 1)+"entry = \"HELLO\"\n"), FileV3); err == nil || !strings.Contains(err.Error(), "not reentrant") {
 		t.Errorf("rent: %v", err)
 	}
+	// a C main() among the sources: COBOL is called from C, @@CRT0 stays
+	cmain := strings.Replace(base, `sources = ["src/hello.cbl"]`, `sources = ["src/main.c", "src/hello.cbl"]`, 1)
+	for src, isMain := range map[string]bool{
+		"#include <stdio.h>\nint main(void)\n{\n    return 0;\n}\n": true,
+		"int\nmain (int argc, char **argv) { return 0; }\n":         true, // the type on a line of its own
+		"main()\n{\n}\n": true,
+		"/* calls domain(x) */\nint helper(void) { return 0; }\n": false,
+	} {
+		p, err := LoadV3(writeTree(t, map[string]string{"mbt.toml": cmain, "src/hello.cbl": "", "src/main.c": src}), FileV3)
+		switch {
+		case isMain && (err != nil || p.Modules[0].Entry != "@@CRT0"):
+			t.Errorf("main in %q: %v", src, err)
+		case !isMain && (err == nil || !strings.Contains(err.Error(), "no C main()")):
+			t.Errorf("no main in %q: %v", src, err)
+		}
+	}
 }

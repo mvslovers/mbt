@@ -188,6 +188,10 @@ A changed copybook translates the programs that copy it again:
 #cmd("cobc370") records them, as #cmd("cc370") records headers. The module
 carries the COBOL runtime #cmd("cobc370") emits into it. It needs no
 LIBC/370 and no C startup, which is why #cmd("entry") is required. The
+exception is a module whose main program is C: when one of its C sources
+defines #cmd("main()"), the COBOL is called from C, the C startup stays,
+and #cmd("entry") is left out. COBOL calls C back through a stub made
+with LIBC/370's #cmd("CCALL") macro (from LIBC/370 2.9.0). The
 system macros the generated code uses (OPEN, DCB, SPIE, TIME and the rest)
 come from maclib370 beside #cmd("as370").
 
