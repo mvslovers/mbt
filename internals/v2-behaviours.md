@@ -10,7 +10,7 @@ Each line: the behaviour mbt 3 must have, the reason, where v2 implements it,
 and whether an automated test covers it today. **"no test" means the behaviour
 was verified once, by hand, and mbt 3 needs a test for it from the start.**
 Open v2 issues are the other half of the requirements; they are sorted in
-`docs/mbt-3-design.md`, Appendix A.
+`internals/mbt-3-design.md`, Appendix A.
 
 ## 1. The build
 

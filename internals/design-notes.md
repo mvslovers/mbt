@@ -3,6 +3,9 @@
 Working document for open design questions and planned changes.
 Once resolved, decisions move to the spec or implementation guide.
 
+The proposal for mbt 3 — an installable tool replacing the submodule and
+the Make include — is a separate document: [mbt-3-design.md](mbt-3-design.md).
+
 ---
 
 ## 1. Release Workflow — Maven-Style Next-Dev-Version
