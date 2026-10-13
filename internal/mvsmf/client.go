@@ -493,6 +493,24 @@ func (c *Client) Login() error {
 // Token is the session token ("" without a session).
 func (c *Client) Token() string { return c.token }
 
+// CheckBasic is the logon of a client without a session: one GET
+// /zosmf/info with the Basic credentials, which must answer 200. A 401 is a
+// refused logon.
+func (c *Client) CheckBasic() error {
+	code, _, err := c.Request("GET", "/info", "", nil)
+	if err != nil {
+		var me *Error
+		if errors.As(err, &me) && strings.HasPrefix(me.Msg, "HTTP 401") {
+			return errf("logon refused (HTTP 401, Basic credentials)")
+		}
+		return err
+	}
+	if code != 200 {
+		return errf("GET /zosmf/info answered HTTP %d", code)
+	}
+	return nil
+}
+
 // Logout ends the session (DELETE /zosmf/services/authenticate); without
 // one it does nothing.
 func (c *Client) Logout() error {

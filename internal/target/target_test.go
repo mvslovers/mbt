@@ -135,6 +135,7 @@ func TestLoadRefuses(t *testing.T) {
 		"every system is a [target.NAME]":        "[mvsdev]\nhost = \"x\"\n",
 		"write COLSxROWS":                        "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.tn3270]\nhost = \"h\"\nsize = \"43x80\"\n",
 		"size must be a string":                  "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.tn3270]\nhost = \"h\"\nsize = 4\n",
+		"\"session\" (the default) or \"basic\"": "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\nauth = \"token\"\n",
 	} {
 		if _, err := Load(write(t, 0o600, body)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v", want, err)
@@ -307,5 +308,28 @@ password = "lit"
 	if !ok || et.MVSMF.Users["test2"].User != "TEST2" || et.MVSMF.Users["ro-user"].User != "ROUSER" ||
 		et.MVSMF.Users["ro-user"].Password.Source() != "env MBT_TARGET_MVSMF_PASSWORD_RO_USER" {
 		t.Errorf("env users: %+v", et.MVSMF.Users)
+	}
+}
+
+// auth = "basic" (mvsmf#363): read from targets.toml and from the
+// environment; unset is the session logon.
+func TestMVSMFAuth(t *testing.T) {
+	f, err := Load(write(t, 0o600, "[target.a.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\nauth = \"basic\"\n[target.b.mvsmf]\nurl = \"http://b:1\"\nuser = \"U\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := f.Targets["a"].MVSMF.Auth; a != "basic" {
+		t.Errorf("a: %q", a)
+	}
+	if a := f.Targets["b"].MVSMF.Auth; a != "" {
+		t.Errorf("b: %q", a)
+	}
+	env := map[string]string{"MBT_TARGET_MVSMF_URL": "http://e:1", "MBT_TARGET_MVSMF_USER": "U", "MBT_TARGET_MVSMF_AUTH": "basic"}
+	e, ok := FromEnv(func(k string) string { return env[k] })
+	if !ok || e.MVSMF.Auth != "basic" {
+		t.Errorf("env: %v %+v", ok, e)
+	}
+	if err := (&Endpoint{Auth: "x"}).CheckAuth("w"); err == nil {
+		t.Error("auth x accepted")
 	}
 }
