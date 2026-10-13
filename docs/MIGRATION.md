@@ -359,6 +359,7 @@ url = "http://lab:8081"
 host     = "lab"
 user     = "IBMUSER"
 password = { keychain = "mbt/lab-tso" }
+size     = "80x43"         # optional: COLSxROWS, as x3270; default 80x24
 ```
 
 `mbt target console lab -- D T` issues an operator command through mvsMF,

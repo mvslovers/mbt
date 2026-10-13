@@ -13,6 +13,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/mvslovers/mbt/internal/tn3270"
 	"github.com/mvslovers/mbt/internal/version"
 )
 
@@ -54,7 +55,7 @@ var v3Keys = map[string][]string{
 	"library":      {"target"},
 	"smp":          {"prefix", "fmid", "delete", "system", "prereq", "accept_fmid", "lklib", "target", "distlib"},
 	"release":      {"version_files"},
-	"tso":          {"fixtures"},
+	"tso":          {"fixtures", "size"},
 }
 
 var qualRE = regexp.MustCompile(`^[A-Z@#$][A-Z0-9@#$]{0,7}$`)
@@ -222,7 +223,8 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 
 	// [tso.NAME] fixtures = { KEY = [files] }: data sets a TSO test needs
 	// (mbt test --tso, mbt#243); NAME is the test file's name, KEY the last
-	// qualifier of its data set
+	// qualifier of its data set. size = "COLSxROWS": the terminal for this
+	// test, ahead of the target's [tn3270] size
 	if ts := table(in, "tso"); ts != nil {
 		tso := map[string]any{}
 		for n, v := range ts {
@@ -257,7 +259,18 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 			if _, dup := tso[up]; dup {
 				return nil, "", configErr("mbt.toml: [tso.%s] is declared twice (names are not case-sensitive)", quoteKey(n))
 			}
-			tso[up] = map[string]any{"fixtures": fx}
+			entry := map[string]any{"fixtures": fx}
+			if raw, ok := e["size"]; ok {
+				z, isStr := raw.(string)
+				if !isStr {
+					return nil, "", configErr("mbt.toml: [tso.%s] size must be a string, COLSxROWS (e.g. \"80x43\")", quoteKey(n))
+				}
+				if _, err := tn3270.ParseSize(z); err != nil {
+					return nil, "", configErr("mbt.toml: [tso.%s]: %v", quoteKey(n), err)
+				}
+				entry["size"] = z
+			}
+			tso[up] = entry
 		}
 		out["tso"] = tso
 	}

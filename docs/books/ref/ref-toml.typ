@@ -208,14 +208,18 @@ The keys of a load module, #cmd("exclude"), #cmd("entry"),
 === [tso.NAME] <ref-toml-tso>
 
 The data sets the interactive test #cmd("test/tso/")#var("name")#cmd(".lua")
-needs (@ref-tso-fixtures). #var("NAME") is the file's name, in any case\; a
-table that names no such file is an error.
+needs (@ref-tso-fixtures), and its screen size. #var("NAME") is the file's
+name, in any case\; a table that names no such file is an error.
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
   [#cmd("fixtures")], [none], [#cmd("{ ")#var("KEY")#cmd(" = [")#var("files")#cmd("] }"):
     a data set per #var("KEY"), the last qualifier of its name, loaded as
     the fixtures of #cmd("[test.NAME]") are.],
+  [#cmd("size")], [the target's], [the terminal for this test,
+    #var("COLS")#cmd("x")#var("ROWS") such as #cmd("\"80x43\"")
+    (@ref-tso-size). It wins over #cmd("size") in the target's
+    #cmd("[tn3270]").],
 )
 
 == [deploy] <ref-toml-deploy>

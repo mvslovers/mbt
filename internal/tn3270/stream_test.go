@@ -201,7 +201,7 @@ func TestReadPartitionQuery(t *testing.T) {
 	}
 	// the reply the session sent to MVS/CE in the recording
 	want, _ := hex.DecodeString("88000781808081A60017818101000050001800000A02E50002006F090C0780001181A600000B01000050001800500018")
-	if got := queryReply(); !bytes.Equal(got, want) {
+	if got := queryReply(Size{Cols: Cols, Rows: Rows}); !bytes.Equal(got, want) {
 		t.Fatalf("query reply\n got % X\nwant % X", got, want)
 	}
 }

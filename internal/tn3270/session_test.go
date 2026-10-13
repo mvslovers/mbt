@@ -325,10 +325,19 @@ func TestHostRead(t *testing.T) {
 	close(next)
 }
 
-func TestDialRejectsOtherModels(t *testing.T) {
-	_, err := Dial(context.Background(), "127.0.0.1:1", Options{TerminalType: "IBM-3278-4-E"})
-	if err == nil || !strings.Contains(err.Error(), "model 2") {
-		t.Fatalf("got %v", err)
+// A terminal type must fit the screen size, and the size must be a 3278's;
+// both are refused before any connection is tried.
+func TestDialRejectsMismatch(t *testing.T) {
+	for _, o := range []Options{
+		{TerminalType: "IBM-3278-4-E"},                                 // a model 4 on a 24x80 screen
+		{TerminalType: "IBM-3179-2"},                                   // not a 3278/3279
+		{Size: Size{Cols: 80, Rows: 43}, TerminalType: "IBM-3278-5-E"}, // 132 columns it does not have
+		{Size: Size{Cols: 70, Rows: 20}},                               // smaller than 24x80
+	} {
+		_, err := Dial(context.Background(), "127.0.0.1:1", o)
+		if err == nil || !strings.Contains(err.Error(), "tn3270:") || strings.Contains(err.Error(), "connect") {
+			t.Errorf("%+v: got %v", o, err)
+		}
 	}
 }
 
