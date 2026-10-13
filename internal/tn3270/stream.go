@@ -89,8 +89,11 @@ func (s *screen) command(cmd byte, data []byte) (hostResult, error) {
 	case cmdEAU, snaEAU:
 		s.eraseUnprotected()
 		res.restore = true
-	case cmdEW, snaEW, cmdEWA, snaEWA:
-		s.erase()
+	case cmdEW, snaEW:
+		s.reset(false)
+		return s.write(data)
+	case cmdEWA, snaEWA:
+		s.reset(true)
 		return s.write(data)
 	case cmdW, snaW:
 		return s.write(data)
@@ -109,7 +112,7 @@ func (s *screen) eraseUnprotected() {
 		s.erase()
 		return
 	}
-	for i := 0; i < bufSize; i++ {
+	for i := 0; i < s.size(); i++ {
 		if s.attr[i] >= 0 {
 			if s.attr[i]&attrProtected == 0 {
 				s.attr[i] &^= attrMDT
@@ -141,6 +144,7 @@ func (s *screen) write(data []byte) (hostResult, error) {
 	// the keyboard is restored after the write has been applied, so record
 	// it now and report it whatever happens below
 	res.restore = wcc&wccKbd != 0
+	n := s.size()
 	pos := s.cursor
 	need := func(i, n int) bool { return i+n < len(data) }
 	for i := 1; i < len(data); i++ {
@@ -149,14 +153,14 @@ func (s *screen) write(data []byte) (hostResult, error) {
 			if !need(i, 2) {
 				return res, errTruncated
 			}
-			pos = decodeAddr(data[i+1], data[i+2]) % bufSize
+			pos = decodeAddr(data[i+1], data[i+2]) % n
 			i += 2
 		case orderSF:
 			if !need(i, 1) {
 				return res, errTruncated
 			}
 			s.setAttr(pos, data[i+1])
-			pos = (pos + 1) % bufSize
+			pos = (pos + 1) % n
 			i++
 		case orderSFE:
 			if !need(i, 1) {
@@ -173,7 +177,7 @@ func (s *screen) write(data []byte) (hostResult, error) {
 				}
 			}
 			s.setAttr(pos, a)
-			pos = (pos + 1) % bufSize
+			pos = (pos + 1) % n
 			i += 1 + 2*n
 		case orderMF:
 			if !need(i, 1) {
@@ -190,7 +194,7 @@ func (s *screen) write(data []byte) (hostResult, error) {
 					}
 				}
 			}
-			pos = (pos + 1) % bufSize
+			pos = (pos + 1) % n
 			i += 1 + 2*n
 		case orderIC:
 			s.cursor = pos
@@ -204,7 +208,7 @@ func (s *screen) write(data []byte) (hostResult, error) {
 			if !need(i, 3) {
 				return res, errTruncated
 			}
-			to := decodeAddr(data[i+1], data[i+2]) % bufSize
+			to := decodeAddr(data[i+1], data[i+2]) % n
 			ch := data[i+3]
 			i += 3
 			if ch == orderGE {
@@ -214,21 +218,21 @@ func (s *screen) write(data []byte) (hostResult, error) {
 				ch = data[i+1]
 				i++
 			}
-			for k := span(pos, to); k > 0; k-- {
+			for k := span(pos, to, n); k > 0; k-- {
 				s.setChar(pos, ch)
-				pos = (pos + 1) % bufSize
+				pos = (pos + 1) % n
 			}
 		case orderEUA:
 			if !need(i, 2) {
 				return res, errTruncated
 			}
-			to := decodeAddr(data[i+1], data[i+2]) % bufSize
+			to := decodeAddr(data[i+1], data[i+2]) % n
 			i += 2
-			for k := span(pos, to); k > 0; k-- {
+			for k := span(pos, to, n); k > 0; k-- {
 				if s.attr[pos] < 0 && !s.protected(pos) {
 					s.setChar(pos, 0)
 				}
-				pos = (pos + 1) % bufSize
+				pos = (pos + 1) % n
 			}
 		case orderSA:
 			if !need(i, 2) {
@@ -240,22 +244,23 @@ func (s *screen) write(data []byte) (hostResult, error) {
 				return res, errTruncated
 			}
 			s.setChar(pos, data[i+1])
-			pos = (pos + 1) % bufSize
+			pos = (pos + 1) % n
 			i++
 		default:
 			s.setChar(pos, b)
-			pos = (pos + 1) % bufSize
+			pos = (pos + 1) % n
 		}
 	}
 	return res, nil
 }
 
-// span counts the positions from pos up to, not including, to; equal
-// addresses mean the whole buffer (RA and EUA are defined that way).
-func span(pos, to int) int {
-	n := (to - pos + bufSize) % bufSize
+// span counts the positions from pos up to, not including, to, in a buffer
+// of size positions; equal addresses mean the whole buffer (RA and EUA are
+// defined that way).
+func span(pos, to, size int) int {
+	n := (to - pos + size) % size
 	if n == 0 {
-		return bufSize
+		return size
 	}
 	return n
 }
@@ -288,8 +293,8 @@ func (s *screen) structuredFields(data []byte) (hostResult, error) {
 					res.readMod = true
 				}
 			}
-		case sfEraseReset:
-			s.erase()
+		case sfEraseReset: // flags: X'80' the alternate (implicit partition) size
+			s.reset(len(body) >= 1 && body[0]&0x80 != 0)
 		case sfOutbound3270: // partition id, a write command, its data
 			if len(body) >= 2 {
 				r, err := s.command(body[1], body[2:])
@@ -306,25 +311,36 @@ func (s *screen) structuredFields(data []byte) (hostResult, error) {
 
 // queryReply is the inbound answer to Read Partition Query: AID 0x88 with
 // three query replies -- Summary, Usable Area, Implicit Partition.  That is
-// enough for TSO to take the terminal as a 24x80 3278-2 with the extended
-// data stream; without it, an IBM-3278-2-E session falls into error
-// recovery (IKT00405I).
-func queryReply() []byte {
+// enough for TSO to take the terminal as a 3278 of its model with the
+// extended data stream; without it, an IBM-3278-2-E session falls into
+// error recovery (IKT00405I).  Usable Area and the alternate size of the
+// Implicit Partition carry alt (24x80 for a model 2, the model's size, or an
+// oversize screen); the default size is always 24x80.
+func queryReply(alt Size) []byte {
 	sf := func(b ...byte) []byte {
 		n := len(b) + 2
 		return append([]byte{byte(n >> 8), byte(n)}, b...)
 	}
+	w := func(v int) []byte { return []byte{byte(v >> 8), byte(v)} }
+	cat := func(parts ...[]byte) []byte {
+		var out []byte
+		for _, p := range parts {
+			out = append(out, p...)
+		}
+		return out
+	}
+	n := alt.Rows * alt.Cols
 	out := []byte{0x88}
 	out = append(out, sf(0x81, 0x80, 0x80, 0x81, 0xA6)...) // Summary: itself, Usable Area, Implicit Partition
-	out = append(out, sf(0x81, 0x81,                       // Usable Area
-		0x01, 0x00, // 12/14-bit addressing; no special features
-		0x00, Cols, 0x00, Rows, // width, height
-		0x00,                   // units: inches
-		0x00, 0x0A, 0x02, 0xE5, // Xr
-		0x00, 0x02, 0x00, 0x6F, // Yr
-		0x09, 0x0C, // AW, AH: cell size in pixels
-		byte(bufSize>>8), byte(bufSize&0xFF))...) // buffer size
-	out = append(out, sf(0x81, 0xA6, 0x00, 0x00, // Implicit Partition
-		0x0B, 0x01, 0x00, 0x00, Cols, 0x00, Rows, 0x00, Cols, 0x00, Rows)...)
+	out = append(out, sf(cat([]byte{0x81, 0x81,            // Usable Area
+		0x01, 0x00}, // 12/14-bit addressing; no special features
+		w(alt.Cols), w(alt.Rows), // width, height
+		[]byte{0x00, // units: inches
+			0x00, 0x0A, 0x02, 0xE5, // Xr
+			0x00, 0x02, 0x00, 0x6F, // Yr
+			0x09, 0x0C}, // AW, AH: cell size in pixels
+		w(n))...)...) // buffer size
+	out = append(out, sf(cat([]byte{0x81, 0xA6, 0x00, 0x00, // Implicit Partition
+		0x0B, 0x01, 0x00}, w(Cols), w(Rows), w(alt.Cols), w(alt.Rows))...)...)
 	return out
 }

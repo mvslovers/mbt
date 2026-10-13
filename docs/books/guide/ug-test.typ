@@ -256,3 +256,15 @@ session works on -- an exec, a CLIST, input -- come from the repository:
 #cmd("[tso.")#var("NAME")#cmd("] fixtures") in #cmd("mbt.toml") names them
 by key, MBT loads them before the session, and the test finds their names in
 #cmd("t.fixtures") (_MBT Reference_, "The TSO Test API").
+
+The terminal is a 24x80 model 2 unless the target's #cmd("[tn3270]") or
+the test's #cmd("[tso.")#var("NAME")#cmd("]") gives a #cmd("size"),
+columns first as x3270 writes it: #cmd("\"80x43\"") for a model 4,
+#cmd("\"160x62\"") for an oversize screen. The logon and TSO line mode stay
+on 24x80\; a full-screen dialog that switches to the larger screen shows all
+its rows in #cmd("t:screen()").
+
+```
+[tso.ISPFMENU]
+size = "160x62"
+```

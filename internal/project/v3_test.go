@@ -251,7 +251,14 @@ func TestV3TSOFixtures(t *testing.T) {
 	if !reflect.DeepEqual(fx["TSOTEST"], []string{"t/a.rexx"}) || !reflect.DeepEqual(fx["RXLIB"], []string{"r/X.rexx", "r/Y.rexx"}) {
 		t.Errorf("fixtures %v", fx)
 	}
+	// a test's own terminal size, COLSxROWS
+	p, err = LoadV3(v3Tree(t, v3Base+"[tso.ispf]\nsize = \"160x62\"\n"), FileV3)
+	if err != nil || table(table(p.Raw, "tso"), "ISPF")["size"] != "160x62" {
+		t.Errorf("size: %v", err)
+	}
 	for add, want := range map[string]string{
+		"[tso.FSS]\nsize = \"43x80\"\n":                  "write COLSxROWS",
+		"[tso.FSS]\nsize = 4\n":                          "size must be a string",
 		"[tso.FSS]\nfixture = {}\n":                      "unknown key 'fixture' in [tso.FSS]",
 		"[tso.toolongname]\n":                            "a data set qualifier",
 		"[tso.FSS]\nfixtures = { \"1ABC\" = [\"x\"] }\n": "last qualifier",

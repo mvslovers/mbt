@@ -44,10 +44,12 @@ end
   [#cmd("t:expect(")#var("text")#cmd(" [, { timeout = ")#var("s")#cmd(" }])")],
     [waits until #var("text"), case-sensitive, is on the screen, or was on
     it since the last key that went to the host. #var("s") is whole
-    seconds, default 10. Otherwise an error with the 24 lines of the
+    seconds, default 10. Otherwise an error with the lines of the
     screen.],
-  [#cmd("t:screen()")], [the screen: 24 lines, trailing blanks removed.
-    Fields that are not displayed, such as a password, are blank.],
+  [#cmd("t:screen()")], [the screen: one line per row, trailing blanks
+    removed -- 24 lines, or the rows of the alternate size once the host
+    has switched to it (@ref-tso-size). Fields that are not displayed,
+    such as a password, are blank.],
   [#cmd("t:text()")], [the same as one string, lines joined by newlines.],
   [#cmd("t:cursor()")], [the cursor's row and column, counted from 1.],
   [#cmd("t.user")], [the TN3270 user.],
@@ -56,12 +58,43 @@ end
   [#cmd("t.fixtures")], [the data sets of #cmd("[tso.NAME] fixtures"):
     #var("KEY")#cmd(" = ")#var("name") (@ref-tso-fixtures). Empty for a
     test without any.],
+  [#cmd("t.size")], [the terminal's alternate screen size,
+    #var("COLS")#cmd("x")#var("ROWS"), such as #cmd("\"80x24\"")
+    (@ref-tso-size).],
 )
 
 All methods except #cmd("screen"), #cmd("text") and #cmd("cursor") return
 the session, so calls can be chained: #cmd("t:type(\"TIME\"):enter()").
 Enter, Clear, PF and PA wait for the keyboard to be unlocked, at most 60
 seconds, and then for 300 milliseconds without output.
+
+== The Screen Size <ref-tso-size>
+
+#idx("mbt test", "--tso screen size")
+The terminal is a 3278 model 2, 24 rows of 80 columns, unless a size is
+given: #cmd("size") in the target's #cmd("[tn3270]") (@ref-targets-tn3270)
+or, for one test, in #cmd("[tso.NAME]") (@ref-toml-tso), which wins. A size
+is written #var("COLS")#cmd("x")#var("ROWS"), columns first, as x3270's
+#cmd("-oversize") takes it:
+
+#table(columns: (1.2in, 1fr),
+  [Size], [The terminal],
+  [#cmd("80x24")], [model 2 (the default), #cmd("IBM-3278-2-E").],
+  [#cmd("80x32")], [model 3, #cmd("IBM-3278-3-E").],
+  [#cmd("80x43")], [model 4, #cmd("IBM-3278-4-E").],
+  [#cmd("132x27")], [model 5, #cmd("IBM-3278-5-E").],
+  [any other], [an oversize screen of at least 80x24 and at most 16383
+    positions, such as #cmd("160x62"). It goes as the largest model it
+    covers in both directions (#cmd("160x62"): model 5), as with x3270\;
+    its size travels in the reply to the host's Read Partition Query.],
+)
+
+The size is the terminal's alternate screen. Every model starts on the
+default screen of 24x80\; the host switches to the alternate one with
+Erase/Write Alternate and back with Erase/Write, and the Clear key returns
+to 24x80. #cmd("t:screen()") always shows the screen in use. TSO line
+mode, and the logon, stay on 24x80\; a full-screen application, such as
+ISPF, decides itself whether it uses the alternate size.
 
 == Fixtures <ref-tso-fixtures>
 

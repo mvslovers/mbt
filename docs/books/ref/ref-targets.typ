@@ -81,6 +81,10 @@ For #cmd("mbt test --tso").
     are plain TCP.],
   [#cmd("user")], [none], [the TSO user ID the tests log on with.],
   [#cmd("password")], [none], [its password.],
+  [#cmd("size")], [#cmd("\"80x24\"")], [the terminal's screen,
+    #var("COLS")#cmd("x")#var("ROWS"): #cmd("\"80x43\"") for a model 4,
+    #cmd("\"160x62\"") for an oversize screen (@ref-tso-size). A test's
+    #cmd("[tso.NAME] size") wins.],
 )
 
 == [target.NAME.ssh] <ref-targets-ssh>

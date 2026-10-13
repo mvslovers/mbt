@@ -35,6 +35,7 @@ url = "http://lab:8038"
 [target.lab.tn3270]
 host = "lab"
 user = "TSOTEST"
+size = "80x43"
 password = { cmd = ["printf", "secret\nignored"] }
 [target.lab.ssh]
 host = "lab"
@@ -61,7 +62,7 @@ func TestLoadAndSelect(t *testing.T) {
 		t.Fatal(err)
 	}
 	lab := f.Targets["lab"]
-	if !lab.Default || lab.HLQ != "MIKE" || lab.Volume != "PUB001" || lab.TN3270.Port != 3270 || lab.SSH.Port != 22 {
+	if !lab.Default || lab.HLQ != "MIKE" || lab.Volume != "PUB001" || lab.TN3270.Port != 3270 || lab.TN3270.Size != "80x43" || lab.SSH.Port != 22 {
 		t.Errorf("lab: %+v", lab)
 	}
 	if strings.Join(lab.Console, ",") != "mvsmf,hercules" || strings.Join(f.Targets["ci"].Console, ",") != "mvsmf" {
@@ -132,6 +133,8 @@ func TestLoadRefuses(t *testing.T) {
 		"order names hercules":                   "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.console]\norder = [\"hercules\"]\n",
 		"more than one default":                  "[target.a]\ndefault = true\n[target.a.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.b]\ndefault = true\n[target.b.mvsmf]\nurl = \"http://b:1\"\nuser = \"U\"\n",
 		"every system is a [target.NAME]":        "[mvsdev]\nhost = \"x\"\n",
+		"write COLSxROWS":                        "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.tn3270]\nhost = \"h\"\nsize = \"43x80\"\n",
+		"size must be a string":                  "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.tn3270]\nhost = \"h\"\nsize = 4\n",
 	} {
 		if _, err := Load(write(t, 0o600, body)); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v", want, err)
@@ -141,11 +144,12 @@ func TestLoadRefuses(t *testing.T) {
 
 func TestEnvAndLegacy(t *testing.T) {
 	env := map[string]string{"MBT_TARGET_MVSMF_URL": "http://localhost:8080", "MBT_TARGET_MVSMF_USER": "IBMUSER",
-		"MBT_TARGET_HLQ": "IBMUSER", "MBT_TARGET_VOLUME": "PUB000", "MBT_TARGET_TN3270_HOST": "localhost", "MBT_TARGET_TN3270_PORT": "3270"}
+		"MBT_TARGET_HLQ": "IBMUSER", "MBT_TARGET_VOLUME": "PUB000", "MBT_TARGET_TN3270_HOST": "localhost", "MBT_TARGET_TN3270_PORT": "3270",
+		"MBT_TARGET_TN3270_SIZE": "160x62"}
 	get := func(k string) string { return env[k] }
 	f, _ := Load(t.TempDir())
 	got, _, err := Select("", f, get, legacyNever(t))
-	if err != nil || got.Name != "env" || got.Volume != "PUB000" || got.TN3270 == nil || got.MVSMF.Password.Env != "MBT_TARGET_MVSMF_PASSWORD" {
+	if err != nil || got.Name != "env" || got.Volume != "PUB000" || got.TN3270 == nil || got.TN3270.Size != "160x62" || got.MVSMF.Password.Env != "MBT_TARGET_MVSMF_PASSWORD" {
 		t.Errorf("env target: %+v %v", got, err)
 	}
 	// nothing at all: the mbt 2 settings, with a warning

@@ -18,7 +18,8 @@
 //	password = { keychain = "mbt/lab-test2" }
 //	[target.lab.hercules]          # optional: the console fallback
 //	[target.lab.ssh]               # optional: host, user, identity, port
-//	[target.lab.tn3270]            # optional: host, port, tls, user, password
+//	[target.lab.tn3270]            # optional: host, port, tls, user, password,
+//	                               # size ("80x43": COLSxROWS, default 80x24)
 //	[target.lab.console]
 //	order = ["mvsmf", "hercules"]
 //
@@ -45,6 +46,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/mvslovers/mbt/internal/tn3270"
 )
 
 // Error is a target that is wrong or cannot be had (exit 2).
@@ -186,6 +189,9 @@ type TN3270 struct {
 	TLS      bool
 	User     string
 	Password Secret
+	// Size is the terminal's alternate screen, COLSxROWS as x3270 writes
+	// it ("80x43", "160x62"); "" is a model 2, 80x24.
+	Size string
 }
 
 // Addr is host:port.
@@ -281,7 +287,7 @@ var knownKeys = map[string][]string{
 	"users":    {"user", "password"},
 	"hercules": {"url", "user", "password"},
 	"ssh":      {"host", "user", "identity", "port"},
-	"tn3270":   {"host", "port", "tls", "user", "password"},
+	"tn3270":   {"host", "port", "tls", "user", "password", "size"},
 	"console":  {"order"},
 }
 
@@ -405,6 +411,16 @@ func parse(name string, m map[string]any) (*Target, bool, error) {
 			t.TN3270.Port = int(p)
 		}
 		t.TN3270.TLS, _ = s["tls"].(bool)
+		if v, ok := s["size"]; ok {
+			z, isStr := v.(string)
+			if !isStr {
+				return nil, false, fmt.Errorf("%s: size must be a string, COLSxROWS (e.g. \"80x43\")", w)
+			}
+			if _, err := tn3270.ParseSize(z); err != nil {
+				return nil, false, fmt.Errorf("%s: %v", w, err)
+			}
+			t.TN3270.Size = z
+		}
 		pw, lit, err := secret(s["password"], w)
 		if err != nil {
 			return nil, false, err
@@ -514,7 +530,7 @@ func FromEnv(get func(string) string) (*Target, bool) {
 		t.Console = append(t.Console, "hercules")
 	}
 	if h := get("MBT_TARGET_TN3270_HOST"); h != "" {
-		t.TN3270 = &TN3270{Host: h, Port: 3270, User: get("MBT_TARGET_TN3270_USER")}
+		t.TN3270 = &TN3270{Host: h, Port: 3270, User: get("MBT_TARGET_TN3270_USER"), Size: get("MBT_TARGET_TN3270_SIZE")}
 		if p, err := strconv.Atoi(get("MBT_TARGET_TN3270_PORT")); err == nil {
 			t.TN3270.Port = p
 		}

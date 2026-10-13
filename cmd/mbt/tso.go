@@ -128,11 +128,32 @@ func cmdTestTSO(args []string) int {
 		return code
 	}
 	info := map[string]any{"user": tg.TN3270.User, "testlib": testLibrary(p, tg.HLQ)}
+	// the terminal: the target's size, a test's [tso.NAME] size ahead of it
+	sizes := map[string]tn3270.Size{}
+	decl := rawTable(p.Raw, "tso")
+	for _, t := range tests {
+		text := tg.TN3270.Size
+		where := fmt.Sprintf("[target.%s.tn3270] size", tg.Name)
+		if d, _ := decl[t[0]].(map[string]any); d != nil {
+			if z, _ := d["size"].(string); z != "" {
+				text, where = z, fmt.Sprintf("[tso.%s] size", strings.ToLower(t[0]))
+			}
+		}
+		z := tn3270.Size{Cols: tn3270.Cols, Rows: tn3270.Rows}
+		if text != "" {
+			var err error
+			if z, err = tn3270.ParseSize(text); err != nil {
+				fmt.Fprintf(os.Stderr, "[mbt] ERROR: %s: %v\n", where, err)
+				return exitConfig
+			}
+		}
+		sizes[t[0]] = z
+	}
 	fmt.Printf("[mbt] %d interactive test(s) on %s (%s as %s)\n", len(tests), tg.Name, tg.TN3270.Addr(), tg.TN3270.User)
 	failed := 0
 	var rows []string
 	for _, t := range tests {
-		opt := tn3270.Options{}
+		opt := tn3270.Options{Size: sizes[t[0]]}
 		if *verbose {
 			opt.Trace = os.Stderr
 		}
@@ -143,6 +164,7 @@ func cmdTestTSO(args []string) int {
 				ti[k] = v
 			}
 			ti["fixtures"] = fixtures[t[0]]
+			ti["size"] = sizes[t[0]].String()
 			err = e.TSOTest(t[1], &tsoSession{s: s, user: tg.TN3270.User, pass: pw}, ti)
 			s.Close()
 		}

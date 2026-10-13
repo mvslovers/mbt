@@ -1,11 +1,16 @@
-// Package tn3270 is a minimal TN3270 client: enough of a 3278 model 2
-// terminal to log on to TSO, type commands, press attention keys and wait
-// for text on the screen.  It is what interactive TSO tests drive.
+// Package tn3270 is a minimal TN3270 client: enough of a 3278 terminal to
+// log on to TSO, type commands, press attention keys and wait for text on
+// the screen.  It is what interactive TSO tests drive.  The terminal is a
+// model 2 (24x80) unless Options.Size names another: a model 3, 4 or 5
+// (80x32, 80x43, 132x27) or an oversize screen such as 160x62, which goes
+// as the largest model it covers, its size in the query reply (as x3270's
+// -oversize does).  The default screen is 24x80 on every model; the host
+// switches to the alternate size with Erase/Write Alternate.
 //
 // What a TSO session needs from a client, each found by failing first
 // against MVS 3.8j:
 //
-//   - terminal type IBM-3278-2-E with an answer to Read Partition Query
+//   - terminal type IBM-3278-n-E with an answer to Read Partition Query
 //     (as plain IBM-3278-2, TSO falls into error recovery, IKT00405I);
 //   - honouring WCC reset-MDT, or the previous command is sent again with
 //     the next one;
@@ -32,8 +37,12 @@ import (
 
 // Options configure a session.  Zero values take the defaults.
 type Options struct {
-	// TerminalType is sent in the telnet TERMINAL-TYPE negotiation.  Only
-	// model 2 (24x80) types are accepted.  Default IBM-3278-2-E.
+	// Size is the alternate screen: 80x24 (model 2, the default), 80x32,
+	// 80x43, 132x27 (models 3-5) or an oversize screen (ParseSize).
+	Size Size
+	// TerminalType is sent in the telnet TERMINAL-TYPE negotiation.
+	// Default: Size.TerminalType(), IBM-3278-2-E for a model 2.  An
+	// explicit type must name a 3278/3279 model 2-5 that Size covers.
 	TerminalType string
 	// Trace, if set, receives the telnet negotiation and every 3270 record
 	// in hex.  A record that carries input typed with TypeSecret is traced
@@ -50,7 +59,7 @@ type Options struct {
 	Settle time.Duration
 }
 
-// DefaultTerminalType is the terminal type a TSO session needs.
+// DefaultTerminalType is the terminal type of a model 2 session.
 const DefaultTerminalType = "IBM-3278-2-E"
 
 // ErrTimeout is wrapped by every error that is a timeout waiting for the
@@ -76,11 +85,17 @@ type Session struct {
 // Dial connects to addr (host:port), negotiates TN3270 and waits for the
 // first screen.
 func Dial(ctx context.Context, addr string, opt Options) (*Session, error) {
-	if opt.TerminalType == "" {
-		opt.TerminalType = DefaultTerminalType
+	if opt.Size == (Size{}) {
+		opt.Size = Size{Cols: Cols, Rows: Rows}
 	}
-	if !model2(opt.TerminalType) {
-		return nil, fmt.Errorf("tn3270: terminal type %s: only model 2 (24x80) is supported", opt.TerminalType)
+	if err := opt.Size.check(); err != nil {
+		return nil, err
+	}
+	if opt.TerminalType == "" {
+		opt.TerminalType = opt.Size.TerminalType()
+	}
+	if m := modelOf(opt.TerminalType); m == 0 || m > opt.Size.Model() {
+		return nil, fmt.Errorf("tn3270: terminal type %s does not fit a %s screen (%s)", opt.TerminalType, opt.Size, opt.Size.TerminalType())
 	}
 	if opt.DialTimeout <= 0 {
 		opt.DialTimeout = 30 * time.Second
@@ -100,7 +115,7 @@ func Dial(ctx context.Context, addr string, opt Options) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tn3270: %w", err)
 	}
-	s := &Session{opt: opt, conn: c, scr: newScreen()}
+	s := &Session{opt: opt, conn: c, scr: newScreenSize(opt.Size)}
 	s.tn = newTelnet(c, opt.TerminalType, s.tracef)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -123,10 +138,6 @@ func Dial(ctx context.Context, addr string, opt Options) (*Session, error) {
 	return s, nil
 }
 
-func model2(tt string) bool {
-	return strings.HasPrefix(tt, "IBM-327") && (strings.HasSuffix(tt, "-2") || strings.HasSuffix(tt, "-2-E"))
-}
-
 // Close ends the session.  If LogonTSO succeeded and LogoffTSO has not been
 // tried, it logs off first -- dropping the connection would leave the
 // userid in use.
@@ -141,22 +152,30 @@ func (s *Session) Close() error {
 	return err
 }
 
-// Screen returns the 24 rows, trailing blanks trimmed.  Non-display fields
-// and input typed with TypeSecret show as blanks.
+// Screen returns the rows of the screen in use (24 on the default screen,
+// the alternate size's after Erase/Write Alternate), trailing blanks
+// trimmed.  Non-display fields and input typed with TypeSecret show as
+// blanks.
 func (s *Session) Screen() []string { return s.scr.lines() }
 
 // Text is the screen as one string, rows separated by newlines.
 func (s *Session) Text() string { return strings.Join(s.scr.lines(), "\n") }
 
+// Size is the screen in use: 80x24, or the alternate size once the host
+// has switched to it.
+func (s *Session) Size() Size { return Size{Cols: s.scr.cols, Rows: s.scr.rows} }
+
 // Cursor returns the cursor position, 0-based.
-func (s *Session) Cursor() (row, col int) { return s.scr.cursor / Cols, s.scr.cursor % Cols }
+func (s *Session) Cursor() (row, col int) {
+	return s.scr.cursor / s.scr.cols, s.scr.cursor % s.scr.cols
+}
 
 // SetCursor moves the cursor, 0-based.
 func (s *Session) SetCursor(row, col int) error {
-	if row < 0 || row >= Rows || col < 0 || col >= Cols {
-		return fmt.Errorf("tn3270: cursor %d,%d is off the screen", row, col)
+	if row < 0 || row >= s.scr.rows || col < 0 || col >= s.scr.cols {
+		return fmt.Errorf("tn3270: cursor %d,%d is off the %s screen", row, col, s.Size())
 	}
-	s.scr.cursor = row*Cols + col
+	s.scr.cursor = row*s.scr.cols + col
 	return nil
 }
 
@@ -200,8 +219,8 @@ func (s *Session) SendKey(k Key) error {
 		return err
 	}
 	s.locked = true
-	if k == Clear { // CLEAR clears the screen locally as well
-		s.scr.erase()
+	if k == Clear { // CLEAR clears the screen locally as well, back to 24x80
+		s.scr.reset(false)
 	}
 	return nil
 }
@@ -352,7 +371,7 @@ func (s *Session) apply(rec []byte) {
 	secret := false
 	switch {
 	case res.query:
-		reply = queryReply()
+		reply = queryReply(s.opt.Size)
 	case res.readBuffer:
 		reply, secret = s.scr.readBuffer(aidNone)
 	case res.readMod:

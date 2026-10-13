@@ -6,8 +6,9 @@ import (
 	"strings"
 )
 
-// Screen geometry: a model 2 terminal, 24 rows of 80 columns.  Nothing else
-// is supported -- the query reply and the terminal type both say model 2.
+// The default screen of every 3278 model: 24 rows of 80 columns.  Erase/Write
+// and CLEAR switch to it; Erase/Write Alternate switches to the alternate
+// screen, which is the model's size or an oversize one (Size).
 const (
 	Rows    = 24
 	Cols    = 80
@@ -30,23 +31,49 @@ var (
 
 // screen is the presentation space: one byte per position, plus the field
 // attribute where a field starts.  It knows nothing about the connection.
+// Its size is the default 24x80 or the alternate one; the slices hold the
+// larger of the two, and only the first rows*cols positions are in use.
 type screen struct {
-	buf  [bufSize]byte  // EBCDIC; 0 = null
-	attr [bufSize]int16 // -1: a character position; else the field attribute
+	rows, cols       int     // the size in use
+	altRows, altCols int     // the alternate size
+	buf              []byte  // EBCDIC; 0 = null
+	attr             []int16 // -1: a character position; else the field attribute
 	// secret marks positions filled by TypeSecret.  They never show in
 	// lines() and the session does not trace a record while any is left.
 	// A host write to the position, or an erase, clears the mark.
-	secret [bufSize]bool
+	secret []bool
 	cursor int
 }
 
-func newScreen() *screen {
-	s := &screen{}
-	s.erase()
+// newScreen is a model 2 screen: 24x80, the alternate the same.
+func newScreen() *screen { return newScreenSize(Size{Cols: Cols, Rows: Rows}) }
+
+// newScreenSize is a screen whose alternate size is alt, on the default one.
+func newScreenSize(alt Size) *screen {
+	n := alt.Rows * alt.Cols
+	if n < bufSize {
+		n = bufSize
+	}
+	s := &screen{altRows: alt.Rows, altCols: alt.Cols,
+		buf: make([]byte, n), attr: make([]int16, n), secret: make([]bool, n)}
+	s.reset(false)
 	return s
 }
 
-// erase clears the buffer and the fields, as Erase/Write or CLEAR does.
+// size is the number of positions in use.
+func (s *screen) size() int { return s.rows * s.cols }
+
+// reset switches to the default (alt false) or the alternate size and
+// erases, as Erase/Write and Erase/Write Alternate do.
+func (s *screen) reset(alt bool) {
+	s.rows, s.cols = Rows, Cols
+	if alt {
+		s.rows, s.cols = s.altRows, s.altCols
+	}
+	s.erase()
+}
+
+// erase clears the buffer and the fields at the current size.
 func (s *screen) erase() {
 	for i := range s.buf {
 		s.buf[i] = 0
@@ -54,6 +81,17 @@ func (s *screen) erase() {
 		s.secret[i] = false
 	}
 	s.cursor = 0
+}
+
+// addr encodes a buffer address for an inbound record: 12-bit coded while
+// the buffer fits in 4096 positions, 14-bit binary for every address once
+// it does not -- the terminal reports the buffer size in the query reply,
+// and the host then reads all addresses as 14-bit.
+func (s *screen) addr(a int) (byte, byte) {
+	if s.size() > 4096 {
+		return byte((a >> 8) & 0x3F), byte(a)
+	}
+	return encodeAddr(a)
 }
 
 func (s *screen) setChar(pos int, b byte) {
@@ -69,7 +107,7 @@ func (s *screen) setAttr(pos int, a byte) {
 }
 
 func (s *screen) formatted() bool {
-	for _, a := range s.attr {
+	for _, a := range s.attr[:s.size()] {
 		if a >= 0 {
 			return true
 		}
@@ -80,8 +118,9 @@ func (s *screen) formatted() bool {
 // fieldOf returns the address of the attribute of the field holding pos, or
 // -1 on an unformatted screen.
 func (s *screen) fieldOf(pos int) int {
-	for k := 0; k < bufSize; k++ {
-		p := (pos - k + bufSize) % bufSize
+	n := s.size()
+	for k := 0; k < n; k++ {
+		p := (pos - k + n) % n
 		if s.attr[p] >= 0 {
 			return p
 		}
@@ -98,10 +137,11 @@ func (s *screen) protected(pos int) bool {
 // unprotected field, searching from pos itself (an attribute at pos counts).
 // -1: there is none.
 func (s *screen) nextUnprotected(pos int) int {
-	for k := 0; k < bufSize; k++ {
-		p := (pos + k) % bufSize
+	n := s.size()
+	for k := 0; k < n; k++ {
+		p := (pos + k) % n
 		if s.attr[p] >= 0 && s.attr[p]&attrProtected == 0 {
-			next := (p + 1) % bufSize
+			next := (p + 1) % n
 			if s.attr[next] >= 0 { // an empty field: keep looking
 				continue
 			}
@@ -113,7 +153,7 @@ func (s *screen) nextUnprotected(pos int) int {
 
 // resetMDT clears every modified data tag: nothing counts as typed any more.
 func (s *screen) resetMDT() {
-	for i, a := range s.attr {
+	for i, a := range s.attr[:s.size()] {
 		if a >= 0 {
 			s.attr[i] = a &^ attrMDT
 		}
@@ -134,11 +174,12 @@ func (s *screen) typeText(text string, secret bool) error {
 		}
 		codes = append(codes, b)
 	}
+	n := s.size()
 	if !s.formatted() {
 		for _, b := range codes {
 			s.buf[s.cursor] = b
 			s.secret[s.cursor] = secret
-			s.cursor = (s.cursor + 1) % bufSize
+			s.cursor = (s.cursor + 1) % n
 		}
 		return nil
 	}
@@ -158,7 +199,7 @@ func (s *screen) typeText(text string, secret bool) error {
 		if f := s.fieldOf(s.cursor); f >= 0 {
 			s.attr[f] |= attrMDT
 		}
-		s.cursor = (s.cursor + 1) % bufSize
+		s.cursor = (s.cursor + 1) % n
 	}
 	return nil
 }
@@ -169,13 +210,14 @@ func (s *screen) tab() error {
 		s.cursor = 0
 		return nil
 	}
+	n := s.size()
 	start := s.cursor
 	if f := s.fieldOf(start); f >= 0 {
-		start = (start + 1) % bufSize
+		start = (start + 1) % n
 	}
 	// skip to the next attribute after the cursor, then find an input field
-	for k := 0; k < bufSize; k++ {
-		p := (start + k) % bufSize
+	for k := 0; k < n; k++ {
+		p := (start + k) % n
 		if s.attr[p] >= 0 {
 			if next := s.nextUnprotected(p); next >= 0 {
 				s.cursor = next
@@ -196,10 +238,11 @@ func (s *screen) readModified(aid byte, short bool) (rec []byte, secret bool) {
 	if short {
 		return []byte{aid}, false
 	}
-	c1, c2 := encodeAddr(s.cursor)
+	n := s.size()
+	c1, c2 := s.addr(s.cursor)
 	out := []byte{aid, c1, c2}
 	if !s.formatted() {
-		for p, b := range s.buf {
+		for p, b := range s.buf[:n] {
 			if b != 0 {
 				out = append(out, b)
 				secret = secret || s.secret[p]
@@ -207,14 +250,14 @@ func (s *screen) readModified(aid byte, short bool) (rec []byte, secret bool) {
 		}
 		return out, secret
 	}
-	for i, a := range s.attr {
+	for i, a := range s.attr[:n] {
 		if a < 0 || a&attrMDT == 0 {
 			continue
 		}
-		start := (i + 1) % bufSize
-		a1, a2 := encodeAddr(start)
+		start := (i + 1) % n
+		a1, a2 := s.addr(start)
 		out = append(out, orderSBA, a1, a2)
-		for p := start; s.attr[p] < 0; p = (p + 1) % bufSize {
+		for p := start; s.attr[p] < 0; p = (p + 1) % n {
 			if s.buf[p] != 0 {
 				out = append(out, s.buf[p])
 				secret = secret || s.secret[p]
@@ -228,10 +271,11 @@ func (s *screen) readModified(aid byte, short bool) (rec []byte, secret bool) {
 // -- SF plus the attribute where a field starts, the byte (nulls included)
 // elsewhere.
 func (s *screen) readBuffer(aid byte) (rec []byte, secret bool) {
-	c1, c2 := encodeAddr(s.cursor)
-	out := make([]byte, 0, 3+bufSize+64)
+	n := s.size()
+	c1, c2 := s.addr(s.cursor)
+	out := make([]byte, 0, 3+n+64)
 	out = append(out, aid, c1, c2)
-	for i := 0; i < bufSize; i++ {
+	for i := 0; i < n; i++ {
 		if s.attr[i] >= 0 {
 			out = append(out, orderSF, byte(s.attr[i]))
 			continue
@@ -246,13 +290,13 @@ func (s *screen) readBuffer(aid byte) (rec []byte, secret bool) {
 // Attribute positions, nulls, non-display fields and secret input show as
 // blanks.
 func (s *screen) lines() []string {
-	out := make([]string, Rows)
+	out := make([]string, s.rows)
 	var sb strings.Builder
-	field := s.fieldOf(bufSize - 1) // the field the first position belongs to
-	for r := 0; r < Rows; r++ {
+	field := s.fieldOf(s.size() - 1) // the field the first position belongs to
+	for r := 0; r < s.rows; r++ {
 		sb.Reset()
-		for c := 0; c < Cols; c++ {
-			p := r*Cols + c
+		for c := 0; c < s.cols; c++ {
+			p := r*s.cols + c
 			ch := ' '
 			if s.attr[p] >= 0 {
 				field = p

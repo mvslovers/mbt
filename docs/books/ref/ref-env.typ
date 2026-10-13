@@ -74,7 +74,9 @@ builds byte-identical (_MBT User's Guide_, "Migrating from MBT 2").
     [the Hercules web interface\; with the URL it joins the console
     chain.],
   [#cmd("MBT_TARGET_TN3270_HOST"), #cmd("_PORT"), #cmd("_USER"),
-    #cmd("_PASSWORD")], [the TN3270 access, port 3270 by default.],
+    #cmd("_PASSWORD"), #cmd("_SIZE")], [the TN3270 access, port 3270 by
+    default\; #cmd("_SIZE") is the screen, #var("COLS")#cmd("x")#var("ROWS")
+    (@ref-tso-size).],
 )
 
 == Waiting for MVS <ref-env-timeouts>
