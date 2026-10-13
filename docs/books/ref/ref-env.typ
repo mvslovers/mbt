@@ -60,6 +60,9 @@ builds byte-identical (_MBT User's Guide_, "Migrating from MBT 2").
     #cmd("MBT_TARGET") names another.],
   [#cmd("MBT_TARGET_MVSMF_USER"), #cmd("MBT_TARGET_MVSMF_PASSWORD")], [its
     user and password.],
+  [#cmd("MBT_TARGET_MVSMF_AUTH")], [#cmd("basic") for a logon without a
+    session, as #cmd("auth") in #cmd("[target.NAME.mvsmf]")
+    (@ref-targets-mvsmf).],
   [#cmd("MBT_TARGET_MVSMF_USERS")], [further users by alias, comma
     separated (#cmd("test2,ro-user")), as
     #cmd("[target.NAME.mvsmf.users.ALIAS]"). Each one's user and password

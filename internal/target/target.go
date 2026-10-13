@@ -135,6 +135,11 @@ type Endpoint struct {
 	URL      string
 	User     string
 	Password Secret
+	// Auth is how mbt logs on to mvsMF: "session" (the default, "" too) logs
+	// on once and sends the session's token, "basic" sends the credentials
+	// with every request -- for an mvsMF whose token login does not work,
+	// such as a 1.0.x on an HTTPD before 4.2.0 (mvslovers/mvsmf#363).
+	Auth string
 	// Users are further mvsMF users by alias ([target.X.mvsmf.users.ALIAS]):
 	// Lua opens sessions or sends requests as them, the password stays in mbt.
 	Users map[string]*User
@@ -144,6 +149,15 @@ type Endpoint struct {
 type User struct {
 	User     string
 	Password Secret
+}
+
+// CheckAuth refuses an auth value mbt does not know.
+func (e *Endpoint) CheckAuth(where string) error {
+	switch e.Auth {
+	case "", "session", "basic":
+		return nil
+	}
+	return fmt.Errorf("%s: auth = %q -- \"session\" (the default) or \"basic\"", where, e.Auth)
 }
 
 // UserNames lists the aliases of the further users, sorted.
@@ -283,7 +297,7 @@ func Load(home string) (*File, error) {
 
 var knownKeys = map[string][]string{
 	"":         {"default", "hlq", "volume", "jobclass", "msgclass", "mvsmf", "hercules", "ssh", "tn3270", "console"},
-	"mvsmf":    {"url", "user", "password", "users"},
+	"mvsmf":    {"url", "user", "password", "users", "auth"},
 	"users":    {"user", "password"},
 	"hercules": {"url", "user", "password"},
 	"ssh":      {"host", "user", "identity", "port"},
@@ -351,6 +365,12 @@ func parse(name string, m map[string]any) (*Target, bool, error) {
 	}
 	if t.MVSMF.User == "" {
 		return nil, false, fmt.Errorf("[target.%s.mvsmf]: user is required", name)
+	}
+	if mm, _ := m["mvsmf"].(map[string]any); mm != nil {
+		t.MVSMF.Auth = str(mm, "auth")
+	}
+	if err := t.MVSMF.CheckAuth(fmt.Sprintf("[target.%s.mvsmf]", name)); err != nil {
+		return nil, false, err
 	}
 	if mm, _ := m["mvsmf"].(map[string]any); mm != nil {
 		if us, ok := mm["users"]; ok {
@@ -505,7 +525,8 @@ func FromEnv(get func(string) string) (*Target, bool) {
 	}
 	t := &Target{Name: "env", Source: "environment (MBT_TARGET_*)",
 		HLQ: get("MBT_TARGET_HLQ"), Volume: get("MBT_TARGET_VOLUME"), JobClass: get("MBT_TARGET_JOBCLASS"), MsgClass: get("MBT_TARGET_MSGCLASS"),
-		MVSMF: &Endpoint{URL: u, User: get("MBT_TARGET_MVSMF_USER"), Password: Secret{Env: "MBT_TARGET_MVSMF_PASSWORD", set: true}},
+		MVSMF: &Endpoint{URL: u, User: get("MBT_TARGET_MVSMF_USER"), Password: Secret{Env: "MBT_TARGET_MVSMF_PASSWORD", set: true},
+			Auth: get("MBT_TARGET_MVSMF_AUTH")},
 	}
 	// further users: MBT_TARGET_MVSMF_USERS="test2,ro" names the aliases,
 	// MBT_TARGET_MVSMF_USER_TEST2 / MBT_TARGET_MVSMF_PASSWORD_TEST2 each one

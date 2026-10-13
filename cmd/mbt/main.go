@@ -686,8 +686,20 @@ func connect(root, name string, login bool) (*config.Config, *mvsmf.Client, int)
 	if !login {
 		return cfg, nil, exitOK
 	}
+	if err := t.MVSMF.CheckAuth("target " + t.Name); err != nil {
+		return nil, nil, fail(err)
+	}
 	c := mvsmf.New(host, port, t.MVSMF.User, pw)
-	if err := c.Login(); err != nil {
+	if t.MVSMF.Auth == "basic" {
+		// no session: the credentials go with every request. One request
+		// now, so that a refused logon shows here and not as a data set
+		// "not found" in the middle of a deploy.
+		if err := c.CheckBasic(); err != nil {
+			lastErr = err
+			fmt.Fprintf(os.Stderr, "[mbt] ERROR: target %s: %v\n", t.Name, err)
+			return nil, nil, exitMVS
+		}
+	} else if err := c.Login(); err != nil {
 		lastErr = err
 		fmt.Fprintf(os.Stderr, "[mbt] ERROR: target %s: %v\n", t.Name, err)
 		return nil, nil, exitMVS

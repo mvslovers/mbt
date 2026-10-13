@@ -34,6 +34,13 @@ Required.
     scheme fails at the connection.],
   [#cmd("user")], [required], [the user ID.],
   [#cmd("password")], [none], [a password (@ref-targets-password).],
+  [#cmd("auth")], [#cmd("\"session\"")], [how MBT logs on.
+    #cmd("\"session\"") logs on once (#cmd("POST /zosmf/services/authenticate"))
+    and sends the session's token with every request, and logs off at the
+    end. #cmd("\"basic\"") opens no session: the user and password go
+    with every request, and a #cmd("GET /zosmf/info") checks them first.
+    For an mvsMF whose token logon does not work, such as an mvsMF 1.0.x on
+    an HTTPD before 4.2.0, whose first request with the token abends.],
 )
 
 == [target.NAME.mvsmf.users.ALIAS] <ref-targets-users>
