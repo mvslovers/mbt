@@ -279,6 +279,11 @@ func doBuild(all, tests bool, jobs int, verbose bool, only []string) (*project.P
 			return nil, fail(err)
 		}
 	}
+	if pl1Source(p) != "" {
+		if t.PL1C, err = findPL1C(p, t.Sysroot); err != nil {
+			return nil, fail(err)
+		}
+	}
 	if _, err := stamp.Write(root, p.Name, p.Version); err != nil {
 		return nil, fail(err)
 	}

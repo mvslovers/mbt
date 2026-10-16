@@ -107,6 +107,12 @@ func IsCOBOL(src string) bool {
 	return e == ".cbl" || e == ".cob"
 }
 
+// IsPLI: a PL/I source, translated by pl1c370 to assembler first.
+func IsPLI(src string) bool {
+	e := strings.ToLower(path.Ext(src))
+	return e == ".pli" || e == ".pl1"
+}
+
 // Units returns modules and tests, in that order.
 func (p *Project) Units() []*Unit {
 	return append(append([]*Unit{}, p.Modules...), p.Tests...)
