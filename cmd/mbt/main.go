@@ -122,7 +122,7 @@ commands:
   doctor [--offline]                  check the toolchain, the sysroot and the MVS connection (--offline: no logon)
   release VERSION [--next V]          release VERSION-dev as VERSION: bump, tag, push, then bump to V
   prerelease                          (re)tag the current -dev version and push the tag
-  run [NAME] [-v] [--dry-run] [-- ARGS...]
+  run [NAME] [--target NAME] [-v] [--dry-run] [-- ARGS...]
                                       run a command or task of mbt/init.lua; without NAME: list them
   clean                               remove build/ and dist/ (keeps staged deps)
   distclean                           clean, and remove .mbt/ (deps, tools, state; keeps mbt.lock)
@@ -1064,7 +1064,7 @@ func isBoolFlag(f *flag.Flag) bool {
 	return ok && b.IsBoolFlag()
 }
 
-// cmdRun: mbt run [NAME] [-v] [--dry-run] [-- ARGS...]
+// cmdRun: mbt run [NAME] [--target NAME] [-v] [--dry-run] [-- ARGS...]
 func cmdRun(args []string) int {
 	var extra []string
 	for i, a := range args {
@@ -1076,9 +1076,13 @@ func cmdRun(args []string) int {
 	fl := flag.NewFlagSet("run", flag.ContinueOnError)
 	verbose := fl.Bool("v", false, "show each program run and its output")
 	dry := fl.Bool("dry-run", false, "run the Lua, but no program and no write")
+	target := fl.String("target", "", "the MVS system a task uses, as deploy/test take it (default: the default target, or MBT_TARGET)")
 	if err := parseArgs(fl, args); err != nil {
 		return exitConfig
 	}
+	// A task that calls ctx.target()/ctx.mvs resolves through selectedTarget,
+	// exactly as deploy and test do; "" keeps the default (or MBT_TARGET).
+	selectedTarget = *target
 	root, _ := os.Getwd()
 	p, err := project.Load(root)
 	if err != nil {
@@ -1101,7 +1105,7 @@ func cmdRun(args []string) int {
 		return exitOK
 	}
 	if fl.NArg() > 1 {
-		fmt.Fprintln(os.Stderr, "[mbt] ERROR: usage: mbt run NAME [-v] [--dry-run] [-- ARGS...]")
+		fmt.Fprintln(os.Stderr, "[mbt] ERROR: usage: mbt run NAME [--target NAME] [-v] [--dry-run] [-- ARGS...]")
 		return exitConfig
 	}
 	if err := e.Run(fl.Arg(0), extra); err != nil {
