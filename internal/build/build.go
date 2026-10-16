@@ -673,8 +673,10 @@ func escapeDepfile(p string) {
 	}
 }
 
-// readDepfile returns the prerequisites of a .d file written by cc370 -MMD
-// (with '#' escaped by escapeDepfile; a space in a name is "\ ").
+// readDepfile returns the prerequisites of a .d file written by cc370 -MMD,
+// cobc370 -MMD or pl1c370 -MD (with '#' escaped by escapeDepfile; a space in a
+// name is "\ "; '$' in a name is "$$", make's own escape, which pl1c370 writes
+// for a national '$' in an %INCLUDE or COBOL copybook member name).
 func readDepfile(p string) []string {
 	f, err := os.Open(p)
 	if err != nil {
@@ -701,6 +703,7 @@ func readDepfile(p string) []string {
 		}
 	}
 	text = strings.ReplaceAll(text, `\#`, "#")
+	text = strings.ReplaceAll(text, "$$", "$")
 	text = strings.ReplaceAll(text, `\ `, "\x00")
 	var deps []string
 	for _, w := range strings.Fields(text) {
