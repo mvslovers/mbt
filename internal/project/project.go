@@ -63,6 +63,9 @@ type Project struct {
 	ASFlags []string
 	// COBFlags go to cobc370 for every COBOL source (-I copybook dirs, -s).
 	COBFlags []string
+	// PLIFlags go to pl1c370 for every PL/I source (-I %INCLUDE dirs,
+	// -lang=F, -char48, ...).
+	PLIFlags []string
 	Modules  []*Unit
 	Tests    []*Unit
 	Lib      *Lib
@@ -105,6 +108,12 @@ func ObjectPath(builddir, src string) string {
 func IsCOBOL(src string) bool {
 	e := strings.ToLower(path.Ext(src))
 	return e == ".cbl" || e == ".cob"
+}
+
+// IsPLI: a PL/I source, translated by pl1c370 to assembler first.
+func IsPLI(src string) bool {
+	e := strings.ToLower(path.Ext(src))
+	return e == ".pli" || e == ".pl1"
 }
 
 // Units returns modules and tests, in that order.

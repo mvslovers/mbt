@@ -33,6 +33,7 @@ func fromRaw(root, file string, raw map[string]any) (*Project, error) {
 	p.CFlags = strs(build, "cflags")
 	p.ASFlags = strs(build, "asflags")
 	p.COBFlags = strs(build, "cobflags")
+	p.PLIFlags = strs(build, "pliflags")
 
 	if err := validateNames(raw); err != nil {
 		return nil, err

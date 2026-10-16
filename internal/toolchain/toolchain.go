@@ -16,7 +16,12 @@ type Toolchain struct {
 	CC, AS, LD, AR string // commands as given (on PATH, or absolute)
 	// COBC is cobc370, set by the caller only for a project with COBOL
 	// sources (it is no part of the cc370 toolchain).
-	COBC    string
+	COBC string
+	// PL1C is pl1c370, set by the caller only for a project with PL/I
+	// sources.  Unlike COBC it is a sysroot citizen (installed beside cc370 by
+	// pl1c370's `make install`), so it is resolved from the sysroot, and its
+	// runtime pl1rt.a is autocalled from <Sysroot>/lib.
+	PL1C    string
 	Sysroot string // <bindir>/../cc370, symlinks followed
 	LibcDir string // where libc.a is
 	// CRTInLibc: libc.a defines @@CRT0 (libc370 >= 2.3.0, libc370#159).
