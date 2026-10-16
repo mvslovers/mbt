@@ -842,7 +842,7 @@ one model.
 | Lua 5.4 reference implementation via cgo | the same Lua as lua370 | CI needs native runners per platform instead of `GOOS=… go build` |
 | **A pure-Go Lua** — chosen: arnodel/golua v0.3.0, **Lua 5.5** | trivial cross-compilation; close to lua370 (5.4) | young; measured in a spike first: sandbox, limits, start-up, errors (`mbt-3-extensions.md` §9) |
 
-## 10. Languages — **Proposed** (COBOL built in, 2026-10-11)
+## 10. Languages — **Proposed** (COBOL built in, 2026-10-11; PL/I built in, 2026-10-16)
 
 > **Status (2026-10-11).** COBOL is built in (#252): a `.cbl`/`.cob` source is
 > translated by cobc370 (`-MMD`, so copybooks are inputs) into
@@ -857,6 +857,30 @@ one model.
 > `COBRT` of two, as IEWL does. IBM's system macros come from the sysroot
 > package maclib370 (section 8). Open: the generic `[rule."*.ext"]` engine,
 > mixing COBOL and C, the native IKFCBL00 path.
+
+> **Status (2026-10-16).** PL/I is built in too (#270, `feat/pli-270`): a
+> `.pli`/`.pl1` source is translated by pl1c370 (`-MD -MF`, so `%INCLUDE`
+> members are inputs) into `build/pli/<stem>.asm` and assembled by as370.
+> Options come from `[build] pliflags`, in the pattern of `cobflags`. **Unlike
+> cobc370 — third-party, pinned through a `[tools]` entry — pl1c370 is our own
+> compiler and comes from the sysroot**, placed there by its `make install`
+> exactly as cc370 and libc370 are: resolution is `MBT_PL1C370`, then
+> `<sysroot>/../bin/pl1c370`, then `PATH`, and there is no `[tools]` fetch. The
+> runtime `pl1rt.a` is autocalled from the sysroot `lib/` (after the unit
+> objects, before `-lc`), and pl1c370's run-time ABI symbol — `PL1RT002` in
+> 0.2.0, which needs libc370 >= 2.14.0 — is the hard link-time guard against a
+> compiler/runtime mismatch (the emitted code references it, `pl1rt.a` defines
+> it, a stale runtime fails the link). Like COBOL, this first cut ships no
+> `[toolchain] pl1c370` version floor; one could be added later as an advisory
+> pre-check (as proposed for `cobc370`), but it is unneeded for a mismatch,
+> which the ABI symbol already catches. Measured end-to-end on hellocp: the
+> entry is libc.a's `@@CRT0`, reached through a short `@@MAIN` stub the compiler
+> emits (`L 15,=V(@@CRT0); BR 15`); `@@CRT0` then calls `MAIN`, the PL/I main
+> procedure. pl1rt.a defines no `@@CRT0`; it contributes a `__premain`
+> (pl1parm.o) only for a main that takes a parameter, to stash the PARM, and the
+> run time otherwise sets itself up from the procedure prologue and its first
+> calls. The link is clean (0 hard unresolved, no duplicate startup) and
+> `PL1RT002` is pulled from pl1rt.a. Open: mixing PL/I and C in one load module.
 
 The build engine treats languages as rules, not as a special case for C:
 
@@ -955,6 +979,34 @@ experiments):
   Otherwise mbt has to scan `COPY` statements itself.
 - **Mixed COBOL and C** in one load module: calling conventions both ways, and
   whether two COBOL parts with an embedded runtime collide on symbols.
+
+**PL/I via [pl1c370](https://github.com/mvslovers/pl1c370)** — our own PL/I
+cross-compiler — is built in the same way (#270), but delivered differently: it
+is *our* toolchain, so it lives in the sysroot beside cc370, not in a `[tools]`
+pin. A project with PL/I sources needs nothing but the sources; `pl1rt.a` is
+found automatically.
+
+```toml
+[module.HELLO]
+sources = ["hello.pli"]            # the extension decides the language
+
+[build]
+pliflags = ["-I", "include"]       # optional, like cobflags
+```
+
+A compiler/runtime mismatch is caught hard at link time by pl1c370's run-time
+ABI symbol (`V(PL1RT002)` for the 0.2.0 series): the emitted code references it
+and `pl1rt.a` defines it, so a stale runtime fails the link loudly. `PL1RT002`
+requires libc370 >= 2.14.0 in the same sysroot — the ABI symbol does not catch
+that (an older libc370 links cleanly and goes wrong only on record input), so
+it is a documented prerequisite. The startup is libc.a's `@@CRT0`, as for a C
+program: the compiler emits a short `@@MAIN` stub that jumps to it, and `@@CRT0`
+calls `MAIN`, the PL/I main procedure. pl1rt.a defines no `@@CRT0`; it
+contributes a `__premain` only for a main that takes a parameter (to stash the
+PARM), and the run time otherwise initialises from the procedure prologue and
+its first calls. Measured on hellocp (`~/repos/mvs/hellocp`), whose main does
+take a parameter: a clean link, entry `@@CRT0`, `PL1RT002` and that `__premain`
+pulled from pl1rt.a, nothing hard left unresolved.
 
 Non-compiled artifacts become first-class as well: copybooks, macros, JCL,
 PROCs, REXX execs, CLISTs. They land as FB80 members in a PDS and travel in the
@@ -1310,6 +1362,8 @@ on in its project file instead of copying workflow YAML.
      run (#176), the console chain mvsMF → Hercules (#172, #178), plugins
      (#174), a TN3270 client (#173) and `mbt test --tso` (#177).
    - ~~COBOL~~ — **built in** (2026-10-11, #252; section 10).
+   - ~~PL/I~~ — **built in** (2026-10-16, #270; section 10). Our own compiler
+     pl1c370, from the sysroot rather than a `[tools]` pin.
    - Open: MCP server, workspaces, `lint`, `size`, `smp verify`, further
      languages and the generic rule engine, native backends and foreign
      build systems, a Homebrew formula.

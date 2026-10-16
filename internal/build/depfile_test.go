@@ -36,3 +36,20 @@ func TestReadDepfile(t *testing.T) {
 		t.Errorf("missing file: %q", got)
 	}
 }
+
+// pl1c370 -MD writes make's own escape "$$" for a national '$' in an %INCLUDE
+// member name (mbt#270); readDepfile turns it back into a single '$'. The
+// doubled '$' appears in the prerequisite and again in its -MP header rule,
+// which is cut away.
+func TestReadDepfileNationalDollar(t *testing.T) {
+	d := "build/pli/p.asm: p.pli include/A$$B.inc \\\n" +
+		" include/c.inc\n\ninclude/A$$B.inc:\n\ninclude/c.inc:\n"
+	p := filepath.Join(t.TempDir(), "p.d")
+	if err := os.WriteFile(p, []byte(d), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"p.pli", "include/A$B.inc", "include/c.inc"}
+	if got := readDepfile(p); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}

@@ -55,7 +55,8 @@ func findPL1C(p *project.Project, sysroot string) (string, error) {
 		return bin, nil
 	}
 	return "", &project.ConfigError{Msg: fmt.Sprintf(
-		"%s is PL/I, and pl1c370 was not found: not in MBT_PL1C370, not in the sysroot "+
-			"(<sysroot>/../bin/pl1c370), not on PATH -- install it with pl1c370's `make install` "+
-			"(it copies the compiler and pl1rt.a into the sysroot)", pl1Source(p))}
+		"%s is PL/I, and pl1c370 was not found: not in MBT_PL1C370, not beside cc370 in "+
+			"the sysroot's bin, not on PATH -- install it with pl1c370's `make install "+
+			"PREFIX=<dir>`, the prefix that already holds cc370 and libc370 (e.g. ~/.local): "+
+			"the compiler goes to <dir>/bin and pl1rt.a to <dir>/cc370/lib", pl1Source(p))}
 }
