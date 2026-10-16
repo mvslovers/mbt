@@ -63,6 +63,9 @@ type Project struct {
 	ASFlags []string
 	// COBFlags go to cobc370 for every COBOL source (-I copybook dirs, -s).
 	COBFlags []string
+	// PLIFlags go to pl1c370 for every PL/I source (-I %INCLUDE dirs,
+	// -lang=F, -char48, ...).
+	PLIFlags []string
 	Modules  []*Unit
 	Tests    []*Unit
 	Lib      *Lib

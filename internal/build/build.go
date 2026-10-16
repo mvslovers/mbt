@@ -150,6 +150,16 @@ func (b *Builder) cobflags() []string {
 	return f
 }
 
+// pliflags: the project's own, then -I for every dependency's include/, so
+// %INCLUDE finds a member a dependency ships (as cobflags does for COPY).
+func (b *Builder) pliflags() []string {
+	f := strings.Fields(strings.Join(b.P.PLIFlags, " "))
+	for _, d := range b.depIncludes() {
+		f = append(f, "-I", d)
+	}
+	return f
+}
+
 // cobolAsm and cobolDep are where a COBOL source's assembler and the
 // dependency file cobc370 writes for it go: build/cobol/<stem>.asm, .d.
 func cobolAsm(builddir, src string) string {
@@ -158,6 +168,16 @@ func cobolAsm(builddir, src string) string {
 
 func cobolDep(builddir, src string) string {
 	return strings.TrimSuffix(cobolAsm(builddir, src), ".asm") + ".d"
+}
+
+// pliAsm and pliDep: where a PL/I source's assembler and the dependency file
+// pl1c370 writes (the %INCLUDE members) go: build/pli/<stem>.asm, .d.
+func pliAsm(builddir, src string) string {
+	return strings.TrimSuffix(project.ObjectPath(path.Join(builddir, "pli"), src), ".o") + ".asm"
+}
+
+func pliDep(builddir, src string) string {
+	return strings.TrimSuffix(pliAsm(builddir, src), ".asm") + ".d"
 }
 
 // -- steps ----------------------------------------------------------------
@@ -223,21 +243,38 @@ func (b *Builder) Run() error {
 		add(b.P.Lib.Sources)
 	}
 
-	// COBOL first: cobc370 writes the assembler as370 then reads
+	// COBOL and PL/I first: cobc370/pl1c370 write the assembler as370 then reads
 	var translates []step
+	var haveCOBOL, havePLI bool
 	for _, o := range order {
-		if project.IsCOBOL(need[o]) {
+		switch {
+		case project.IsCOBOL(need[o]):
 			s, err := b.translateStep(need[o])
 			if err != nil {
 				return err
 			}
 			translates = append(translates, s)
+			haveCOBOL = true
+		case project.IsPLI(need[o]):
+			s, err := b.translatePLIStep(need[o])
+			if err != nil {
+				return err
+			}
+			translates = append(translates, s)
+			havePLI = true
 		}
 	}
-	if len(translates) > 0 {
+	if haveCOBOL {
 		if err := os.MkdirAll(b.abs(path.Join(b.O.BuildDir, "cobol")), 0o755); err != nil {
 			return err
 		}
+	}
+	if havePLI {
+		if err := os.MkdirAll(b.abs(path.Join(b.O.BuildDir, "pli")), 0o755); err != nil {
+			return err
+		}
+	}
+	if len(translates) > 0 {
 		if err := b.runAll(translates); err != nil {
 			return err
 		}
@@ -371,6 +408,13 @@ func (b *Builder) compileStep(src, obj string) step {
 		argv = append(argv, "-o", obj, asm)
 		return step{out: obj, inputs: []string{asm}, argv: argv, label: "[as370] " + asm, kind: "as"}
 	}
+	if project.IsPLI(src) {
+		// as370 on what pl1c370 wrote; the object keeps the .pli's stem
+		asm := pliAsm(b.O.BuildDir, src)
+		argv := append([]string{b.T.AS}, b.asflags()...)
+		argv = append(argv, "-o", obj, asm)
+		return step{out: obj, inputs: []string{asm}, argv: argv, label: "[as370] " + asm, kind: "as"}
+	}
 	if ext == ".asm" || ext == ".s" {
 		argv := append([]string{b.T.AS}, b.asflags()...)
 		argv = append(argv, "-o", obj, src)
@@ -394,6 +438,20 @@ func (b *Builder) translateStep(src string) (step, error) {
 	argv = append(argv, b.cobflags()...)
 	argv = append(argv, "-MMD", "-MP", "-MF", dep)
 	return step{out: asm, inputs: []string{src}, argv: argv, label: "[cobc370] " + src, kind: "cobc", depfile: dep}, nil
+}
+
+// translatePLIStep runs pl1c370 on a PL/I source: assembler into
+// build/pli/<stem>.asm, and with -MD the %INCLUDE members it read into
+// <stem>.d, so a changed include translates again.
+func (b *Builder) translatePLIStep(src string) (step, error) {
+	if b.T.PL1C == "" {
+		return step{}, &Error{2, src + ": a PL/I source, and no pl1c370 was found"}
+	}
+	asm, dep := pliAsm(b.O.BuildDir, src), pliDep(b.O.BuildDir, src)
+	argv := []string{b.T.PL1C}
+	argv = append(argv, b.pliflags()...)
+	argv = append(argv, "-MD", "-MF", dep, "-o", asm, src)
+	return step{out: asm, inputs: []string{src}, argv: argv, label: "[pl1c370] " + src, kind: "pl1c", depfile: dep}, nil
 }
 
 func (b *Builder) archiveStep(out string, members []string) step {
@@ -431,6 +489,17 @@ func (b *Builder) linkStep(u *project.Unit) (step, error) {
 	if ia := b.P.InternalArchive(b.O.BuildDir); ia != "" {
 		argv = append(argv, ia)
 		inputs = append(inputs, ia)
+	}
+	// PL/I runtime: pl1c370's pl1rt.a sits in the sysroot beside libc.a and is
+	// autocalled (only the referenced members are pulled, so it is harmless on
+	// a unit with no PL/I objects).  Placed after the unit's objects, which
+	// reference it, and before -lc, which it references.
+	if t.PL1C != "" {
+		rt := filepath.Join(t.LibcDir, "pl1rt.a")
+		if _, err := os.Stat(rt); err == nil {
+			argv = append(argv, rt)
+			inputs = append(inputs, rt)
+		}
 	}
 	if t.CC370RT {
 		argv = append(argv, "-lcc370rt")
