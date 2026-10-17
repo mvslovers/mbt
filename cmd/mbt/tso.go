@@ -33,7 +33,13 @@ func (t *tsoSession) Logoff() error { return t.s.LogoffTSO() }
 func (t *tsoSession) Type(s string) error {
 	return t.s.Type(s)
 }
-func (t *tsoSession) Key(name string) error {
+func (t *tsoSession) Key(name string) error { return t.key(name, true) }
+
+// Press sends the key without waiting for the keyboard to be restored
+// (mbt#274): a running program keeps it locked until READY.
+func (t *tsoSession) Press(name string) error { return t.key(name, false) }
+
+func (t *tsoSession) key(name string, wait bool) error {
 	var k tn3270.Key
 	switch {
 	case name == "enter":
@@ -58,6 +64,9 @@ func (t *tsoSession) Key(name string) error {
 		}
 	default:
 		return fmt.Errorf("no key %q (enter, clear, tab, pf1-pf24, pa1-pa3)", name)
+	}
+	if !wait {
+		return t.s.SendKey(k)
 	}
 	return t.s.Key(k)
 }

@@ -239,7 +239,9 @@ end
   [#cmd("t:type(")#var("s")#cmd(")")], [type #var("s") at the cursor\; it
     returns the session, so #cmd(":enter()") can follow.],
   [#cmd("t:enter()"), #cmd("t:pf(")#var("n")#cmd(")"), #cmd("t:pa(")#var("n")#cmd(")"),
-    #cmd("t:clear()"), #cmd("t:tab()")], [the keys.],
+    #cmd("t:clear()"), #cmd("t:tab()")], [the keys. Each waits for the
+    keyboard\; #cmd("t:enter{ wait = false }") sends and returns at once,
+    for a program that keeps the keyboard locked while it runs.],
   [#cmd("t:expect(")#var("text")#cmd(", { timeout = ")#var("s")#cmd(" })")],
     [wait until #var("text") is on the screen\; if it does not come, the
     test fails and shows the screen it saw.],

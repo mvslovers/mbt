@@ -29,10 +29,15 @@ end
 #table(columns: (2.3in, 1fr),
   [Member], [Meaning],
   [#cmd("t:logon()")], [logs on with the target's TN3270 user, in upper
-    case, and password, and waits for #cmd("READY"), at most two minutes.],
+    case, and password, and waits for #cmd("READY"), at most two minutes.
+    When the user's logon procedure starts ISPF, it leaves the ISPF
+    primary option menu (#cmd("=X"), then PF3) to reach #cmd("READY"). A
+    logon that fails after the password logs off again, so the user is not
+    left in use.],
   [#cmd("t:logoff()")], [presses Clear, types #cmd("LOGOFF"), presses
-    Enter and waits up to 30 seconds for #cmd("LOGGED OFF"). It does not
-    leave ISPF first.],
+    Enter and waits up to 30 seconds for #cmd("LOGGED OFF"). It leaves the
+    ISPF primary option menu first (#cmd("=X"), then PF3)\; it does not
+    back out of a deeper full-screen application.],
   [#cmd("t:type(")#var("s")#cmd(")")], [types #var("s") at the cursor. An
     error, with the screen, when the keyboard is locked or the cursor is in
     a protected field.],
@@ -66,7 +71,13 @@ end
 All methods except #cmd("screen"), #cmd("text") and #cmd("cursor") return
 the session, so calls can be chained: #cmd("t:type(\"TIME\"):enter()").
 Enter, Clear, PF and PA wait for the keyboard to be unlocked, at most 60
-seconds, and then for 300 milliseconds without output.
+seconds, and then for 300 milliseconds without output. With a table
+#cmd("{ wait = false }") as the last argument --
+#cmd("t:enter{ wait = false }"), #cmd("t:pa(1, { wait = false })") --
+they send the key and return at once. That is for a program that keeps the keyboard locked
+while it runs: an attention test presses Enter on its #cmd("CALL")
+without waiting, waits with #cmd("t:expect") for the program's prompt,
+and then presses PA1, which reaches TSO while the program still runs.
 
 == The Screen Size <ref-tso-size>
 
