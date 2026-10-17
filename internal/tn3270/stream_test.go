@@ -8,12 +8,14 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // step is one line of a recorded conversation (testdata/*.txt).
 type step struct {
-	kind byte   // 'S' host bytes, 'C' client telnet command, 'A' client record
-	data []byte // raw bytes as on the wire
+	kind byte          // 'S' host bytes, 'C' client telnet command, 'A' client record, 'W' host pause
+	data []byte        // raw bytes as on the wire
+	wait time.Duration // 'W': how long the host stays quiet (set by a test, not in a script file)
 }
 
 func loadScript(t *testing.T, path string) []step {
@@ -39,7 +41,7 @@ func loadScript(t *testing.T, path string) []step {
 		if err != nil {
 			t.Fatalf("bad hex in %q: %v", line, err)
 		}
-		steps = append(steps, step{kind[0], b})
+		steps = append(steps, step{kind: kind[0], data: b})
 	}
 	if err := sc.Err(); err != nil {
 		t.Fatal(err)
