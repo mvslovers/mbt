@@ -78,8 +78,9 @@ type Session struct {
 	seen []string
 	err  error // the connection has failed (EOF, reset): sticky
 
-	loggedOn  bool // LogonTSO reached READY
-	logoffTry bool // LogoffTSO has been tried since
+	loggedOn     bool // LogonTSO reached READY
+	logoffTry    bool // LogoffTSO has been tried since
+	pastPassword bool // the password was sent: a session may be live even if READY was never reached (e.g. a logon proc that starts ISPF)
 }
 
 // Dial connects to addr (host:port), negotiates TN3270 and waits for the
@@ -138,12 +139,13 @@ func Dial(ctx context.Context, addr string, opt Options) (*Session, error) {
 	return s, nil
 }
 
-// Close ends the session.  If LogonTSO succeeded and LogoffTSO has not been
-// tried, it logs off first -- dropping the connection would leave the
-// userid in use.
+// Close ends the session.  If a session may be live -- LogonTSO reached
+// READY, or at least got past the password (a logon that stalled in ISPF
+// counts) -- and LogoffTSO has not been tried, it logs off first: dropping
+// the connection would leave the userid in use (IKJ56425I on the next logon).
 func (s *Session) Close() error {
 	var err error
-	if s.loggedOn && !s.logoffTry && s.err == nil {
+	if (s.loggedOn || s.pastPassword) && !s.logoffTry && s.err == nil {
 		err = s.LogoffTSO()
 	}
 	if cerr := s.conn.Close(); err == nil && cerr != nil && !errors.Is(cerr, net.ErrClosed) {

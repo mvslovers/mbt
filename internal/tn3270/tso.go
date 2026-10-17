@@ -56,7 +56,7 @@ func (s *Session) LogonTSO(ctx context.Context, user, password string) error {
 	}
 	user = strings.ToUpper(user)
 	userSent, passSent := false, false
-	banners := 0
+	banners, ispfTries := 0, 0
 	lastActed := "\x00" // the screen the last action was taken on
 	step := "waiting for the first screen"
 	for {
@@ -79,7 +79,7 @@ func (s *Session) LogonTSO(ctx context.Context, user, password string) error {
 		case txt == lastActed:
 			// nothing new since the last action: wait for the host
 		case userSent && !passSent && strings.Contains(txt, "PASSWORD"):
-			passSent, step = true, "ENTER after the password"
+			passSent, s.pastPassword, step = true, true, "ENTER after the password"
 			act = func() error { return s.typeAndEnter(password, true) }
 		case !userSent && (strings.Contains(txt, "Logon ===>") || strings.Contains(txt, "IKJ56700A")):
 			userSent, step = true, "ENTER after the userid"
@@ -87,6 +87,18 @@ func (s *Session) LogonTSO(ctx context.Context, user, password string) error {
 		case hasLine(txt, "***"):
 			step = "ENTER at ***"
 			act = func() error { return s.Key(Enter) }
+		case isISPFPrimary(txt) && ispfTries < 4:
+			// a logon proc (e.g. ISPLOGON) started ISPF; get out to READY.
+			// "=X" requests exit from the primary menu; PF3 backs out of any
+			// panel left after it.  Bounded, so a menu that will not leave
+			// still ends at the deadline rather than looping forever.
+			ispfTries++
+			step = "exit ISPF to READY"
+			if ispfTries == 1 {
+				act = func() error { return s.typeAndEnter("=X", false) }
+			} else {
+				act = func() error { return s.Key(PF3) }
+			}
 		case !userSent && banners < 3:
 			banners++
 			step = "ENTER on the first screen, no logon screen came back"
@@ -120,20 +132,29 @@ func (s *Session) LogonTSO(ctx context.Context, user, password string) error {
 	}
 }
 
-// leaveLogon answers TSO's "IKJ56400A ENTER LOGON OR LOGOFF-", which
-// follows a rejection, with LOGOFF -- so the terminal is not left inside a
-// logon that never completes -- and returns err.
+// leaveLogon cleans up a logon that will not complete, then returns err.
+// At TSO's "IKJ56400A ENTER LOGON OR LOGOFF-" (after a rejection) it answers
+// LOGOFF.  Otherwise, when the password was already sent -- so a session may
+// be live, for example stalled in ISPF -- it logs off (LogoffTSO backs out of
+// ISPF first) instead of dropping the connection and leaving the userid in
+// use.  Best effort: the logon is already failing, so err is what we return.
 func (s *Session) leaveLogon(err error) error {
-	if s.err != nil || !strings.Contains(s.Text(), "IKJ56400A") {
+	if s.err != nil {
 		return err
 	}
-	if s.locked {
-		_ = s.WaitUnlock(5 * time.Second)
+	if strings.Contains(s.Text(), "IKJ56400A") {
+		if s.locked {
+			_ = s.WaitUnlock(5 * time.Second)
+		}
+		if s.Type("LOGOFF") == nil && s.SendKey(Enter) == nil {
+			// the host ends the session or shows a logon screen again; give it
+			// a moment either way
+			_ = s.WaitUnlock(10 * time.Second)
+		}
+		return err
 	}
-	if s.Type("LOGOFF") == nil && s.SendKey(Enter) == nil {
-		// the host ends the session or shows a logon screen again; give it
-		// a moment either way
-		_ = s.WaitUnlock(10 * time.Second)
+	if s.pastPassword && !s.logoffTry {
+		_ = s.LogoffTSO()
 	}
 	return err
 }
@@ -173,11 +194,28 @@ func hasLine(txt, want string) bool {
 	return false
 }
 
+// isISPFPrimary recognises the ISPF primary option menu: the word ISPF
+// somewhere on the screen and an "Option ===>" command line (spacing between
+// the two words varies by panel, so it is collapsed before the match).
+func isISPFPrimary(txt string) bool {
+	if !strings.Contains(strings.ToUpper(txt), "ISPF") {
+		return false
+	}
+	for _, line := range strings.Split(txt, "\n") {
+		if strings.Contains(strings.Join(strings.Fields(strings.ToUpper(line)), " "), "OPTION ===>") {
+			return true
+		}
+	}
+	return false
+}
+
 // LogoffTSO logs off from TSO's READY prompt: it waits for (or, with PA1,
 // interrupts) a running command, presses CLEAR, types LOGOFF and waits for
 // "LOGGED OFF".  It returns nil only when that confirmation was seen;
 // otherwise the error wraps ErrLogoffUnconfirmed and carries the screen.
-// It does not get out of a full-screen application such as ISPF.
+// It exits the ISPF primary option menu first (=X / PF3) so a logon that
+// started ISPF can still be logged off; it does not back out of a deeper
+// full-screen application.
 func (s *Session) LogoffTSO() error {
 	s.logoffTry = true
 	if s.err != nil {
@@ -188,6 +226,15 @@ func (s *Session) LogoffTSO() error {
 			_ = s.SendKey(PA1) // attention: interrupt the running command
 			_ = s.WaitUnlock(10 * time.Second)
 		}
+	}
+	// LOGOFF only works from READY; back out of the ISPF primary menu first.
+	for tries := 0; tries < 4 && !hasLine(s.Text(), "READY") && isISPFPrimary(s.Text()); tries++ {
+		if tries == 0 {
+			_ = s.typeAndEnter("=X", false)
+		} else {
+			_ = s.Key(PF3)
+		}
+		_ = s.WaitUnlock(10 * time.Second)
 	}
 	if err := s.Key(Clear); err != nil && !errors.Is(err, ErrTimeout) {
 		return fmt.Errorf("%w: %v", ErrLogoffUnconfirmed, err)
