@@ -13,7 +13,7 @@ import (
 
 // step is one line of a recorded conversation (testdata/*.txt).
 type step struct {
-	kind byte          // 'S' host bytes, 'C' client telnet command, 'A' client record, 'W' host pause
+	kind byte          // 'S' host bytes, 'C' client telnet command, 'A' client record, 'W' host pause, 'H' client record containing data
 	data []byte        // raw bytes as on the wire
 	wait time.Duration // 'W': how long the host stays quiet (set by a test, not in a script file)
 }
