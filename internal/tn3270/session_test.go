@@ -73,6 +73,10 @@ func serveScript(t *testing.T, steps []step) (string, <-chan error) {
 		defer c.Close()
 		r := bufio.NewReader(c)
 		for i, st := range steps {
+			if st.kind == 'W' {
+				time.Sleep(st.wait)
+				continue
+			}
 			if st.kind == 'S' {
 				if _, err := c.Write(st.data); err != nil {
 					done <- fmt.Errorf("step %d: %v", i, err)
@@ -244,7 +248,7 @@ func TestLogonUseridInUse(t *testing.T) {
 		}
 	}
 	prompt := "IKJ56400A ENTER LOGON OR LOGOFF-"
-	steps = append(steps, step{'S', lineWrite(t, "IKJ56425I LOGON REJECTED, USERID TSTUSR0 IN USE", prompt)})
+	steps = append(steps, step{kind: 'S', data: lineWrite(t, "IKJ56425I LOGON REJECTED, USERID TSTUSR0 IN USE", prompt)})
 	// LOGOFF typed into the field after the prompt: row 2, after the
 	// output attribute, the text and the input attribute
 	in := Cols + 1 + len(prompt) + 1
@@ -252,8 +256,8 @@ func TestLogonUseridInUse(t *testing.T) {
 	f1, f2 := encodeAddr(in)
 	logoff := append([]byte{0x7D, c1, c2, orderSBA, f1, f2}, ebc(t, "LOGOFF")...)
 	steps = append(steps,
-		step{'A', append(logoff, tnIAC, tnEOR)},
-		step{'S', []byte{cmdEW, 0xC3, tnIAC, tnEOR}})
+		step{kind: 'A', data: append(logoff, tnIAC, tnEOR)},
+		step{kind: 'S', data: []byte{cmdEW, 0xC3, tnIAC, tnEOR}})
 	addr, done := serveScript(t, steps)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

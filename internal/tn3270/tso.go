@@ -99,6 +99,12 @@ func (s *Session) LogonTSO(ctx context.Context, user, password string) error {
 			} else {
 				act = func() error { return s.Key(PF3) }
 			}
+		case !userSent && banners < 3 && s.hostWritesAgain(deadline):
+			// a first screen without a logon prompt, and the host is still
+			// writing: TK5 follows the Hercules banner with its own logon
+			// screen, at times later than Settle (mbt#276).  Look at that
+			// screen instead of pressing ENTER into the gap.
+			continue
 		case !userSent && banners < 3:
 			banners++
 			step = "ENTER on the first screen, no logon screen came back"
@@ -157,6 +163,23 @@ func (s *Session) leaveLogon(err error) error {
 		_ = s.LogoffTSO()
 	}
 	return err
+}
+
+// hostWritesAgain waits up to ten times Settle (three seconds by default),
+// bounded by deadline, for another record from the host, and lets the screen
+// settle if one comes.  MVS/CE's Hercules banner wants an ENTER and stays
+// quiet until it gets one; TK5 sends its logon screen after the banner by
+// itself.  So a quiet host costs the ENTER this wait, once.
+func (s *Session) hostWritesAgain(deadline time.Time) bool {
+	wait := time.Now().Add(10 * s.opt.Settle)
+	if wait.After(deadline) {
+		wait = deadline
+	}
+	got, err := s.readOne(wait)
+	if err != nil || !got {
+		return false
+	}
+	return s.settle(deadline) == nil
 }
 
 func (s *Session) typeAndEnter(text string, secret bool) error {
