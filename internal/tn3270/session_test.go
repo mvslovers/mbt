@@ -95,6 +95,9 @@ func serveScript(t *testing.T, steps []step) (string, <-chan error) {
 			if st.kind == 'A' && len(st.data) == 1 { // the AID alone: the record carries input
 				ok = len(u) > 0 && u[0] == st.data[0]
 			}
+			if st.kind == 'H' { // a client record that has these bytes in it (set by a test)
+				ok = bytes.Contains(u, st.data)
+			}
 			if !ok {
 				done <- fmt.Errorf("step %d: client sent % X, script has % X", i, u, st.data)
 				return

@@ -31,13 +31,16 @@ end
   [#cmd("t:logon()")], [logs on with the target's TN3270 user, in upper
     case, and password, and waits for #cmd("READY"), at most two minutes.
     When the user's logon procedure starts ISPF, it leaves the ISPF
-    primary option menu (#cmd("=X"), then PF3) to reach #cmd("READY"). A
-    logon that fails after the password logs off again, so the user is not
-    left in use.],
+    primary option menu (#cmd("=X"), then PF3) to reach #cmd("READY"). When
+    the terminal answers its first Enter with #cmd("INPUT NOT RECOGNIZED"),
+    it types the user there. A logon that fails after the password logs
+    off again, so the user is not left in use.],
   [#cmd("t:logoff()")], [presses Clear, types #cmd("LOGOFF"), presses
-    Enter and waits up to 30 seconds for #cmd("LOGGED OFF"). It leaves the
-    ISPF primary option menu first (#cmd("=X"), then PF3)\; it does not
-    back out of a deeper full-screen application.],
+    Enter and waits up to 30 seconds for #cmd("LOGGED OFF"), then up to
+    three seconds for the logon screen VTAM writes back, so that the
+    connection is not closed under it (which leaves an I/O error on the
+    terminal). It leaves the ISPF primary option menu first (#cmd("=X"),
+    then PF3)\; it does not back out of a deeper full-screen application.],
   [#cmd("t:type(")#var("s")#cmd(")")], [types #var("s") at the cursor. An
     error, with the screen, when the keyboard is locked or the cursor is in
     a protected field.],
