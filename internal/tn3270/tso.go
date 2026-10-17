@@ -84,6 +84,12 @@ func (s *Session) LogonTSO(ctx context.Context, user, password string) error {
 		case !userSent && (strings.Contains(txt, "Logon ===>") || strings.Contains(txt, "IKJ56700A")):
 			userSent, step = true, "ENTER after the userid"
 			act = func() error { return s.typeAndEnter(user, false) }
+		case !userSent && strings.Contains(txt, "INPUT NOT RECOGNIZED"):
+			// a terminal left needing input (mbt#281): our ENTER woke VTAM,
+			// which sent its logon screen and rejected the empty input.  It
+			// reads the next line as at "Logon ===>", so give it the userid.
+			userSent, step = true, "ENTER after the userid, typed after INPUT NOT RECOGNIZED"
+			act = func() error { return s.typeAndEnter(user, false) }
 		case hasLine(txt, "***"):
 			step = "ENTER at ***"
 			act = func() error { return s.Key(Enter) }
@@ -279,5 +285,26 @@ func (s *Session) LogoffTSO() error {
 		return fmt.Errorf("%w: %v", ErrLogoffUnconfirmed, err)
 	}
 	s.loggedOn = false
+	s.afterLogoff()
 	return nil
+}
+
+// afterLogoff waits up to ten times Settle for the host's next write.  VTAM
+// writes its logon screen back to the terminal after LOGOFF; a connection
+// closed before that turns the write into an I/O error on the terminal
+// (IEA000I …,IOE), and the next logon there gets no logon screen until it
+// sends input (mbt#281).  A host that writes nothing costs this wait.
+func (s *Session) afterLogoff() {
+	wait := 10 * s.opt.Settle
+	s.tracef("logoff: waiting up to %v for the host's next screen", wait.Round(time.Millisecond))
+	got, err := s.readOne(time.Now().Add(wait))
+	switch {
+	case err != nil && !errors.Is(err, ErrTimeout):
+		s.tracef("logoff: %v", err)
+	case !got:
+		s.tracef("logoff: the host stayed quiet")
+	default:
+		_ = s.settle(time.Now().Add(wait))
+		s.tracef("logoff: the host wrote again")
+	}
 }
