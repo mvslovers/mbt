@@ -36,6 +36,7 @@ func (f *fakeTSO) Key(k string) error {
 	}
 	return nil
 }
+func (f *fakeTSO) Press(k string) error { f.log = append(f.log, "press "+k); return nil }
 func (f *fakeTSO) Expect(text string, _ time.Duration) error {
 	f.log = append(f.log, "expect "+text)
 	if strings.Contains(strings.Join(f.screen, "\n"), text) {
@@ -85,6 +86,29 @@ end`,
 	}
 	if err := e.TSOTest("test/tso/notafunc.lua", &fakeTSO{}, nil); err == nil || !strings.Contains(err.Error(), "must return a function(t)") {
 		t.Errorf("%v", err)
+	}
+}
+
+// { wait = false } sends the key without waiting for the keyboard (Press);
+// without it, or with wait = true, the key waits as before (mbt#274).
+func TestTSOKeyNoWait(t *testing.T) {
+	v := setup(t, map[string]string{
+		"test/tso/attn.lua": `
+return function(t)
+  t:logon()
+  t:type("CALL X"):enter{ wait = false }
+  t:pa(1, { wait = false }):pf(3, { wait = true }):clear{}
+  t:enter()
+end`,
+	})
+	e := v.mustLoad(t)
+	f := &fakeTSO{}
+	if err := e.TSOTest("test/tso/attn.lua", f, nil); err != nil {
+		t.Fatal(err)
+	}
+	want := "logon|type CALL X|press enter|press pa1|key pf3|key clear|key enter|logoff"
+	if got := strings.Join(f.log, "|"); got != want {
+		t.Errorf("log:\n got %s\nwant %s", got, want)
 	}
 }
 

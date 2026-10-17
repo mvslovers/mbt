@@ -19,6 +19,9 @@ type TSO interface {
 	Logoff() error // CLEAR, LOGOFF, "LOGGED OFF"
 	Type(text string) error
 	Key(name string) error // enter, clear, tab, pf1..pf24, pa1..pa3
+	// Press sends the same keys without waiting for the keyboard to come
+	// back: a running TSO program keeps it locked until READY (mbt#274).
+	Press(name string) error
 	Expect(text string, timeout time.Duration) error
 	Screen() []string
 	Cursor() (row, col int)
@@ -159,18 +162,31 @@ func (e *Engine) tsoTable(s TSO, info map[string]any, loggedOn *bool) rt.Value {
 		}
 		return ret(th, k, s.Type(text))
 	})
+	// A key method takes an optional table, like expect's: { wait = false }
+	// sends the key and returns at once instead of waiting for the keyboard,
+	// so a test can press PA1 while a program runs; t:expect synchronises.
+	press := func(k *rt.GoCont, i int, name string) error {
+		if k.NArgs() > i {
+			if o, ok := k.Arg(i).TryTable(); ok {
+				if v := o.Get(rt.StringValue("wait")); !v.IsNil() && !rt.Truth(v) {
+					return s.Press(name)
+				}
+			}
+		}
+		return s.Key(name)
+	}
 	for _, key := range []string{"enter", "clear", "tab"} {
 		key := key
-		method(key, 1, func(th *rt.Thread, k *rt.GoCont) (rt.Cont, error) { return ret(th, k, s.Key(key)) })
+		method(key, 2, func(th *rt.Thread, k *rt.GoCont) (rt.Cont, error) { return ret(th, k, press(k, 1, key)) })
 	}
 	for _, kind := range []string{"pf", "pa"} {
 		kind := kind
-		method(kind, 2, func(th *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
+		method(kind, 3, func(th *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
 			n, err := k.IntArg(1)
 			if err != nil {
 				return nil, err
 			}
-			return ret(th, k, s.Key(fmt.Sprintf("%s%d", kind, n)))
+			return ret(th, k, press(k, 2, fmt.Sprintf("%s%d", kind, n)))
 		})
 	}
 	method("expect", 3, func(th *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
