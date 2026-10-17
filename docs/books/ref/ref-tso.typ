@@ -151,4 +151,7 @@ A TSO user can be logged on only once. The tests run one after the other,
 and the target's TN3270 user should not be one you are logged on with
 yourself. #cmd("mbt test --tso") does not deploy the test modules\; run
 #cmd("mbt test --mvs") first when a session calls one. #cmd("-v") traces
-the 3270 data stream, never a password.
+the 3270 data stream, never a password. Each line starts with the seconds
+since the connection was made, so the trace also shows how long the host
+took for a record\; the logon notes there when it waits for the host on a
+first screen without a logon prompt, and what came of it.

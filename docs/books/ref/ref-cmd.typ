@@ -319,8 +319,8 @@ workstation's C compiler and runs them there.
     tests run from the test library alone.],
   [#cmd("-v")], [on the workstation, the compile commands and the
     compiler's errors\; with #cmd("--mvs"), the pack commands and the
-    deploy's details\; with #cmd("--tso"), a trace of the 3270 data stream
-    on standard error.],
+    deploy's details\; with #cmd("--tso"), a timed trace of the 3270 data
+    stream on standard error.],
 )
 
 == mbt version <ref-cmd-version>

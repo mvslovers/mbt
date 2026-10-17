@@ -175,10 +175,17 @@ func (s *Session) hostWritesAgain(deadline time.Time) bool {
 	if wait.After(deadline) {
 		wait = deadline
 	}
+	s.tracef("logon: no logon prompt on the screen, waiting up to %v for the host", time.Until(wait).Round(time.Millisecond))
 	got, err := s.readOne(wait)
-	if err != nil || !got {
+	if err != nil && !errors.Is(err, ErrTimeout) {
+		s.tracef("logon: %v", err)
 		return false
 	}
+	if !got {
+		s.tracef("logon: the host stayed quiet, pressing ENTER")
+		return false
+	}
+	s.tracef("logon: the host wrote again, looking at the new screen")
 	return s.settle(deadline) == nil
 }
 

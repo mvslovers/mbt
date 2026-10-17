@@ -78,9 +78,10 @@ type Session struct {
 	seen []string
 	err  error // the connection has failed (EOF, reset): sticky
 
-	loggedOn     bool // LogonTSO reached READY
-	logoffTry    bool // LogoffTSO has been tried since
-	pastPassword bool // the password was sent: a session may be live even if READY was never reached (e.g. a logon proc that starts ISPF)
+	loggedOn     bool      // LogonTSO reached READY
+	logoffTry    bool      // LogoffTSO has been tried since
+	pastPassword bool      // the password was sent: a session may be live even if READY was never reached (e.g. a logon proc that starts ISPF)
+	start        time.Time // when the connection was made; trace times count from it
 }
 
 // Dial connects to addr (host:port), negotiates TN3270 and waits for the
@@ -116,7 +117,7 @@ func Dial(ctx context.Context, addr string, opt Options) (*Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("tn3270: %w", err)
 	}
-	s := &Session{opt: opt, conn: c, scr: newScreenSize(opt.Size)}
+	s := &Session{opt: opt, conn: c, scr: newScreenSize(opt.Size), start: time.Now()}
 	s.tn = newTelnet(c, opt.TerminalType, s.tracef)
 	for {
 		if err := ctx.Err(); err != nil {
@@ -399,8 +400,10 @@ func (s *Session) sendRecord(rec []byte, secret bool) error {
 	return nil
 }
 
+// tracef writes one trace line, led by the seconds since the connection was
+// made, so the trace shows how long the host took for each record (mbt#279).
 func (s *Session) tracef(format string, a ...any) {
 	if s.opt.Trace != nil {
-		fmt.Fprintf(s.opt.Trace, format+"\n", a...)
+		fmt.Fprintf(s.opt.Trace, "%7.3fs "+format+"\n", append([]any{time.Since(s.start).Seconds()}, a...)...)
 	}
 }
