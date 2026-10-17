@@ -2,6 +2,7 @@ package tn3270
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -27,12 +28,12 @@ func tk5Steps(t *testing.T, late time.Duration) []step {
 	return nil
 }
 
-func tk5Logon(t *testing.T, steps []step) {
+func tk5Logon(t *testing.T, steps []step, opt Options) {
 	t.Helper()
 	addr, done := serveScript(t, steps)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	s, err := Dial(ctx, addr, testOptions)
+	s, err := Dial(ctx, addr, opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,11 +57,24 @@ func tk5Logon(t *testing.T, steps []step) {
 
 // The recorded TK5 logon: TK5's screen follows the banner at once, the logon
 // proc starts ISPF and =X leaves it for READY (mbt#272), Close logs off.
-func TestReplayTK5Logon(t *testing.T) { tk5Logon(t, tk5Steps(t, 0)) }
+func TestReplayTK5Logon(t *testing.T) { tk5Logon(t, tk5Steps(t, 0), testOptions) }
 
 // TK5's logon screen arrives later than Settle after the Hercules banner
 // (mbt#276): LogonTSO has to wait for it, not press ENTER into the gap,
 // which TK5 answers with INPUT NOT RECOGNIZED.
 func TestReplayTK5LateLogonScreen(t *testing.T) {
-	tk5Logon(t, tk5Steps(t, 4*testOptions.Settle))
+	var trace strings.Builder
+	opt := testOptions
+	opt.Trace = &trace
+	tk5Logon(t, tk5Steps(t, 4*testOptions.Settle), opt)
+	// the trace says that LogonTSO waited and what the host did (mbt#279)
+	tr := trace.String()
+	for _, want := range []string{"logon: no logon prompt on the screen, waiting up to", "logon: the host wrote again"} {
+		if !strings.Contains(tr, want) {
+			t.Errorf("trace lacks %q", want)
+		}
+	}
+	if strings.Contains(tr, "the host stayed quiet") {
+		t.Error("trace says the host stayed quiet, but TK5's screen came within the wait")
+	}
 }

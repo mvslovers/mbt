@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -194,6 +195,14 @@ func TestReplayLogon(t *testing.T) {
 		"holds secret input, not shown", "-> 48 bytes: 88 00 07 81 80"} {
 		if !strings.Contains(tr, want) {
 			t.Errorf("trace lacks %q", want)
+		}
+	}
+	// every line leads with the seconds since the connection (mbt#279)
+	stamp := regexp.MustCompile(`^ *[0-9]+\.[0-9]{3}s `)
+	for _, line := range strings.Split(strings.TrimSpace(tr), "\n") {
+		if !stamp.MatchString(line) {
+			t.Errorf("trace line without a time: %q", line)
+			break
 		}
 	}
 }
