@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -126,7 +127,7 @@ commands:
                                       run a command or task of mbt/init.lua; without NAME: list them
   clean                               remove build/ and dist/ (keeps staged deps)
   distclean                           clean, and remove .mbt/ (deps, tools, state; keeps mbt.lock)
-  target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME
+  target list | ping [NAME] [--wait SEC] [--tso [-v]] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME
                                       the MVS systems in ~/.mbt/targets.toml
   version                             print mbt's version
 
@@ -890,6 +891,12 @@ func cmdTarget(args []string) int {
 	case "ping", "info":
 		fl := flag.NewFlagSet("target "+args[0], flag.ContinueOnError)
 		wait := fl.Int("wait", 0, "wait up to this many seconds for mvsMF to answer")
+		var tso, verbose bool
+		if args[0] == "ping" {
+			fl.Lookup("wait").Usage = "wait up to this many seconds for mvsMF to answer (with --tso: and for a TSO logon)"
+			fl.BoolVar(&tso, "tso", false, "log on to TSO over TN3270 as the [tn3270] user, and off again")
+			fl.BoolVar(&verbose, "v", false, "with --tso: trace the 3270 data stream (passwords are never traced)")
+		}
 		if err := parseArgs(fl, args[1:]); err != nil {
 			return exitConfig
 		}
@@ -898,7 +905,14 @@ func cmdTarget(args []string) int {
 		if err != nil {
 			return fail(err)
 		}
+		if tso && t.TN3270 == nil {
+			fmt.Fprintf(os.Stderr, "[mbt] ERROR: target %s has no [target.%s.tn3270] -- --tso needs a TN3270 user\n", t.Name, t.Name)
+			return exitConfig
+		}
+		// one deadline for the mvsMF wait and the TSO logon (mbt#284)
+		var deadline time.Time
 		if *wait > 0 {
+			deadline = time.Now().Add(time.Duration(*wait) * time.Second)
 			fmt.Printf("[mbt] target %s: waiting up to %ds for %s ...\n", t.Name, *wait, t.MVSMF.URL)
 			p, took := target.Wait(t, time.Duration(*wait)*time.Second, time.Sleep)
 			if !p.OK {
@@ -912,6 +926,25 @@ func cmdTarget(args []string) int {
 			for _, p := range target.Ping(t, 5*time.Second) {
 				fmt.Printf("[mbt] %-10s %-9s %-28s %s\n", t.Name, p.Access, p.Addr, p.Detail)
 				ok = ok && (p.OK || p.Access != "mvsmf")
+			}
+			if tso {
+				var trace io.Writer
+				if verbose {
+					trace = os.Stderr
+				}
+				if rest := time.Until(deadline); rest > 0 {
+					fmt.Printf("[mbt] target %s: waiting up to %s for a TSO logon as %s ...\n", t.Name, rest.Round(time.Second), t.TN3270.User)
+				}
+				p, err := target.WaitTSO(t, deadline, trace, time.Sleep)
+				if err != nil {
+					return fail(err)
+				}
+				if p.OK {
+					fmt.Printf("[mbt] %-10s %-9s %-28s %s\n", t.Name, p.Access, p.Addr, p.Detail)
+				} else {
+					fmt.Fprintf(os.Stderr, "[mbt] ERROR: target %s: %s\n", t.Name, p.Detail)
+					ok = false
+				}
 			}
 			if !ok {
 				return exitMVS
@@ -1014,7 +1047,7 @@ func cmdTarget(args []string) int {
 		}
 		return exitOK
 	}
-	fmt.Fprintln(os.Stderr, "[mbt] usage: mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME")
+	fmt.Fprintln(os.Stderr, "[mbt] usage: mbt target list | ping [NAME] [--wait SEC] [--tso [-v]] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME")
 	return exitConfig
 }
 

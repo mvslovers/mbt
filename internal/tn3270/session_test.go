@@ -63,6 +63,11 @@ func serveScript(t *testing.T, steps []step) (string, <-chan error) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return l.Addr().String(), serveScriptOn(l, steps)
+}
+
+// serveScriptOn is serveScript on a listener the test opened.
+func serveScriptOn(l net.Listener, steps []step) <-chan error {
 	done := make(chan error, 1)
 	go func() {
 		defer l.Close()
@@ -110,7 +115,7 @@ func serveScript(t *testing.T, steps []step) (string, <-chan error) {
 		}
 		done <- nil
 	}()
-	return l.Addr().String(), done
+	return done
 }
 
 func scriptResult(t *testing.T, done <-chan error) {
@@ -241,12 +246,10 @@ func lineWrite(t *testing.T, lines ...string) []byte {
 	return append(rec, orderSF, 0x40, orderIC, tnIAC, tnEOR)
 }
 
-// IKJ56425I ends the logon with *UseridInUseError, and the client answers
-// the IKJ56400A prompt that follows with LOGOFF rather than leaving the
-// terminal inside an unfinished logon.  The two lines are what MVS/CE
-// showed (measured); the record that carries them is built here, its bytes
-// were not recorded.
-func TestLogonUseridInUse(t *testing.T) {
+// useridInUseSteps: the recorded MVS/CE logon up to the userid, then
+// IKJ56425I and the IKJ56400A prompt, which the client answers with LOGOFF.
+func useridInUseSteps(t *testing.T) []step {
+	t.Helper()
 	steps := loadScript(t, "testdata/mvsce-logon.txt")
 	// up to and including the ENTER after the userid
 	n := 0
@@ -270,7 +273,16 @@ func TestLogonUseridInUse(t *testing.T) {
 	steps = append(steps,
 		step{kind: 'A', data: append(logoff, tnIAC, tnEOR)},
 		step{kind: 'S', data: []byte{cmdEW, 0xC3, tnIAC, tnEOR}})
-	addr, done := serveScript(t, steps)
+	return steps
+}
+
+// IKJ56425I ends the logon with *UseridInUseError, and the client answers
+// the IKJ56400A prompt that follows with LOGOFF rather than leaving the
+// terminal inside an unfinished logon.  The two lines are what MVS/CE
+// showed (measured); the record that carries them is built here, its bytes
+// were not recorded.
+func TestLogonUseridInUse(t *testing.T) {
+	addr, done := serveScript(t, useridInUseSteps(t))
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	s, err := Dial(ctx, addr, testOptions)

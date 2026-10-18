@@ -20,7 +20,7 @@ mbt release VERSION [--next V]
 mbt prerelease
 mbt run [NAME] [-v] [--dry-run] [-- ARGS...]
 mbt clean | distclean
-mbt target list | ping [NAME] [--wait SEC] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME
+mbt target list | ping [NAME] [--wait SEC] [--tso [-v]] | info [NAME] [--wait SEC] | console [NAME] -- CMD | import .env --name NAME
 mbt compiledb
 mbt doctor
 ```

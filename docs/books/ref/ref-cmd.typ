@@ -266,7 +266,7 @@ command as #cmd("ctx.args")\; a task gets none.
 #idx("mbt target")
 ```
 mbt target list
-mbt target ping [name] [--wait seconds]
+mbt target ping [name] [--wait seconds] [--tso [-v]]
 mbt target info [name] [--wait seconds]
 mbt target console [name] -- command
 mbt target import file --name name
@@ -276,16 +276,26 @@ Works on the targets of #cmd("~/.mbt/targets.toml") (@ref-targets). Without
 #var("name"), on the selected target. #cmd("mbt target") alone is
 #cmd("list"), which also shows the target #cmd("env") when
 #cmd("MBT_TARGET_*") defines one. #cmd("ping") ends with return code 4 only
-when mvsMF does not answer.
+when mvsMF does not answer or, with #cmd("--tso"), the TSO logon fails.
+#cmd("--tso") on a target without #cmd("[tn3270]") ends with return code 2.
 
 #deflist(width: 1.2in,
   [#cmd("list")], [the targets, the default marked #cmd("*"), with where
     each password comes from.],
   [#cmd("ping")], [asks each way of reaching the target whether it answers,
-    without logging on.],
+    without logging on unless #cmd("--tso") is given.],
   [#cmd("info")], [logs on to mvsMF and shows what runs there.],
   [#cmd("--wait") #var("s")], [wait up to #var("s") seconds for mvsMF to
-    answer.],
+    answer\; with #cmd("--tso"), for the TSO logon too, within the same
+    #var("s").],
+  [#cmd("--tso")], [after the other probes, log on to TSO over TN3270 as the
+    #cmd("[tn3270]") user up to #cmd("READY"), log off and show how long the
+    logon took. mvsMF answering does not mean TSO takes logons: HTTPD
+    starts before VTAM and TCAS are done. With #cmd("--wait"), a refused
+    connection or a logon that does not reach #cmd("READY") is tried again\;
+    a userid in use (#cmd("IKJ56425I")) or a rejected logon fails at once.],
+  [#cmd("-v")], [with #cmd("--tso"), trace the 3270 data stream, as
+    #cmd("mbt test --tso -v") does.],
   [#cmd("console")], [issues an operator command and shows the reply.],
   [#cmd("import")], [turns an MBT 2 #cmd(".env") file into the target
     #var("name"), filling what it leaves out from the environment and
