@@ -39,7 +39,7 @@ jobs:
 
     services:
       mvs:
-        image: ghcr.io/mvslovers/mvsce-builder:latest
+        image: ghcr.io/mvslovers/mvsce:latest
         ports:
           - 3270:3270
           - 8080:8080
@@ -132,7 +132,7 @@ jobs:
       - name: Dump MVS container logs
         if: failure()
         run: |
-          docker logs $(docker ps -aq --filter "ancestor=ghcr.io/mvslovers/mvsce-builder:latest") \
+          docker logs $(docker ps -aq --filter "ancestor=ghcr.io/mvslovers/mvsce:latest") \
             > /tmp/mvs-docker.log 2>&1 || true
 
       - name: Upload build logs

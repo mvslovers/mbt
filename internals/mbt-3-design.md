@@ -566,7 +566,7 @@ host  = "…"
 write = false                # read-only: no deploy, no submit
 
 [targets.mvsce-lab]
-docker = "ghcr.io/mvslovers/mvsce-builder:2026.09"   # `mbt mvs up` starts it
+docker = "ghcr.io/mvslovers/mvsce:2026.09"   # `mbt mvs up` starts it
 ```
 
 The project names a default target, never a credential:
