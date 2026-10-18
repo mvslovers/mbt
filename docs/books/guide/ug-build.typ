@@ -157,6 +157,15 @@ described in the _CC/370 User's Guide_, Chapter 5.
   #code(read("../ex/ug-build/addup.asm"), numbers: true)
 ] <ug-build-addup>
 
+#idx("max_rc")
+#cmd("as370") ends with the highest severity of its messages. As on MVS, an
+assembly with warnings (return code 4) passes and its object module is
+used, but MBT always shows it: a #cmd("WARNING") line with
+#cmd("as370")'s messages, and a count at the end of the build. A warning can
+cost an instruction, as a non-blank column 72 that turns the next statement
+into a continuation does, so a strict project sets #cmd("max_rc = 0") in
+#cmd("[build]"), and any warning fails the build.
+
 == COBOL Sources <ug-build-cobol>
 
 #idx("COBOL")#idx("cobc370")

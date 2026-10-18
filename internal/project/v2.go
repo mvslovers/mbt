@@ -34,6 +34,11 @@ func fromRaw(root, file string, raw map[string]any) (*Project, error) {
 	p.ASFlags = strs(build, "asflags")
 	p.COBFlags = strs(build, "cobflags")
 	p.PLIFlags = strs(build, "pliflags")
+	rc, err := maxRC(build)
+	if err != nil {
+		return nil, err
+	}
+	p.MaxRC = rc
 
 	if err := validateNames(raw); err != nil {
 		return nil, err
@@ -93,6 +98,20 @@ func fromRaw(root, file string, raw map[string]any) (*Project, error) {
 		p.Internal = srcs
 	}
 	return p, nil
+}
+
+// maxRC reads [build] max_rc: an integer 0..16 (IFOX00's severities end at
+// 16), 4 when absent.
+func maxRC(build map[string]any) (int, error) {
+	v, ok := build["max_rc"]
+	if !ok {
+		return 4, nil
+	}
+	n, isInt := v.(int64)
+	if !isInt || n < 0 || n > 16 {
+		return 0, configErr("[build] max_rc = %s: the highest as370 return code that still passes, an integer from 0 to 16 (default 4)", pyRepr(v))
+	}
+	return int(n), nil
 }
 
 func (p *Project) warnEmpty(patterns []string) {

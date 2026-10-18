@@ -52,6 +52,14 @@ type Builder struct {
 	O    Options
 	mu   sync.Mutex
 	logs io.Writer
+	// warned: the assemblies that passed with a warning, for the summary
+	warned []warnedAsm
+}
+
+// warnedAsm is an as370 step that ended above 0 and at or below max_rc.
+type warnedAsm struct {
+	src string
+	rc  int
 }
 
 // Error is a failed step; Code follows the exit-code convention (1 = build).
@@ -207,6 +215,9 @@ func (b *Builder) Run() error {
 	if err := os.MkdirAll(b.abs(".mbt/cmd"), 0o755); err != nil {
 		return err
 	}
+	// a warned assembly is never silent: whatever ends the build, it closes
+	// with the count (mbt#278, mbt#286)
+	defer b.warnSummary()
 	units := b.selectedUnits()
 	if b.O.Modules || len(b.O.Only) > 0 {
 		if err := b.checkDepStartup(); err != nil {
@@ -584,8 +595,13 @@ func (b *Builder) exec(s step) error {
 	}
 	cmd := exec.Command(s.argv[0], s.argv[1:]...)
 	cmd.Dir = b.P.Root
-	var out bytes.Buffer
+	var out, diag bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
+	if s.kind == "as" {
+		// as370 writes its diagnostics to stderr and a listing (-a) to
+		// stdout: apart, a warning can be shown without the listing
+		cmd.Stderr = &diag
+	}
 	err := cmd.Run()
 	rc := 0
 	var ee *exec.ExitError
@@ -594,17 +610,31 @@ func (b *Builder) exec(s step) error {
 	} else if err != nil {
 		return &Error{1, fmt.Sprintf("%s: %v", s.argv[0], err)}
 	}
-	if out.Len() > 0 {
-		b.mu.Lock()
-		b.logs.Write(out.Bytes())
-		b.mu.Unlock()
-	}
 	// as370 returns IFOX00's severity: a warned assembly (4) still punches
-	// a usable deck, as COND=(8,LT) let it on MVS.
+	// a usable deck, as COND=(8,LT) let it on MVS.  [build] max_rc moves the
+	// line; an assembly that passes above 0 is shown as a warning, never
+	// only scrolled past -- IFO026 discards a statement at severity 4.
 	failed := rc != 0
-	if s.kind == "as" && rc < 8 {
-		failed = false
+	warned := false
+	if s.kind == "as" {
+		failed = rc > b.P.MaxRC
+		warned = rc > 0 && !failed
 	}
+	b.mu.Lock()
+	b.logs.Write(out.Bytes())
+	if warned {
+		fmt.Fprintf(b.logs, "[mbt] WARNING: as370 rc=%d for %s:\n", rc, s.inputs[0])
+		text := diag.Bytes()
+		if len(bytes.TrimSpace(text)) == 0 {
+			// nothing on stderr: the listing above is all there is
+			text = []byte("(as370 printed no diagnostic)\n")
+		}
+		b.logs.Write(text)
+		b.warned = append(b.warned, warnedAsm{s.inputs[0], rc})
+	} else {
+		b.logs.Write(diag.Bytes())
+	}
+	b.mu.Unlock()
 	if s.depfile != "" {
 		// Whatever the step returned: cc370 writes the .d before as370 runs.
 		escapeDepfile(b.abs(s.depfile))
@@ -615,6 +645,9 @@ func (b *Builder) exec(s step) error {
 		os.Remove(b.abs(s.out))
 		os.Remove(b.cmdFile(s.out))
 		msg := fmt.Sprintf("%s failed (rc=%d)", s.label, rc)
+		if s.kind == "as" {
+			msg = fmt.Sprintf("%s failed (rc=%d, max_rc=%d)", s.label, rc, b.P.MaxRC)
+		}
 		if s.kind == "cobc" && !exists(b.abs(s.depfile)) {
 			// a cobc370 that predates -MMD stops on it and writes no .d
 			msg += fmt.Sprintf(" -- and wrote no %s: if it does not know -MMD, it predates commit c531019 (after the tag v2026.10.09); use a newer cobc370", s.depfile)
@@ -622,6 +655,35 @@ func (b *Builder) exec(s step) error {
 		return &Error{1, msg}
 	}
 	return os.WriteFile(b.cmdFile(s.out), []byte(signature(s.argv)), 0o644)
+}
+
+// warnSummary closes a build that let warned assemblies through with their
+// count and names, so the warning does not scroll away with the build output.
+func (b *Builder) warnSummary() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if len(b.warned) == 0 {
+		return
+	}
+	sort.Slice(b.warned, func(i, j int) bool { return b.warned[i].src < b.warned[j].src })
+	var srcs []string
+	rcs := map[int]bool{}
+	for _, w := range b.warned {
+		srcs = append(srcs, w.src)
+		rcs[w.rc] = true
+	}
+	var levels []string
+	for rc := 1; rc <= 16; rc++ {
+		if rcs[rc] {
+			levels = append(levels, fmt.Sprint(rc))
+		}
+	}
+	what := "assemblies"
+	if len(srcs) == 1 {
+		what = "assembly"
+	}
+	fmt.Fprintf(b.logs, "[mbt] WARNING: %d %s ended with warnings (rc %s): %s\n",
+		len(srcs), what, strings.Join(levels, "/"), strings.Join(srcs, ", "))
 }
 
 // -- staleness ------------------------------------------------------------

@@ -82,6 +82,12 @@ range that names one.
   [#cmd("cflags")], [#cmd("[]")], [options for #cmd("cc370"), after
     MBT's #cmd("-O1 -std=gnu99 -Wall -Wextra -Werror").],
   [#cmd("asflags")], [#cmd("[]")], [options for #cmd("as370").],
+  [#cmd("max_rc")], [#cmd("4")], [the highest return code of
+    #cmd("as370") that still passes, an integer from 0 to 16. A higher one
+    fails the step and removes its object module. An assembly that passes
+    with a return code above 0 is shown as a warning with
+    #cmd("as370")'s messages, and the build closes with their count.
+    #cmd("0") fails any warning.],
   [#cmd("cobflags")], [#cmd("[]")], [options for #cmd("cobc370"), for every
     COBOL source: #cmd("-I") for copybook directories, #cmd("-s"). The
     #cmd("include/") of every dependency follows, so #cmd("COPY") finds the

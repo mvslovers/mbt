@@ -43,7 +43,7 @@ var v3Keys = map[string][]string{
 	"":             {"schema", "project", "toolchain", "dependencies", "build", "lib", "internal", "module", "tests", "test", "deploy", "distribution", "smp", "release", "tools", "plugins", "tso"},
 	"project":      {"name", "version", "kind"},
 	"toolchain":    {"cc370", "libc370", "mbt"},
-	"build":        {"include", "cflags", "asflags", "cobflags", "pliflags", "host"},
+	"build":        {"include", "cflags", "asflags", "cobflags", "pliflags", "max_rc", "host"},
 	"build.host":   {"cc", "cflags", "sources", "replace"},
 	"lib":          {"name", "sources", "headers"},
 	"internal":     {"sources", "exclude"},
@@ -162,6 +162,9 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 	}
 	if a, ok := build["asflags"]; ok {
 		b["asflags"] = a
+	}
+	if a, ok := build["max_rc"]; ok {
+		b["max_rc"] = a
 	}
 	out["build"] = b
 	if host := table(build, "host"); host != nil {
