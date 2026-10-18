@@ -750,6 +750,7 @@ func compare(a, b *project.Project) []string {
 	diff("type", a.Type, b.Type)
 	diff("cflags", project.EffectiveCFlags(a.CFlags), project.EffectiveCFlags(b.CFlags))
 	diff("asflags", a.ASFlags, b.ASFlags)
+	diff("max_rc", a.MaxRC, b.MaxRC)
 	diff("lib", a.Lib, b.Lib)
 	diff("internal", a.Internal, b.Internal)
 	units := func(kind string, x, y []*project.Unit, rx, ry []map[string]any) {

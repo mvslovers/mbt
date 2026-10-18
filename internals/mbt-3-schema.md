@@ -58,6 +58,7 @@ Unchanged: `"owner/repo" = "<semver range>"`.
 | `include` | `[]` | the `"-I", "<dir>"` pairs of `build.cflags`, in order |
 | `cflags` | `[]` | the rest of `build.cflags`, in order |
 | `asflags` | `[]` | `build.asflags` |
+| `max_rc` | `4` | `build.max_rc`: the highest `as370` return code that still passes, 0..16 (mbt#286); v2's `[mvs.asm] max_rc` applied to the MVS assemble and is not read |
 
 **`include/` is on the include path by convention** when the project has
 one: first, before the directories `include` lists, which add to it. Naming

@@ -66,9 +66,13 @@ type Project struct {
 	// PLIFlags go to pl1c370 for every PL/I source (-I %INCLUDE dirs,
 	// -lang=F, -char48, ...).
 	PLIFlags []string
-	Modules  []*Unit
-	Tests    []*Unit
-	Lib      *Lib
+	// MaxRC is the highest as370 return code that still passes ([build]
+	// max_rc).  The loaders set 4 when the key is absent, as COND=(8,LT) let
+	// a warned assembly through on MVS; a Project built by hand has 0, strict.
+	MaxRC   int
+	Modules []*Unit
+	Tests   []*Unit
+	Lib     *Lib
 	// HasInternal: the project declares [internal], the private autocall
 	// archive every module and test links against.
 	HasInternal bool
