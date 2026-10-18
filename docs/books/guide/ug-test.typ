@@ -259,6 +259,15 @@ session works on -- an exec, a CLIST, input -- come from the repository:
 by key, MBT loads them before the session, and the test finds their names in
 #cmd("t.fixtures") (_MBT Reference_, "The TSO Test API").
 
+#idx("mbt target", "ping --tso")
+Right after a system starts, mvsMF can answer before TSO takes logons:
+HTTPD starts before VTAM and TCAS are done, and on MVS/CE the logon works
+a second or two later. So #cmd("mbt target ping --wait") is no proof that
+#cmd("mbt test --tso") can start. #cmd("mbt target ping --tso --wait")
+#var("seconds") waits for both under one deadline: it logs on as the
+target's #cmd("[tn3270]") user up to #cmd("READY") and off again, with the
+same TN3270 client the tests use.
+
 The terminal is a 24x80 model 2 unless the target's #cmd("[tn3270]") or
 the test's #cmd("[tso.")#var("NAME")#cmd("]") gives a #cmd("size"),
 columns first as x3270 writes it: #cmd("\"80x43\"") for a model 4,

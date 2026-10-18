@@ -1,6 +1,7 @@
 package target
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mvslovers/mbt/internal/tn3270"
 )
 
 // Probe is one access of a target and how it answered.
@@ -102,6 +105,40 @@ func Wait(t *Target, wait time.Duration, sleep func(time.Duration)) (Probe, time
 		}
 		sleep(2 * time.Second)
 	}
+}
+
+// WaitTSO logs on to TSO as the [tn3270] user of t, up to READY, and off
+// again (tn3270.WaitLogon), trying until deadline when it is set: mvsMF
+// answering does not mean TSO takes logons yet (mbt#284).  The error is a
+// configuration error -- no [tn3270], no password, a bad size --; how the
+// logon went is in the probe.  trace, if set, gets the 3270 stream.
+func WaitTSO(t *Target, deadline time.Time, trace io.Writer, sleep func(time.Duration)) (Probe, error) {
+	if t.TN3270 == nil {
+		return Probe{}, errf("target %s has no [target.%s.tn3270] -- the TSO probe needs a TN3270 user", t.Name, t.Name)
+	}
+	pw, err := t.TN3270.Password.Resolve()
+	if err != nil {
+		return Probe{}, err
+	}
+	opt := tn3270.Options{Size: tn3270.Size{Cols: tn3270.Cols, Rows: tn3270.Rows}, Trace: trace}
+	if t.TN3270.Size != "" {
+		if opt.Size, err = tn3270.ParseSize(t.TN3270.Size); err != nil {
+			return Probe{}, errf("[target.%s.tn3270] size: %v", t.Name, err)
+		}
+	}
+	p := Probe{Access: "tso", Addr: t.TN3270.Addr()}
+	t0 := time.Now()
+	took, tries, err := tn3270.WaitLogon(context.Background(), p.Addr, opt, t.TN3270.User, pw, deadline, sleep)
+	after := ""
+	if tries > 1 {
+		after = fmt.Sprintf(" after %d tries in %s", tries, time.Since(t0).Round(time.Second))
+	}
+	if err != nil {
+		p.Detail = fmt.Sprintf("no logon as %s%s: %v", strings.ToUpper(t.TN3270.User), after, err)
+		return p, nil
+	}
+	p.OK, p.Detail = true, fmt.Sprintf("logged on as %s in %d ms%s, logged off", strings.ToUpper(t.TN3270.User), took.Milliseconds(), after)
+	return p, nil
 }
 
 // HerculesInfo logs on to the Hercules web console (HTTP Basic) and reports

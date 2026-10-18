@@ -1,6 +1,7 @@
 package target
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -331,5 +332,35 @@ func TestMVSMFAuth(t *testing.T) {
 	}
 	if err := (&Endpoint{Auth: "x"}).CheckAuth("w"); err == nil {
 		t.Error("auth x accepted")
+	}
+}
+
+// ping --tso needs a [tn3270] user: without one, WaitTSO is a
+// configuration error and tries nothing (mbt#284).
+func TestWaitTSONoTN3270(t *testing.T) {
+	f, err := Load(write(t, 0o600, "[target.a.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	slept := 0
+	_, err = WaitTSO(f.Targets["a"], time.Now().Add(time.Minute), nil, func(time.Duration) { slept++ })
+	var te *Error
+	if !errors.As(err, &te) || !strings.Contains(err.Error(), "[target.a.tn3270]") || slept != 0 {
+		t.Fatalf("got %v, slept %d times; want a *Error naming [target.a.tn3270]", err, slept)
+	}
+}
+
+// A TSO that does not answer is a failed probe, not a configuration error.
+func TestWaitTSOClosed(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	tg := &Target{Name: "a", TN3270: &TN3270{Host: "127.0.0.1", Port: port, User: "herc01", Password: Secret{Literal: "x"}}}
+	p, err := WaitTSO(tg, time.Time{}, nil, func(time.Duration) {})
+	if err != nil || p.OK || p.Access != "tso" || !strings.Contains(p.Detail, "no logon as HERC01") {
+		t.Fatalf("got %+v, %v", p, err)
 	}
 }

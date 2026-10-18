@@ -308,3 +308,81 @@ func (s *Session) afterLogoff() {
 		s.tracef("logoff: the host wrote again")
 	}
 }
+
+// probeAttempt bounds one try of WaitLogon while a deadline is set: long
+// enough for a slow host to reach READY, short enough that a host which
+// never answers gets another try before the deadline.
+const probeAttempt = 60 * time.Second
+
+// WaitLogon logs on to TSO at addr as user, up to READY, and off again
+// (mbt#284).  It returns how long the logon took, from the connection to
+// READY, and how many tries it needed.  A zero deadline makes one try,
+// bounded as Dial and LogonTSO bound it.  Otherwise a failure that a
+// system still coming up produces -- the connection refused or closed, no
+// logon screen, no READY in time -- is tried again until deadline; one try
+// takes at most a minute, and at least ten seconds even past the deadline.
+// IKJ56425I, a rejected logon and an unconfirmed LOGOFF end it at once:
+// waiting does not cure them.  sleep is time.Sleep outside tests.
+func WaitLogon(ctx context.Context, addr string, opt Options, user, password string, deadline time.Time, sleep func(time.Duration)) (time.Duration, int, error) {
+	for tries := 1; ; tries++ {
+		took, err := logonOnce(ctx, addr, opt, user, password, deadline)
+		if err == nil {
+			return took, tries, nil
+		}
+		rest := time.Until(deadline)
+		if deadline.IsZero() || rest <= 0 || permanent(err) || ctx.Err() != nil {
+			return 0, tries, err
+		}
+		if opt.Trace != nil {
+			fmt.Fprintf(opt.Trace, "logon: try %d failed, trying again: %v\n", tries, err)
+		}
+		sleep(min(2*time.Second, rest))
+	}
+}
+
+// logonOnce is one try of WaitLogon: connect, log on, log off, close.
+func logonOnce(ctx context.Context, addr string, opt Options, user, password string, deadline time.Time) (time.Duration, error) {
+	if !deadline.IsZero() {
+		now := time.Now()
+		end := now.Add(probeAttempt)
+		if deadline.Before(end) {
+			end = deadline
+		}
+		if least := now.Add(10 * time.Second); end.Before(least) {
+			end = least
+		}
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(ctx, end)
+		defer cancel()
+	}
+	t0 := time.Now()
+	s, err := Dial(ctx, addr, opt)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.LogonTSO(ctx, user, password); err != nil {
+		s.Close()
+		return 0, err
+	}
+	took := time.Since(t0)
+	if err := s.LogoffTSO(); err != nil {
+		s.Close()
+		return 0, err
+	}
+	return took, s.Close()
+}
+
+// permanent: err is one that waiting does not cure.  The userid in use
+// and a rejected logon stay as they are; an unconfirmed LOGOFF may leave
+// the userid in use, so the next try would only meet IKJ56425I.
+func permanent(err error) bool {
+	var inUse *UseridInUseError
+	var le *LogonError
+	switch {
+	case errors.As(err, &inUse), errors.Is(err, ErrLogoffUnconfirmed):
+		return true
+	case errors.As(err, &le):
+		return strings.Contains(le.Reason, "LOGON REJECTED") || strings.Contains(le.Reason, "NOT AUTHORIZED")
+	}
+	return false
+}
