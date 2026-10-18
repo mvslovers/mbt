@@ -91,7 +91,6 @@ func Run(c Config, o Options) (bool, error) {
 	}
 	rows := map[string]row{}
 	var skipped []string
-	totPass, totFail := 0, 0
 	for _, t := range c.Tests {
 		if t.Name == "" || (len(want) > 0 && !want[strings.ToUpper(t.Name)]) {
 			continue
@@ -151,36 +150,54 @@ func Run(c Config, o Options) (bool, error) {
 			rc = -1
 		}
 		np, nf := len(passRE.FindAllIndex(spool.Bytes(), -1)), len(failRE.FindAllIndex(spool.Bytes(), -1))
-		totPass += np
-		totFail += nf
 		rows[t.Name] = row{rc == 0, fmt.Sprintf("rc=%d", rc), np, nf}
 	}
+	return report(o.Out, rows, skipped), nil
+}
 
-	fmt.Fprintf(o.Out, "\n  %-10s %-12s %-14s\n", "TEST", "RESULT", "ASSERTIONS")
-	fmt.Fprintf(o.Out, "  %s %s %s\n", strings.Repeat("-", 10), strings.Repeat("-", 12), strings.Repeat("-", 14))
-	var names []string
+// report prints the table and the summary; it returns true when every test
+// passed. A test that passed without a single PASS: or FAIL: line reads
+// "no assertions" (#288): its return code is all it said.
+func report(w io.Writer, rows map[string]row, skipped []string) bool {
+	fmt.Fprintf(w, "\n  %-10s %-12s %-14s\n", "TEST", "RESULT", "ASSERTIONS")
+	fmt.Fprintf(w, "  %s %s %s\n", strings.Repeat("-", 10), strings.Repeat("-", 12), strings.Repeat("-", 14))
+	var names, bare []string
 	for n := range rows {
 		names = append(names, n)
 	}
 	sort.Strings(names)
-	failed := 0
+	failed, totPass, totFail := 0, 0, 0
 	for _, n := range names {
 		r := rows[n]
+		totPass += r.npass
+		totFail += r.nfail
 		cell := "ok  " + r.status
 		if !r.ok {
 			failed++
 			cell = "FAIL " + r.status
 		}
-		fmt.Fprintf(o.Out, "  %-10s %-12s %d pass / %d fail\n", n, cell, r.npass, r.nfail)
+		if r.ok && r.npass+r.nfail == 0 {
+			bare = append(bare, n)
+			fmt.Fprintf(w, "  %-10s %-12s no assertions\n", n, cell)
+			continue
+		}
+		fmt.Fprintf(w, "  %-10s %-12s %d pass / %d fail\n", n, cell, r.npass, r.nfail)
 	}
 	if len(skipped) > 0 {
-		fmt.Fprintf(o.Out, "\n  skipped (MVS-only): %s\n", strings.Join(skipped, ", "))
+		fmt.Fprintf(w, "\n  skipped (MVS-only): %s\n", strings.Join(skipped, ", "))
 	}
-	fmt.Fprintf(o.Out, "\n  %d host test(s) | assertions: %d PASS, %d FAIL\n", len(rows), totPass, totFail)
+	fmt.Fprintf(w, "\n  %d host test(s) | assertions: %d PASS, %d FAIL\n", len(rows), totPass, totFail)
+	if len(bare) > 0 {
+		fmt.Fprintf(w, "[mbt] WARNING: %d host test(s) passed without a single assertion: %s\n", len(bare), strings.Join(bare, ", "))
+	}
 	if failed > 0 {
-		fmt.Fprintf(o.Out, "[mbt] %d host test(s) FAILED\n", failed)
-		return false, nil
+		fmt.Fprintf(w, "[mbt] %d host test(s) FAILED\n", failed)
+		return false
 	}
-	fmt.Fprintln(o.Out, "[mbt] all host tests passed")
-	return true, nil
+	if len(bare) > 0 {
+		fmt.Fprintf(w, "[mbt] all host tests passed, %d without assertions\n", len(bare))
+		return true
+	}
+	fmt.Fprintln(w, "[mbt] all host tests passed")
+	return true
 }

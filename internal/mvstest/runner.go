@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/mvslovers/mbt/internal/mvsmf"
 )
 
 // RunnerRegion: REGION=0M on an EXEC is not "unlimited" on MVS 3.8j.
@@ -234,9 +236,82 @@ func verdictsAtRisk(errs []string) bool {
 	return false
 }
 
+// NoAssertions: the legs that ended CC 0 without a single PASS: or FAIL:
+// line (#288) -- they passed, but nothing in them said what was checked.
+// The lines are counted per step, from the spool files the server names
+// a step for. A step one of whose files could not be read is not marked:
+// its count is unknown, not zero. When no file names a runner step, the
+// lines cannot be attributed, and only a spool with none at all marks
+// every passed leg.
+func NoAssertions(rows map[string]map[string]Verdict, steps map[string]Step, files []mvsmf.SpoolFile, spool string, spoolErrs []string) map[string]map[string]bool {
+	type count struct {
+		n      int
+		unread bool
+	}
+	counts := map[Step]count{}
+	attributed := false
+	for _, f := range files {
+		st, ok := steps[f.Step]
+		if !ok {
+			continue
+		}
+		attributed = true
+		c := counts[st]
+		c.unread = c.unread || f.Failed
+		c.n += len(passRE.FindAllStringIndex(f.Text, -1)) + len(failRE.FindAllStringIndex(f.Text, -1))
+		counts[st] = c
+	}
+	if !attributed && (len(spoolErrs) > 0 || passRE.MatchString(spool) || failRE.MatchString(spool)) {
+		return nil
+	}
+	out := map[string]map[string]bool{}
+	for t, legs := range rows {
+		for leg, v := range legs {
+			if v.RC != 0 {
+				continue
+			}
+			if c := counts[Step{t, leg}]; attributed && (c.n > 0 || c.unread) {
+				continue
+			}
+			if out[t] == nil {
+				out[t] = map[string]bool{}
+			}
+			out[t][leg] = true
+		}
+	}
+	return out
+}
+
+// Unasserted lists the legs of NoAssertions in the order of the matrix:
+// "TSTX (batch)", "TSTX (tso)", ...
+func Unasserted(none map[string]map[string]bool) []string {
+	var tests, out []string
+	for t := range none {
+		tests = append(tests, t)
+	}
+	sort.Strings(tests)
+	for _, t := range tests {
+		for _, leg := range []string{"batch", "tso"} {
+			if none[t][leg] {
+				out = append(out, fmt.Sprintf("%s (%s)", t, leg))
+			}
+		}
+	}
+	return out
+}
+
+// PassedLine is the last line of a run in which every step passed.
+func PassedLine(bare int) string {
+	if bare == 0 {
+		return "all test steps passed"
+	}
+	return fmt.Sprintf("all test steps passed, %d without assertions", bare)
+}
+
 // Matrix renders the per-test table; it returns the lines, the failed and
-// the unread (??) cell counts.
-func Matrix(rows map[string]map[string]Verdict, spoolErrs []string, fxFailed map[string]bool) ([]string, int, int) {
+// the unread (??) cell counts. A leg in none passed without an assertion
+// and reads "ok CC 0 (none)", which still fits the column.
+func Matrix(rows map[string]map[string]Verdict, spoolErrs []string, fxFailed map[string]bool, none map[string]map[string]bool) ([]string, int, int) {
 	unknown := verdictsAtRisk(spoolErrs)
 	lines := []string{fmt.Sprintf("  %-10s %-14s %-14s", "TEST", "BATCH", "TSO"),
 		fmt.Sprintf("  %s %s %s", strings.Repeat("-", 10), strings.Repeat("-", 14), strings.Repeat("-", 14))}
@@ -270,6 +345,9 @@ func Matrix(rows map[string]map[string]Verdict, spoolErrs []string, fxFailed map
 				cell += v.Status
 			} else {
 				cell += fmt.Sprintf("CC %d", v.RC)
+			}
+			if okv && none[t][leg] {
+				cell += " (none)"
 			}
 			cells = append(cells, cell)
 		}

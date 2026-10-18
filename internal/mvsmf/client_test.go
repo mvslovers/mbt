@@ -80,3 +80,46 @@ func TestCheckBasic(t *testing.T) {
 		t.Errorf("401: %v", err)
 	}
 }
+
+// collectSpool keeps the step each spool file belongs to, so a reader can
+// count per step (#288); a failed fetch is a file marked Failed, and the
+// concatenated spool is what CollectSpool returned before.
+func TestCollectSpoolFiles(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/zosmf/restjobs/jobs/MBTTEST/JOB00001/files":
+			w.Write([]byte(`[{"id":2,"ddname":"JESMSGLG","stepname":"JES2"},{"id":102,"ddname":"SYSPRINT","stepname":"B01"},{"id":103,"ddname":"SYSTSPRT","stepname":"T01"}]`))
+		case "/zosmf/restjobs/jobs/MBTTEST/JOB00001/files/2/records":
+			w.Write([]byte("IEF142I\r\n"))
+		case "/zosmf/restjobs/jobs/MBTTEST/JOB00001/files/102/records":
+			w.Write([]byte("PASS: one\n"))
+		default:
+			w.WriteHeader(500)
+		}
+	}))
+	defer srv.Close()
+	host, port, _ := net.SplitHostPort(srv.Listener.Addr().String())
+	p, _ := strconv.Atoi(port)
+	c := New(host, p, "U", "P")
+	spool, errs, files := c.collectSpool("MBTTEST", "JOB00001", false)
+	want := []SpoolFile{
+		{DD: "JESMSGLG", Step: "JES2", Text: "IEF142I\n"},
+		{DD: "SYSPRINT", Step: "B01", Text: "PASS: one\n"},
+		{DD: "SYSTSPRT", Step: "T01", Failed: true},
+	}
+	if len(files) != len(want) {
+		t.Fatalf("files %+v", files)
+	}
+	for i := range want {
+		if files[i] != want[i] {
+			t.Errorf("file %d: %+v, want %+v", i, files[i], want[i])
+		}
+	}
+	if len(errs) != 1 || !strings.HasPrefix(errs[0], "SYSTSPRT: HTTP 500") {
+		t.Errorf("errors %q", errs)
+	}
+	s2, _ := c.CollectSpool("MBTTEST", "JOB00001", false)
+	if s2 != spool || !strings.HasPrefix(spool, "--- JESMSGLG ---\nIEF142I\n\n--- SYSPRINT ---\nPASS: one\n\n--- SYSTSPRT --- [FAILED TO RETRIEVE: ") {
+		t.Errorf("spool %q", spool)
+	}
+}

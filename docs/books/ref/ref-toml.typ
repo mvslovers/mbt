@@ -198,7 +198,8 @@ its file in upper case, with that file as its only source, unless it is in
   [#cmd("host")], [#cmd("true")], [#cmd("false"): not on the workstation.],
   [#cmd("mvs")], [#cmd("true")], [#cmd("false"): not on MVS.],
   [#cmd("parm")], [none], [the program argument: a string for both runs,
-    or #cmd("{ batch = ..., tso = ... }").],
+    or #cmd("{ batch = ..., tso = ... }"). Without it the test gets none\;
+    one that then skips its work passes with no assertions.],
   [#cmd("fixtures")], [none], [#cmd("{ ")#var("DD")#cmd(" = [")#var("files")#cmd("] }"):
     members loaded into a data set per DD, #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".FIX.")#var("TEST")#cmd(".")#var("DD"),
     FB 80. A member is the file's name without its extension, in upper
@@ -209,7 +210,10 @@ its file in upper case, with that file as its only source, unless it is in
 
 The keys of a load module, #cmd("exclude"), #cmd("entry"),
 #cmd("startup"), #cmd("dep_startup"), #cmd("ac"), #cmd("rent"),
-#cmd("reus") and #cmd("refr"), are allowed too.
+#cmd("reus") and #cmd("refr"), are allowed too. A test that must run
+APF-authorized needs #cmd("ac = 1") as well as APF-authorized libraries:
+without it #cmd("__isauth()") returns 0, even from a library on the APF
+list.
 
 === [tso.NAME] <ref-toml-tso>
 

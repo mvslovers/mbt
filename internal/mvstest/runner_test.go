@@ -94,9 +94,9 @@ func TestRunnerMatchesV2(t *testing.T) {
 			t.Errorf("%s:\n%q %d %d\nwant\n%q %v %v", name, lines, failed, unread, wl, want[1], want[2])
 		}
 	}
-	l, f, u := Matrix(rows, nil, map[string]bool{"TSTLOAD": true})
+	l, f, u := Matrix(rows, nil, map[string]bool{"TSTLOAD": true}, nil)
 	check("matrix", l, f, u, g.Matrix)
-	l, f, u = Matrix(rows, []string{"JESMSGLG: HTTP 500"}, nil)
+	l, f, u = Matrix(rows, []string{"JESMSGLG: HTTP 500"}, nil, nil)
 	check("matrix with a lost JES DD", l, f, u, g.MatrixUnread)
 
 	h, d := FixtureFailures(g.Spool, "MBTTEST", fxs, fxOrder, nil)
