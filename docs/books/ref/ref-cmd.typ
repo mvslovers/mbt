@@ -333,6 +333,21 @@ workstation's C compiler and runs them there.
     stream on standard error.],
 )
 
+#idx("test", "no assertions")
+A test, or with #cmd("--mvs") a step, that ends with 0 but printed no
+#cmd("PASS:") and no #cmd("FAIL:") line is shown as #cmd("no assertions")
+on the workstation and as #cmd("ok CC 0 (none)") on MVS, and is named in a
+warning:
+
+```
+[mbt] WARNING: 2 test step(s) passed without a single assertion: TSTGATE (batch), TSTGATE (tso)
+[mbt] all test steps passed, 2 without assertions
+```
+
+The return code is not affected. With #cmd("--mvs"), a step part of whose
+output could not be read is not marked. #cmd("--tso") counts no
+assertions.
+
 == mbt version <ref-cmd-version>
 
 ```

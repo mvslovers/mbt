@@ -190,6 +190,17 @@ type JobResult struct {
 	Status         string // CC, ABEND, JCL ERROR, TIMEOUT, UNKNOWN, ACTIVE
 	Spool          string
 	SpoolErrors    []string
+	// Files is the spool by file, for a reader that needs to know which
+	// step wrote a line; Spool is the same text concatenated.
+	Files []SpoolFile
+}
+
+// SpoolFile is one spool file: its DD, the step that wrote it ("" when the
+// server names none) and its text. Failed: the fetch failed, so the text
+// is missing, not empty.
+type SpoolFile struct {
+	DD, Step, Text string
+	Failed         bool
 }
 
 // SubmitOptions mirror v2's submit_jcl arguments.
@@ -238,16 +249,17 @@ func (c *Client) Submit(jcl string, o SubmitOptions) (*JobResult, error) {
 		}
 		var spool string
 		var spoolErrs []string
+		var files []SpoolFile
 		if !o.NoSpool {
-			spool, spoolErrs = c.CollectSpool(name, id, o.JESOnly)
+			spool, spoolErrs, files = c.collectSpool(name, id, o.JESOnly)
 		}
 		if rc == -1 && spool != "" {
 			rc, status = ParseSpoolRC(spool)
 		}
-		return &JobResult{JobID: id, JobName: name, RC: rc, Status: status, Spool: spool, SpoolErrors: spoolErrs}, nil
+		return &JobResult{JobID: id, JobName: name, RC: rc, Status: status, Spool: spool, SpoolErrors: spoolErrs, Files: files}, nil
 	}
-	spool, spoolErrs := c.CollectSpool(name, id, false)
-	return &JobResult{JobID: id, JobName: name, RC: 9999, Status: "TIMEOUT", Spool: spool, SpoolErrors: spoolErrs}, nil
+	spool, spoolErrs, files := c.collectSpool(name, id, false)
+	return &JobResult{JobID: id, JobName: name, RC: 9999, Status: "TIMEOUT", Spool: spool, SpoolErrors: spoolErrs, Files: files}, nil
 }
 
 func strOr(v any, def string) string {
@@ -268,9 +280,15 @@ func oneLine(err error) string {
 // CollectSpool fetches the job's spool files; a failed fetch is reported in
 // the error list rather than becoming an empty spool (#87).
 func (c *Client) CollectSpool(name, id string, jesOnly bool) (string, []string) {
+	spool, errs, _ := c.collectSpool(name, id, jesOnly)
+	return spool, errs
+}
+
+// collectSpool is CollectSpool that also returns the spool by file.
+func (c *Client) collectSpool(name, id string, jesOnly bool) (string, []string, []SpoolFile) {
 	m, l, err := c.jsonDo("GET", fmt.Sprintf("/restjobs/jobs/%s/%s/files", name, id), nil)
 	if err != nil {
-		return "", []string{oneLine(err)}
+		return "", []string{oneLine(err)}, nil
 	}
 	files := l
 	if files == nil {
@@ -279,6 +297,7 @@ func (c *Client) CollectSpool(name, id string, jesOnly bool) (string, []string) 
 		}
 	}
 	var parts, errs []string
+	var out []SpoolFile
 	for _, f := range files {
 		fm, _ := f.(map[string]any)
 		fid := fmt.Sprint(fm["id"])
@@ -288,7 +307,7 @@ func (c *Client) CollectSpool(name, id string, jesOnly bool) (string, []string) 
 		if s, ok := fm["id"].(float64); ok {
 			fid = strconv.FormatFloat(s, 'f', -1, 64)
 		}
-		dd := strOr(fm["ddname"], "")
+		dd, step := strOr(fm["ddname"], ""), strOr(fm["stepname"], "")
 		if jesOnly && !jesDDs[dd] {
 			continue
 		}
@@ -296,12 +315,14 @@ func (c *Client) CollectSpool(name, id string, jesOnly bool) (string, []string) 
 		if err != nil {
 			parts = append(parts, fmt.Sprintf("--- %s --- [FAILED TO RETRIEVE: %v]", dd, err))
 			errs = append(errs, fmt.Sprintf("%s: %s", dd, oneLine(err)))
+			out = append(out, SpoolFile{DD: dd, Step: step, Failed: true})
 			continue
 		}
 		text := strings.ReplaceAll(strings.ToValidUTF8(string(raw), "�"), "\r", "")
 		parts = append(parts, fmt.Sprintf("--- %s ---\n%s", dd, text))
+		out = append(out, SpoolFile{DD: dd, Step: step, Text: text})
 	}
-	return strings.Join(parts, "\n"), errs
+	return strings.Join(parts, "\n"), errs, out
 }
 
 // ParseRetcode reads z/OSMF's retcode: "CC 0004" -> 4, CC; "ABEND S0C4" ->

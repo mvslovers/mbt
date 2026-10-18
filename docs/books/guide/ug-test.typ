@@ -35,6 +35,19 @@ decides by the return code alone. One test is one source with one
 #cmd("main"), because the counters of #cmd("<mbtcheck.h>") belong to the
 source that includes it.
 
+#idx("test", "no assertions")
+A test that returns 0 without printing a single #cmd("PASS:") or
+#cmd("FAIL:") line has passed, but nothing in its output says what it
+checked. MBT shows it as passed _with no assertions_: #cmd("no assertions")
+in its row on the workstation, #cmd("(none)") beside the condition code on
+MVS, and a warning at the end that names each such test. The last line then
+reads #cmd("all host tests passed, ")#var("n")#cmd(" without assertions")
+or #cmd("all test steps passed, ")#var("n")#cmd(" without assertions"). The
+return code of #cmd("mbt test") stays 0: a test that relies on its return
+code alone is legitimate. When the mark is a surprise, the test most likely
+skipped its work, as one does that runs only when given an argument it did
+not get (@ug-test-mvs).
+
 == Finding the Tests <ug-test-find>
 
 #idx("test", "discovery")
@@ -161,7 +174,19 @@ passes only when both end with 0. #cmd("--only") #var("NAME") runs a subset,
 the argument of the #cmd("CALL") under TSO, and reaches
 #cmd("main(argc, argv)") in both. A test whose right answer depends on where
 it runs gets the expected answer this way: #cmd("{ batch = \"0\", tso =
-\"1\" }") tells it whether to expect TSO.
+\"1\" }") tells it whether to expect TSO. MBT passes no argument of its own,
+so a test that does its work only when given one, such as
+#cmd("PARM='RUN'"), needs #cmd("parm = \"RUN\"") in its
+#cmd("[test.")#var("NAME")#cmd("]"). Without it the test skips itself, ends
+with 0, and is shown as passed with no assertions (@ug-test-what).
+
+#idx("APF")#idx("ac")
+*Authorized tests.* A test that must run APF-authorized needs
+#cmd("ac = 1") in its #cmd("[test.")#var("NAME")#cmd("]") as well as
+libraries that are APF-authorized. A library on the APF list is not enough
+by itself: a module without #cmd("ac = 1") runs unauthorized from it,
+#cmd("__isauth()") returns 0, and the test fails in a way that looks like a
+wrong answer, not like a wrong attribute.
 
 === Fixtures <ug-test-fixtures>
 

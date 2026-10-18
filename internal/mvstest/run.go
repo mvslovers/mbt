@@ -297,7 +297,8 @@ func Run(o Options) int {
 	}
 	np, nf := len(passRE.FindAllStringIndex(spool, -1)), len(failRE.FindAllStringIndex(spool, -1))
 	fxFailed := FixtureFailedTests(spool, job, fxSteps, fxOrder, res.SpoolErrors)
-	lines, failed, unread := Matrix(rows, res.SpoolErrors, fxFailed)
+	none := NoAssertions(rows, steps, res.Files, spool, res.SpoolErrors)
+	lines, failed, unread := Matrix(rows, res.SpoolErrors, fxFailed, none)
 	fmt.Fprintln(o.Out)
 	for _, l := range lines {
 		fmt.Fprintln(o.Out, l)
@@ -325,6 +326,10 @@ func Run(o Options) int {
 			o.cont("%s", l)
 		}
 	}
+	bare := Unasserted(none)
+	if len(bare) > 0 {
+		o.warn("%d test step(s) passed without a single assertion: %s", len(bare), strings.Join(bare, ", "))
+	}
 	switch {
 	case fh != "":
 		return ExitDataset
@@ -334,7 +339,7 @@ func Run(o Options) int {
 	case unread > 0:
 		return ExitMainframe
 	}
-	o.log("all test steps passed")
+	o.log("%s", PassedLine(len(bare)))
 	return ExitOK
 }
 
