@@ -320,7 +320,7 @@ class TestExtractHeaders(unittest.TestCase):
                               header_files: list[str]) -> None:
         """Create a fake headers tarball in cache_dir."""
         cache_dir.mkdir(parents=True, exist_ok=True)
-        tarball = cache_dir / f"{dep_name}-{dep_version}-headers.tar.gz"
+        tarball = cache_dir / f"{dep_name}-{dep_version}-lib-headers.tar.gz"
         buf = io.BytesIO()
         prefix = f"{dep_name}-{dep_version}"
         with tarfile.open(fileobj=buf, mode="w:gz") as tf:

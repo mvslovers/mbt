@@ -163,18 +163,25 @@ class TestRenderTemplate(unittest.TestCase):
         self.assertIn("RECFM=FB", result)
         self.assertIn("LRECL=80", result)
 
-    def test_asm_template_substitution(self):
+    def test_asm_step_template_substitution(self):
+        # Variables as scripts/legacy/mvsasm.py passes them per member.
         vars_ = {
-            "JOBCARD": "//MYJOB JOB (A),'MBT',CLASS=A,MSGCLASS=H,MSGLEVEL=(1,1)",
+            "SEQ": "01",
             "MEMBER": "HELLO",
             "SYSLIB_CONCAT": "//SYSLIB   DD DSN=SYS1.MACLIB,DISP=SHR",
+            "SOURCE_DSN": "IBMUSER.HELLO370.V1R0M0.SOURCE",
             "PUNCH_DSN": "IBMUSER.HELLO370.V1R0M0.OBJECT",
-            "ASM_SOURCE": "         END",
+            "NCALIB_DSN": "IBMUSER.HELLO370.V1R0M0.NCALIB",
         }
-        result = render_template("asm.jcl.tpl", vars_)
-        self.assertIn("IFOX00", result)
-        self.assertIn("HELLO", result)
-        self.assertIn("SYS1.MACLIB", result)
+        result = render_template("asm-step.jcl.tpl", vars_)
+        self.assertNotIn("$", result)
+        self.assertIn("//ASM01  EXEC PGM=IFOX00", result)
+        self.assertIn("//LNK01  EXEC PGM=IEWL", result)
+        self.assertIn("COND=(4,LT,ASM01)", result)
+        self.assertIn("//SYSLIB   DD DSN=SYS1.MACLIB,DISP=SHR", result)
+        self.assertIn("DSN=IBMUSER.HELLO370.V1R0M0.SOURCE(HELLO)", result)
+        self.assertIn("DSN=IBMUSER.HELLO370.V1R0M0.OBJECT(HELLO)", result)
+        self.assertIn("DSN=IBMUSER.HELLO370.V1R0M0.NCALIB(HELLO)", result)
 
     def test_ncallink_template_substitution(self):
         vars_ = {
@@ -263,25 +270,33 @@ class TestJclIntegration(unittest.TestCase):
     """Integration tests combining jobcard + render_syslib_concat."""
 
     def test_asm_jcl_with_jobcard_and_syslib(self):
+        # Mirrors scripts/legacy/mvsasm.py _build_batch_jcl: one jobcard,
+        # then one asm-step per member.
         jc = jobcard("HELLO", "A", "H", "TEST")
         syslib = render_syslib_concat([
             "IBMUSER.HELLO370.V1R0M0.NCALIB",
             "IBMUSER.DEPS.CRENT370.V1R0M0.MACLIB",
             "SYS1.MACLIB",
-        ])
-        vars_ = {
-            "JOBCARD": jc,
-            "MEMBER": "HELLO",
-            "SYSLIB_CONCAT": syslib,
-            "PUNCH_DSN": "IBMUSER.HELLO370.V1R0M0.OBJECT",
-            "ASM_SOURCE": "HELLO    CSECT\n         END",
-        }
-        result = render_template("asm.jcl.tpl", vars_)
+        ], blksize=27920)
+        steps = [
+            render_template("asm-step.jcl.tpl", {
+                "SEQ": f"{idx:02d}",
+                "MEMBER": member,
+                "SYSLIB_CONCAT": syslib,
+                "SOURCE_DSN": "IBMUSER.HELLO370.V1R0M0.SOURCE",
+                "PUNCH_DSN": "IBMUSER.HELLO370.V1R0M0.OBJECT",
+                "NCALIB_DSN": "IBMUSER.HELLO370.V1R0M0.NCALIB",
+            })
+            for idx, member in enumerate(["HELLO", "WORLD"], start=1)
+        ]
+        result = "\n".join([jc] + steps + ["//"])
         self.assertIn("//HELLO   JOB", result)
         self.assertIn("SYS1.MACLIB", result)
         self.assertIn("CRENT370", result)
-        self.assertIn("IFOX00", result)
-
+        self.assertEqual(result.count("PGM=IFOX00"), 2)
+        self.assertIn("//ASM02  EXEC PGM=IFOX00", result)
+        self.assertIn("SOURCE(WORLD)", result)
+        self.assertNotIn("$", result)
 
 if __name__ == "__main__":
     unittest.main()

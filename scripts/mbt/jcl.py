@@ -21,7 +21,7 @@ def render_template(template_name: str,
     """Render a JCL template with variables.
 
     Args:
-        template_name: e.g. "asm.jcl.tpl"
+        template_name: e.g. "asm-step.jcl.tpl"
         variables: Template variables (string.Template safe_substitute)
 
     Returns:

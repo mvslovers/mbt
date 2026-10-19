@@ -1,0 +1,28 @@
+# CI for mbt itself: the Python unit tests under tests/ (the mbt 2 scripts)
+# on every PR and push to main. No toolchain and no MVS on the runner.
+#
+# tests/integration/ talks to mvsMF at MBT_MVS_HOST:MBT_MVS_PORT (default
+# localhost:1080) and skips itself when nothing answers there. This job sets
+# no MBT_MVS_* variable and refuses to run if one is present, so those tests
+# always skip here and never reach a real system.
+name: python
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: no MVS connection in the environment
+        run: |
+          if env | grep -q '^MBT_MVS_'; then
+            echo "MBT_MVS_* is set; the integration tests would reach MVS"; exit 1
+          fi
+      - run: python -m unittest discover tests/
