@@ -128,7 +128,7 @@ Each line names what was found and where. These are errors, after which
 #cmd("mbt doctor") ends with return code 2:
 
 - a command of CC/370 that is missing\;
-- a directory tree without the C library (#cmd("libc.a"), #cmd("crtm.o")) or
+- a directory tree without the C library (#cmd("libc.a")) or
   without the macros and the run-time library of CC/370\;
 - a LIBC/370 older than #cmd("[toolchain] libc370") asks for\;
 - an #cmd("mbt.toml") that cannot be read\;
