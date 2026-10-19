@@ -51,7 +51,7 @@ class ResolvedDependency:
     repo: str
     version: str
     assets: dict[str, str] = field(default_factory=dict)
-    # {"package.toml": url, "name-ver-headers.tar.gz": url, ...}
+    # {"package.toml": url, "name-ver-lib-headers.tar.gz": url, ...}
 
 
 def resolve_dependencies(
@@ -245,8 +245,8 @@ def download_dependency(owner: str, repo: str,
     Cache structure:
         ~/.mbt/cache/{owner}/{repo}/{version}/
             package.toml
-            {name}-{version}-headers.tar.gz
-            {name}-{version}-mvs.tar.gz
+            {name}-{version}-lib-headers.tar.gz
+            {name}-{version}-lib-modules.tar.gz
 
     Skips download if cache is already populated, unless force=True.
     Pass force=True for prerelease versions whose tag may be re-pushed.
@@ -342,7 +342,7 @@ def extract_headers(cache_dir: Path,
                     dep_version: str) -> Path:
     """Extract headers tarball to contrib/.
 
-    Looks for {dep_name}-{dep_version}-headers.tar.gz in cache_dir.
+    Looks for {dep_name}-{dep_version}-lib-headers.tar.gz in cache_dir.
     Extracts to: contrib/{dep_name}-{dep_version}/include/
 
     Args:
