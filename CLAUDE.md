@@ -1,53 +1,59 @@
 # mbt — Project-Specific Context
 
-This file extends `~/repos/CLAUDE.md` (root context). Read the root first.
+This file extends `~/repos/mvs/CLAUDE.md` (root context). Read the root first.
 Everything there applies here. This file adds mbt-specific details only.
 
 ---
 
 ## What Is mbt?
 
-mbt (MVS Build Tool) is a Git submodule that replaces the current per-project
-build scripts (`mvsasm`, `mvslink`, etc.) and the `contrib/*_sdk` dependency
-approach. It implements:
+MBT (mbt), the MVS Build Tool, builds, tests, packages, deploys and releases
+the mvslovers projects. This repository holds three generations side by side:
 
-- Unified build pipeline (cross-compile → assemble → link → install)
-- Package manager (versioned GitHub Releases as registry)
-- Dataset provisioning (allocate, upload, manage MVS datasets)
-- Release automation (tag → CI → GitHub Release)
+| Generation | Code | What it is |
+|---|---|---|
+| **mbt 3** | `cmd/mbt/`, `internal/` (Go) | one installed program, `mbt`; reads `mbt.toml` (schema 3) or an mbt 2 `project.toml`. Released on `v3.*` tags (`.github/workflows/mbt-release.yml`). Status and command summary: `cmd/mbt/README.md` |
+| **mbt 2** | `mk/mbt.mk`, `scripts/` (Python) | git submodule + two-line `Makefile` + `project.toml`; cc370 host build. `VERSION` is mbt 2's. Kept until every project has migrated (`docs/MIGRATION.md`) |
+| **v1 (legacy)** | `mk/legacy/`, `scripts/legacy/` | remote mvsMF/JCL build (assemble and link on MVS); maintenance mode |
 
-mbt is **Roadmap items #1, #2, #3, and #6** from the root CLAUDE.md — the
-unified scripts, standard project structure, package manager, and JCL template
-system — all in one coherent package.
+`scripts/mbt/` is the Python package shared by mbt 2 and v1.
+`templates/jcl/` is used by all of them (mbt 3 embeds it, `embed.go`).
+mbt 3's output from a `project.toml` must stay byte-identical to mbt 2's
+(`internals/acceptance/`).
 
 ---
 
 ## Key Documents
 
-Read these before making any changes:
-
 | Document | Location | Purpose |
 |----------|----------|---------|
-| **Specification** | `internals/mvs-build-spec-v1.0.0.md` | Normative. Defines what mbt does. All behavior must conform. |
-| **Implementation Guide** | `internals/mbt-implementation-guide.md` | Blueprint. Defines how and in what order to implement. |
+| **mbt 3 design** | `internals/mbt-3-design.md` | Design of mbt 3 (the code cites its sections) |
+| **mbt.toml schema** | `internals/mbt-3-schema.md` | Every key, default, and its `project.toml` origin |
+| **v2 behaviours** | `internals/v2-behaviours.md`, `internals/v2-baseline.md` | What mbt 3 has to keep from mbt 2, and why |
+| **Acceptance** | `internals/acceptance/README.md` | The byte-for-byte mbt 2 / mbt 3 comparison |
+| **Specification** | `internals/mvs-build-spec-v1.0.0.md` | Normative for v1; exit codes and log format (section 11) still hold for all generations |
+| **Implementation Guide** | `internals/mbt-implementation-guide.md` | How the v1 Python code was built, milestone by milestone |
+| **User docs** | `docs/MIGRATION.md`, `docs/testing.md`, `docs/books/` | mbt 2 → 3 migration, testing, the ML02 manuals (User's Guide, Reference) |
 
-**The spec is authoritative.** If this file and the spec disagree, the spec wins.
+User-visible behaviour of mbt 3 is documented in the books; change the book
+in the PR that changes the behaviour (`~/repos/mvs/.workspace/context/books.md`).
 
 ---
 
 ## Tech Stack
 
-- **Python 3.12+** — stdlib only, **zero external dependencies**
-- **GNU Make** — orchestration layer
+- **mbt 3: Go** (`go.mod`), dependencies `BurntSushi/toml` and `arnodel/golua`
+  (Lua for `mbt/init.lua`, extensions and plugins)
+- **mbt 2 / v1: Python 3.12+** — stdlib only, **zero external dependencies**
+- **GNU Make** — mbt 2 / v1 orchestration layer
 - **mvsMF REST API** — mainframe communication (z/OSMF-compatible endpoints)
 - **string.Template** — JCL template engine (not Jinja2, not m4)
 - **GitHub Releases** — package registry
 
-### Allowed Python stdlib modules
+### Python: stdlib only
 
-`tomllib`, `urllib.request`, `urllib.error`, `string`, `json`, `pathlib`,
-`re`, `hashlib`, `base64`, `dataclasses`, `argparse`, `time`, `os`,
-`tarfile`, `zipfile`, `shutil`, `subprocess`
+**No pip install. No requirements.txt. No venv.** If you find yourself
+reaching for an external package, stop and find a stdlib solution.
 
 `subprocess` has exactly two sanctioned uses — anything else needs a reason
 in the PR:
@@ -62,40 +68,23 @@ both `.zip` and `.tar.gz`, mirroring what GitHub does with source archives,
 because the operators who install these products are as likely to be on
 Windows as on Unix.
 
-**No pip install. No requirements.txt. No venv.** If you find yourself
-reaching for an external package, stop and find a stdlib solution.
-
 ---
 
-## Module Dependency Order
-
-Implement strictly in this order. Each module depends only on those above it.
-The Implementation Guide has full signatures (class/method/parameter/return
-types) for every module — read them before implementing.
+## Building and Testing mbt Itself
 
 ```
- 1. mbt/version.py          Semver parsing + MVS VRM conversion
- 2. mbt/project.py          project.toml parser + validator
- 3. mbt/config.py           Config merge (env → .env → global → defaults)
- 4. mbt/datasets.py         Dataset name computation
- 5. mbt/lockfile.py          Lockfile read/write
- 6. mbt/output.py            Output formatters (shell, json, doctor)
- 7. scripts/mbtconfig.py    CLI: config query for Make integration
- 8. scripts/mbtdoctor.py    CLI: environment verification
- 9. mbt/mvsmf.py             mvsMF REST client (urllib only)
-10. mbt/jcl.py               JCL template rendering (string.Template)
-11. mbt/dependencies.py     GitHub Releases resolution + cache
-12. scripts/mbtbootstrap.py CLI: dependency resolution + provisioning
-13. scripts/mvsasm.py       Executor: assemble on MVS
-14. scripts/mvslink.py      Executor: linkedit on MVS
-15. scripts/mvsinstall.py   Executor: install (copy build → install ds)
-16. scripts/mvspackage.py   Executor: create release artifacts
-17. scripts/mbtgraph.py     CLI: dependency tree display
-18. scripts/mbtdatasets.py  CLI: dataset listing + management
-19. scripts/mvsrelease.py   Executor: version bump + tag + push
-20. mk/*.mk                  Make includes (core, targets, rules, defaults)
-21. .github/workflows/       CI/CD shared workflows
+go build -o mbt ./cmd/mbt        # mbt 3
+gofmt -l . ; go vet ./... ; go test ./...   # what CI (go.yml) runs
+python3 -m unittest discover tests/          # mbt 2 / v1 unit tests, no MVS
 ```
+
+- `tests/integration/` runs against a live mvsMF (`MBT_MVS_*`) and skips
+  itself when none is reachable; your own throwaway container (root) serves.
+- `internals/acceptance/diff23.py` needs cc370 and runs locally only (not in CI).
+- **Reference project:** `examples/hello370/` (an mbt 2 `project.toml`).
+- `build.yml` / `release.yml` (mbt 2), `build3.yml` / `release3.yml`
+  (mbt 3) and the `-legacy` ones are reusable workflows **for consumer
+  projects**; a change there reaches every project that calls them.
 
 ---
 
@@ -126,33 +115,22 @@ These are in addition to the root CLAUDE.md constraints.
 [mvsasm]   ERROR: HTTPSRV failed (RC=8, max_rc=4)
 ```
 
-### Log Files
+### MVS communication
 
-Job failure logs go to `.mbt/logs/{module}-{context}-{jobid}.log`
-(e.g. `asm-HTTPD-JOB00456.log`).
-
-### Dataset Naming
-
-All MVS dataset names: uppercase, max 44 chars total, qualifiers max 8 chars.
-
-```
-Build:      {HLQ}.{PROJECT}.{VRM}.{SUFFIX}
-CI Build:   {HLQ}.{PROJECT}.B{BUILD_ID}.{SUFFIX}
-Dependency: {DEPS_HLQ}.{DEP_NAME}.{DEP_VRM}.{SUFFIX}
-Install:    {HLQ}.{name}  (fixed)  or  {HLQ}.{PROJECT}.{VRM}.{SUFFIX}  (vrm)
-```
-
-### SYSLIB Concatenation Order (fixed, first-match wins in IFOX00)
-
-```
-1. Project's own MACLIB
-2. Dependency MACLIBs (in declaration order from [dependencies])
-3. System MACLIBs (from [system.maclibs] in config)
-```
+All MVS communication goes through the mvsMF client
+(`scripts/mbt/mvsmf.py`, `internal/mvsmf/`), with progressive backoff for
+job polling (1s → 2s → 3s → 5s).
 
 ---
 
-## Configuration Hierarchy
+## Configuration
+
+**mbt 3:** MVS systems come from `~/.mbt/targets.toml` (`MBT_HOME` moves it),
+one `[target.NAME]` each; CI sets one through `MBT_TARGET_*`. Without
+either, the mbt 2 settings (`MBT_MVS_*`, `.env`) still work, with a warning.
+The project file is `mbt.toml`.
+
+**mbt 2 / v1:**
 
 ```
 Priority (highest → lowest):
@@ -162,60 +140,17 @@ Priority (highest → lowest):
 4. Built-in defaults
 ```
 
-This replaces the per-project `.env`-only approach from the root CLAUDE.md.
-The `.env` file is still supported but is now one layer in a four-layer stack.
+`project.toml` is the single project definition file; `.env` is only for
+local overrides (MVS connection, HLQ), not for project structure. See spec
+section 3 for the schema.
 
 ---
 
-## project.toml (not .env)
+## Read when relevant
 
-mbt uses `project.toml` as the single project definition file — not the
-`.env` approach from the root CLAUDE.md. The `.env` file is now only for
-local overrides (MVS connection, HLQ), not for project structure.
-
-See spec section 3 for the complete schema.
-
----
-
-## Testing
-
-- **Unit tests:** `python -m unittest discover tests/` — no MVS required
-- **Integration tests:** `tests/integration/` — requires MVS/CE via Docker
-- **Reference project:** `examples/hello370/` — always build this first
-
-Start MVS/CE for integration tests: `make run-mvs`
-
----
-
-## Notes for Implementation
-
-### Make Integration Pattern
-
-Make calls Python once per target, not per file:
-
-```makefile
-BUILD_VARS := $(shell python3 $(MBT_SCRIPTS)/mbtconfig.py \
-    --project project.toml --output shell)
-$(eval $(BUILD_VARS))
-```
-
-All variables are resolved in a single Python invocation. Executors
-(mvsasm, mvslink, etc.) read project.toml directly — they don't depend
-on Make variables.
-
-### mvsMF Client Pattern
-
-All MVS communication goes through `mbt.mvsmf.MvsMFClient`. No direct
-`urllib` calls in executor scripts. The client uses progressive backoff
-for job polling (1s → 2s → 3s → 5s).
-
-### JCL Template Pattern
-
-Templates are `.tpl` files in `templates/jcl/` using `$VARIABLE` syntax.
-Dynamic sections (SYSLIB concatenation) are pre-rendered by helper
-functions in `mbt/jcl.py` and passed as a single `$SYSLIB_CONCAT` variable.
-
-### Version Comparison
-
-Prerelease ordering follows semver: `1.0.0-dev < 1.0.0-rc1 < 1.0.0`.
-The dependency resolver must respect this.
+| Before you … | read |
+|---|---|
+| work on the v1/v2 Python code (dataset naming, SYSLIB order, Make integration, JCL templates, version ordering) | `internals/v1-implementation-notes.md` |
+| change `[distribution]` / `[smp]` handling or the SMP package | `~/repos/mvs/.workspace/context/smp.md`, `docs/books/ref/ref-smp.typ` |
+| change deploy behaviour | `~/repos/mvs/.workspace/context/deploy.md`, `internals/v2-behaviours.md` |
+| touch an output mbt 2 also produces | `internals/acceptance/README.md` |
