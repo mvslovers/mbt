@@ -1498,7 +1498,9 @@ func cmdDoctor(args []string) int {
 		// its runtime live in the same sysroot, and replacing a directory
 		// there to install one of them silently drops the other's
 		var missing, missingCC []string
-		for _, f := range []string{"libc.a", "crtm.o"} {
+		// crtm.o (startup = "crtm") is optional: libc370 drops it (libc370#608),
+		// and only a module that asks for it needs it -- the build says so then
+		for _, f := range []string{"libc.a"} {
 			if _, err := os.Stat(filepath.Join(t.LibcDir, f)); err != nil {
 				missing = append(missing, f)
 			}
@@ -1515,7 +1517,11 @@ func cmdDoctor(args []string) int {
 			bad("sysroot %s incomplete, missing cc370's %s -- reinstall cc370 (nothing assembles without its macros)", t.Sysroot, strings.Join(missingCC, ", "))
 		}
 		if len(missing)+len(missingCC) == 0 {
-			fmt.Printf("[mbt] sysroot: %s (libc370: libc.a, crtm.o; cc370: macros, libcc370rt.a OK)\n", t.Sysroot)
+			crtm := "crtm.o"
+			if _, err := os.Stat(filepath.Join(t.LibcDir, "crtm.o")); err != nil {
+				crtm = "no crtm.o"
+			}
+			fmt.Printf("[mbt] sysroot: %s (libc370: libc.a, %s; cc370: macros, libcc370rt.a OK)\n", t.Sysroot, crtm)
 		}
 	}
 	p, perr := project.Load(root)

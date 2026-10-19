@@ -263,7 +263,9 @@ point #cmd("@@CRT0"), the linkage editor finds the start-up routine in
     usually in assembler. Set #cmd("entry") to it.],
   [#cmd("\"crtm\"")], [a C module that another C program links to or calls:
     it uses the C run time of its caller instead of starting its own. See
-    the _LIBC/370 Programmer's Guide_, "The Start-Up".],
+    the _LIBC/370 Programmer's Guide_, "The Start-Up". It needs
+    #cmd("crtm.o") in the sysroot, which newer LIBC/370 releases no longer
+    ship\; without it the build stops with an error that says so.],
 )
 
 == Shared Code: [internal] <ug-build-internal>

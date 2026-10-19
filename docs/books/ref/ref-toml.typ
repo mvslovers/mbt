@@ -165,7 +165,8 @@ must be unique across all modules and aliases\; a test has none.
   [#cmd("refr")], [#cmd("false")], [refreshable.],
   [#cmd("entry")], [#cmd("\"@@CRT0\"")], [the entry point.],
   [#cmd("startup")], [a C program], [#cmd("false"): no C run time\;
-    #cmd("\"crtm\""): a C module run by another C program.],
+    #cmd("\"crtm\""): a C module run by another C program\; it needs
+    #cmd("crtm.o"), which newer LIBC/370 releases no longer ship.],
   [#cmd("dep_startup")], [none], [#cmd("true"): #cmd("@@START") comes from
     a dependency\; #cmd("false"): from LIBC/370.],
   [#cmd("ac")], [#cmd("0")], [the authorization code.],

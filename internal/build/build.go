@@ -489,7 +489,11 @@ func (b *Builder) linkStep(u *project.Unit) (step, error) {
 			desc = ", " + u.Startfile
 		}
 	case project.StartupCRTM:
-		argv = append(argv, filepath.Join(t.LibcDir, "crtm.o"))
+		crtm := filepath.Join(t.LibcDir, "crtm.o")
+		if !exists(crtm) {
+			return step{}, &Error{2, fmt.Sprintf("%s: startup = \"crtm\" needs %s, which this libc370 does not ship (libc370#608 removed the nested startup)", u.Name, crtm)}
+		}
+		argv = append(argv, crtm)
 		desc = ", crtm"
 	case project.StartupNone:
 		desc = ", no crt"
