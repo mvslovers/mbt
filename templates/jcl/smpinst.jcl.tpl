@@ -3,7 +3,8 @@ $JOBCARD
 //* $PRODUCT $VERSION -- SMP4 install, FMID $FMID
 //*
 //* BEFORE YOU SUBMIT
-//*   1. run the allocation job once:
+//*   1. run the allocation job once ever (skip it for an upgrade,
+//*      the datasets already exist):
 //*        $ALLOC_JOB
 //*   2. upload the shipped .xmit files to MVS in BINARY
 //*      (RECFM=FB, LRECL=80) -- any dataset names you like
