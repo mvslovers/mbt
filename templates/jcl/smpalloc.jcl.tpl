@@ -8,8 +8,10 @@ $JOBCARD
 //* accepted, the distribution libraries hold the accepted copy of
 //* every element; a re-run that scratched them would leave the SMP
 //* inventory reporting "accepted" with an empty library behind it,
-//* and nothing would say so. If you must start over, delete the
-//* datasets by hand and reject the SYSMOD first.
+//* and nothing would say so. After ACCEPT, REJECT no longer works
+//* (HMA2462). To start over, cut the FMID out of the inventory with
+//* UCLIN (see the product's removal guide), then delete the
+//* datasets by hand.
 //*
 //* Space is in cylinders on purpose: a track primary reaches the
 //* 16-extent limit long before the volume is full, and the SB37 that
