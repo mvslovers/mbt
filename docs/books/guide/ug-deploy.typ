@@ -100,9 +100,10 @@ to nothing.
 #idx("deploy", "first")
 *A library that does not exist yet* is allocated by the deploy job, with
 room for several deploys and a directory sized to its members and aliases
-(about three blocks for every ten names, 20 blocks at least), on the target's volume if the target names one
-(#cmd("volume"), @ug-targets-file). MBT then checks that it landed on that
-volume, since an APF entry names a data set together with its volume.
+(about three blocks for every ten names, 20 blocks at least), on the
+target's volume if the target names one (#cmd("volume"), @ug-targets-file).
+MBT then checks that it landed on that volume, since an APF entry names a
+data set together with its volume.
 Without a volume, the system chooses one, and there is nothing to check.
 
 *A running server keeps the modules it loaded.* A new member in the library
