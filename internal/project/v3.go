@@ -612,7 +612,9 @@ func v3Distribution(root string, in, d map[string]any, upper string, v version.V
 			return nil, "", configErr("mbt.toml: [smp]: %v", err)
 		}
 		smp["fmid"] = fmid
-		if v.Patch != 0 {
+		if v.IsPre() {
+			distErr = fmt.Sprintf("version %s is a prerelease: the derived FMID %s is the release's, and an install of this build would spend it and block the release and patch releases of the previous minor (NOT SEL) -- set [smp] fmid and delete explicitly, to a throwaway id (Reference, SMP chapter)", v, fmid)
+		} else if v.Patch != 0 {
 			distErr = fmt.Sprintf("version %s is a patch release: its FMID would be %s again, the minor's id, and a patch is a PTF, which mbt does not build yet -- set [smp] fmid (and delete) explicitly", v, fmid)
 		}
 		if _, explicit := s["delete"]; !explicit {

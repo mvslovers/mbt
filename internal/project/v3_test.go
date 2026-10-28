@@ -107,8 +107,45 @@ func TestLoadV3(t *testing.T) {
 	if table(p.Raw, "deploy")["target"] != "UFSD.DEV.LINKLIB" {
 		t.Errorf("deploy %v", p.Raw["deploy"])
 	}
-	if p.DistError != "" {
+	if !strings.Contains(p.DistError, "prerelease") {
 		t.Errorf("DistError %q", p.DistError)
+	}
+}
+
+// A prerelease must not get the FMID of the release it leads to: an install
+// of a -dev build would spend it. The FMID has to be set, throwaway, by hand.
+func TestPrereleaseNeedsExplicitFMID(t *testing.T) {
+	old := ReleasedPatches
+	defer func() { ReleasedPatches = old }()
+	ReleasedPatches = func(string, int, int) []string { return nil }
+	load := func(ver, smp string) *Project {
+		t.Helper()
+		in := strings.Replace(v3Base, "1.4.0-dev", ver, 1)
+		if smp != "" {
+			in = strings.Replace(in, `prefix = "TUFS"`, smp, 1)
+		}
+		p, err := LoadV3(v3Tree(t, in), FileV3)
+		if err != nil {
+			t.Fatalf("%s: %v", ver, err)
+		}
+		return p
+	}
+	for _, ver := range []string{"1.4.0-dev", "1.4.0-rc1", "1.4.1-dev", "1.4.2-rc1"} {
+		d := load(ver, "").DistError
+		for _, want := range []string{"prerelease", "TUFS140", "[smp] fmid and delete explicitly"} {
+			if !strings.Contains(d, want) {
+				t.Errorf("%s: DistError %q lacks %q", ver, d, want)
+			}
+		}
+		if d := load(ver, `prefix = "TUFS"`+"\ndelete = [\"TUFS130\"]").DistError; !strings.Contains(d, "prerelease") {
+			t.Errorf("%s with delete only: DistError %q", ver, d)
+		}
+		if p := load(ver, `fmid = "TUFS14D"`+"\ndelete = [\"TUFS130\"]"); p.DistError != "" {
+			t.Errorf("%s with fmid and delete: DistError %q", ver, p.DistError)
+		}
+	}
+	if p := load("1.4.0", ""); p.DistError != "" || table(table(p.Raw, "distribution"), "smp")["fmid"] != "TUFS140" {
+		t.Errorf("release: DistError %q", p.DistError)
 	}
 }
 
