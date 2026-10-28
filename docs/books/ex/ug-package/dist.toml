@@ -2,5 +2,5 @@
 readme = "README.md"
 
 [smp]
-prefix = "TSUM"
-delete = []                # the first level: nothing to replace
+fmid = "TTST100"              # a throwaway id: 1.0.0-dev is a prerelease
+delete = []                # nothing to replace

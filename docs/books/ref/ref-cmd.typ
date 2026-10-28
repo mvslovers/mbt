@@ -135,7 +135,8 @@ mbt dist
 ```
 
 Writes the SMP installation package again from the load TRANSMIT file
-already in #cmd("dist/"), without building.
+already in #cmd("dist/"), without building. It refuses the same versions as
+#cmd("mbt package") (@ref-cmd-package).
 
 == mbt doctor <ref-cmd-doctor>
 
@@ -204,9 +205,10 @@ Builds the load modules and the library and writes the release files into
 #cmd("dist/"): #var("name")#cmd("-")#var("version")#cmd("-load.xmit"),
 #cmd("-lib.tar.gz"), and, with #cmd("[distribution]"), the installation
 package #cmd("-dist.zip") and #cmd("-dist.tar.gz") (@ref-smp). A release
-version whose FMID cannot be derived is refused (@ref-toml-smp)\; a
-prerelease gets a warning and no installation package, and the other files
-are written.
+version whose FMID cannot be derived is refused (@ref-toml-smp), and so
+is a prerelease without an explicit #cmd("[smp] fmid") (@ref-smp-prerelease),
+with return code 2 and no installation package\; the other files are
+written.
 
 == mbt prerelease <ref-cmd-prerelease>
 
@@ -219,7 +221,9 @@ Tags the current commit #cmd("v")#var("version") with the version in
 and pushes it. The working tree must be clean, and the project must own the
 repository's tags: its project file is at the root, or it is the only one
 in the repository. A version without #cmd("-dev") or #cmd("-rc")#var("n")
-is refused.
+is refused. The release workflow that the tag starts runs
+#cmd("mbt package"), which refuses the prerelease of a product with an SMP
+package and no explicit #cmd("[smp] fmid") (@ref-smp-prerelease).
 
 == mbt release <ref-cmd-release>
 

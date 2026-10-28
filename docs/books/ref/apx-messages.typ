@@ -53,6 +53,9 @@ the way out.
     [#cmd("mbt.toml: [smp] fmid is explicit, so delete must be too: ...")],
       [name the FMID this release replaces, or write #cmd("delete = []")
       for a product's first level.],
+    [#cmd("version ... is a prerelease: the derived FMID ... is the release's, ...")],
+      [set #cmd("[smp] fmid") to a throwaway id, and #cmd("delete")
+      (@ref-smp-prerelease).],
     [#cmd("sources sharing a name: ... -- rename one")], [rename one of the
       two files.],
     [#cmd("... defines N targets and none is default")], [give

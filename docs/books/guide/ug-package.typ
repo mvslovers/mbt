@@ -66,7 +66,10 @@ modules:
 )
 
 #cmd("[smp]") describes the SMP side: above all the function identifier,
-and the data sets the modules pass through.
+and the data sets the modules pass through. The #cmd("fmid") of
+@ug-package-toml is set by hand because #cmd("sums") is at
+#cmd("1.0.0-dev"), a prerelease: MBT gives a prerelease no identifier of
+its own (@ug-package-prerelease).
 
 == The Installation Jobs <ug-package-jobs>
 
@@ -165,9 +168,9 @@ and MBT derives the rest from the version:
     invalid: every command stops, even
     #cmd("mbt build"). A patch release without an explicit #cmd("fmid")
     stops #cmd("mbt package") and #cmd("mbt release") for a final
-    version\; for a #cmd("-dev") version #cmd("mbt package") warns, leaves
-    out the installation package, and still writes the other files. The
-    check for a released patch tag needs the repository's tags, which a
+    version\; a prerelease without an explicit #cmd("fmid") stops
+    #cmd("mbt package") and #cmd("mbt dist") too (@ug-package-prerelease).
+    The check for a released patch tag needs the repository's tags, which a
     shallow CI checkout does not have: it takes effect where a release is
     prepared, on the workstation.],
   [*Every FMID once.*], [An identifier that was installed anywhere, even
@@ -178,6 +181,52 @@ and MBT derives the rest from the version:
 #cmd("E"). Before a new prefix is taken into use, check on the systems it
 will be installed on that no SYSMOD of that name exists
 (@ug-package-check).
+
+== Prereleases and Throwaway Identifiers <ug-package-prerelease>
+
+#idx("prerelease", "SMP package")#idx("FMID", "throwaway")
+A prerelease has no identifier of its own to derive. The identifier derived
+from #cmd("1.4.0-dev") is #cmd("TSUM140"), that of the release 1.4.0.
+Installing the prerelease build would spend it, and the release could no
+longer be installed under it on that system. The build would also own the
+modules, so that a patch release of the previous minor, shipped under an
+identifier of its own, installs nothing, with return code 0
+(@ug-package-check). So #cmd("mbt package") refuses a prerelease whose
+#cmd("[smp]") gives no #cmd("fmid"). With the project of @ug-package-toml
+and #cmd("prefix = \"TSUM\"") in place of the #cmd("fmid"):
+
+#fig(caption: [A prerelease without a throwaway identifier])[
+  #screen(raw(read("../ex/ug-package/prerelease.txt")))
+] <ug-package-prerelease-run>
+
+The load modules and the library archive are written, the installation
+package is not, and the return code is 2. #cmd("mbt dist") refuses the same
+way. A project with #cmd("[distribution]") that has no #cmd("[smp]")
+#cmd("fmid") must therefore set one before its first prerelease can be
+packaged: a *throwaway identifier*, one that no release will carry, and a
+#cmd("delete"), which an explicit #cmd("fmid") always needs. @ug-package-toml
+shows both, with #cmd("delete = []") because the build replaces nothing.
+
+#deflist(width: 1.2in,
+  [*Any seven characters.*], [MBT checks that the identifier is a letter
+    and six letters or digits, and no more. It does not check that it is
+    not the release's: #cmd("fmid = \"TSUM100\"") on #cmd("1.0.0-dev") is
+    accepted, and has the consequences above. Choose one that no release
+    will carry, for example under a prefix that no product uses.],
+  [*Spent once installed.*], [A throwaway identifier that was installed
+    anywhere is spent like any other (@ug-package-fmid).],
+  [*On a system that has the product.*], [A SYSMOD that replaces nothing does
+    not own the modules the product already has, so its elements come back
+    #cmd("NOT SEL") with return code 0. Give the modules of the throwaway
+    build names the product does not use, or install on a system without
+    the product. Naming the product's identifier in #cmd("delete") would
+    delete the installed level's modules.],
+  [*Before the release.*], [MBT does not notice a throwaway identifier at a
+    release: #cmd("1.0.0") with an explicit #cmd("fmid") is packaged under
+    it, without a warning. Remove #cmd("fmid") and #cmd("delete") from
+    #cmd("[smp]"), and put the #cmd("prefix") back, before
+    #cmd("mbt release") (@ug-release).],
+)
 
 == Upgrading an Installation <ug-package-upgrade>
 

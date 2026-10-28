@@ -1,0 +1,10 @@
+$ mbt package
+[cc370] app/sums.c
+[cc370] src/mean.c
+[as370] asm/addup.asm
+[ar370] sumsint.a (2 objects)
+[ar370] sums.a (2 objects)
+[ld370] SUMS (entry=@@CRT0)
+[mbt] Packaging sums-1.0.0-dev-load.xmit (1 module(s) -> SUMS.V1R0M0D.LINKLIB)
+[mbt] Packaging sums-1.0.0-dev-lib.tar.gz
+[mbt] ERROR: version 1.0.0-dev is a prerelease: the derived FMID TSUM100 is the release's, and an install of this build would spend it and block the release and patch releases of the previous minor (NOT SEL) -- set [smp] fmid and delete explicitly, to a throwaway id (Reference, SMP chapter)
