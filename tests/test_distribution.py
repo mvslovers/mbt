@@ -349,6 +349,16 @@ class ReceiveTest(unittest.TestCase):
                              "    /* VOLUME('CHANGE.ME') */ -")
             self.assertTrue(lines[i + 2].lstrip().startswith("DATASET("))
 
+    def test_install_job_header_tells_the_operator_about_the_volume_line(self):
+        # The commented VOLUME line is only usable if the header says what to
+        # do with it, and names MVS/CE, where it is needed.
+        tpl = (Path(__file__).parent.parent / "templates" / "jcl"
+               / "smpinst.jcl.tpl").read_text(encoding="utf-8")
+        header = tpl.split("WHAT THIS JOB DOES")[0]
+        self.assertIn("MVS/CE", header)
+        self.assertIn("VOLUME", header)
+        self.assertIn("steps 3 and 4", header)
+
     def test_targets_are_deleted_before_they_are_received(self):
         # RECEIVE refuses to merge, so without the DELETE the job runs once.
         del_at = self.jcl.index("DELETE")
