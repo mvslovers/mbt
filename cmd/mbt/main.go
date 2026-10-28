@@ -337,11 +337,6 @@ func runDist(p *project.Project, mtime time.Time) int {
 		return code
 	}
 	if p.DistError != "" {
-		if v, err := version.Parse(p.Version); err == nil && v.IsPre() {
-			// a development level after a release: nothing to install from it
-			fmt.Fprintf(os.Stderr, "[mbt] WARNING: no SMP package for %s: %s\n", p.Version, p.DistError)
-			return exitOK
-		}
 		fmt.Fprintf(os.Stderr, "[mbt] ERROR: %s\n", p.DistError)
 		return exitConfig
 	}
