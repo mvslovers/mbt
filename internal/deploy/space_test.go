@@ -30,10 +30,10 @@ func TestSpace(t *testing.T) {
 	if n, _ := NeededTracks("3390", 600000, 4); n != 19 {
 		t.Errorf("needed 3390 %d", n)
 	}
-	if s := NewLibrarySpace(5); s[1] != 30 || s[2] != 15 || s[3] != 20 {
+	if s := NewLibrarySpace(5, 3); s[1] != 30 || s[2] != 15 || s[3] != 20 {
 		t.Errorf("small %v", s)
 	}
-	if s := NewLibrarySpace(46); s[1] != 184 || s[2] != 46 {
+	if s := NewLibrarySpace(46, 3); s[1] != 184 || s[2] != 46 {
 		t.Errorf("large %v", s)
 	}
 }
@@ -42,7 +42,7 @@ func TestSpace(t *testing.T) {
 // name, and the volume named.
 func TestAllocStep(t *testing.T) {
 	dsn := "ABCDEFGH.ABCDEFGH.ABCDEFGH.ABCDEFGH.ABCDEFG"
-	st := (&Alloc{Volume: "PUB000", Space: NewLibrarySpace(46)}).step(dsn)
+	st := (&Alloc{Volume: "PUB000", Space: NewLibrarySpace(46, 3)}).step(dsn)
 	for _, l := range strings.Split(strings.TrimRight(st, "\n"), "\n") {
 		if len(l) > 71 {
 			t.Errorf("%d columns: %s", len(l), l)
@@ -65,7 +65,7 @@ func TestReallocSpace(t *testing.T) {
 	need, _ := NeededTracks("3390", bytes, 16)
 	total := 32
 	for run := 1; run <= 5; run++ {
-		s := ReallocSpace(map[string]string{"dev": "3390", "spacu": "TRACKS", "sizex": strconv.Itoa(total), "used": "67"}, bytes, 16)
+		s := ReallocSpace(map[string]string{"dev": "3390", "spacu": "TRACKS", "sizex": strconv.Itoa(total), "used": "67"}, bytes, 16, 16, 0)
 		want := 4 * need
 		if total > want {
 			want = total
@@ -79,12 +79,52 @@ func TestReallocSpace(t *testing.T) {
 		t.Errorf("grew to %d tracks, want %d", total, 4*need)
 	}
 	// never smaller than it was: a large library keeps its size
-	if s := ReallocSpace(map[string]string{"dev": "3390", "spacu": "TRACKS", "sizex": "900", "used": "10"}, bytes, 16); s[1] != 900 {
+	if s := ReallocSpace(map[string]string{"dev": "3390", "spacu": "TRACKS", "sizex": "900", "used": "10"}, bytes, 16, 16, 0); s[1] != 900 {
 		t.Errorf("shrank: %v", s)
 	}
 	// an unknown device: the fallback, as for a new library
-	if s := ReallocSpace(map[string]string{"dev": "9999"}, bytes, 16); s[1] != 120 || s[2] != 30 {
+	if s := ReallocSpace(map[string]string{"dev": "9999"}, bytes, 16, 16, 0); s[1] != 120 || s[2] != 30 {
 		t.Errorf("unknown device: %v", s)
+	}
+}
+
+// The directory follows the names to deploy: ceil((members + aliases) * 1.5 / 5)
+// blocks, 20 at least. 140 load modules took IEB148I in a library of 20.
+func TestDirBlocks(t *testing.T) {
+	for _, c := range []struct{ entries, want int }{
+		{0, 20}, {1, 20}, {60, 20}, {66, 20}, {67, 21},
+		{140, 42}, {141, 43}, {400, 120}, {10000, 3000},
+	} {
+		if got := DirBlocks(c.entries); got != c.want {
+			t.Errorf("DirBlocks(%d) = %d, want %d", c.entries, got, c.want)
+		}
+	}
+	// 140 modules, 10 aliases: 150 names, 45 blocks, in the new library
+	if s := NewLibrarySpace(300, 150); s[3] != 45 {
+		t.Errorf("new library for 150 names: %v", s)
+	}
+	st := (&Alloc{Volume: "PUB000", Space: NewLibrarySpace(300, 150)}).step("A.B.C")
+	if !strings.Contains(st, "SPACE=(TRK,(1200,300,45))") {
+		t.Errorf("%s", st)
+	}
+}
+
+// --reallocate: the same directory as for a new library, and not smaller
+// than what the old library's names call for (the list does not give its size).
+func TestReallocDirBlocks(t *testing.T) {
+	a := map[string]string{"dev": "3390", "spacu": "TRACKS", "sizex": "100", "used": "50"}
+	bytes := 16 * 3 * 56664 * 3 / 4
+	if s := ReallocSpace(a, bytes, 16, 140, 0); s[3] != 42 {
+		t.Errorf("140 names, no old library: %v", s)
+	}
+	if s := ReallocSpace(a, bytes, 16, 16, 400); s[3] != 120 {
+		t.Errorf("old library with 400 names: %v", s)
+	}
+	if s := ReallocSpace(a, bytes, 16, 300, 400); s[3] != 120 {
+		t.Errorf("floor wins over the deploy: %v", s)
+	}
+	if s := ReallocSpace(a, bytes, 16, 500, 400); s[3] != 150 {
+		t.Errorf("deploy wins over the floor: %v", s)
 	}
 }
 

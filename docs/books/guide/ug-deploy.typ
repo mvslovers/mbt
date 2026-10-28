@@ -99,9 +99,11 @@ to nothing.
 
 #idx("deploy", "first")
 *A library that does not exist yet* is allocated by the deploy job, with
-room for several deploys, on the target's volume if the target names one
-(#cmd("volume"), @ug-targets-file). MBT then checks that it landed on that
-volume, since an APF entry names a data set together with its volume.
+room for several deploys and a directory sized to its members and aliases
+(about three blocks for every ten names, 20 blocks at least), on the
+target's volume if the target names one (#cmd("volume"), @ug-targets-file).
+MBT then checks that it landed on that volume, since an APF entry names a
+data set together with its volume.
 Without a volume, the system chooses one, and there is nothing to check.
 
 *A running server keeps the modules it loaded.* A new member in the library
@@ -123,7 +125,9 @@ the numbers and the three ways out:
 - *#cmd("mbt deploy --reallocate")* deletes the library and allocates it
   again on the same volume, then deploys. The new library has room for
   several deploys of the current modules and is never smaller than the old
-  one, so running it again does not make it grow. Before the delete, a
+  one, so running it again does not make it grow. Its directory has the
+  blocks the modules and aliases call for, and at least as many as the old
+  library's member names would need. Before the delete, a
   short job allocates the new size on the volume and releases it again: if
   the volume has no room, MBT stops there and the old library stays as it
   was. It works only while nothing holds the library: otherwise the delete
@@ -134,7 +138,9 @@ the numbers and the three ways out:
 
 The free entries of the library's directory cannot be measured from the
 workstation\; a library with many members can run out of directory blocks
-before it runs out of tracks.
+before it runs out of tracks. A library that MBT allocates gets a directory
+sized to the deploy, but it does not grow: one that took on more names later
+needs #cmd("--reallocate").
 
 #note[*Libraries from earlier deploys.* Earlier versions of MBT deleted the
 library on every deploy and received it afresh, sized to its content, so

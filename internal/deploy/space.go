@@ -56,10 +56,22 @@ func FreeTracks(a map[string]string) (free, total int, ok bool) {
 	return total * (100 - used) / 100, total, true
 }
 
+// DirBlocks sizes a library's directory for entries names (members and
+// aliases): five names to the block with a half again as many for growth,
+// ceil(entries * 1.5 / 5), and never fewer than 20 blocks. A block holds
+// about six names; the user data a load module carries makes it fewer.
+func DirBlocks(entries int) int {
+	n := (entries*3 + 9) / 10
+	if n < 20 {
+		n = 20
+	}
+	return n
+}
+
 // NewLibrarySpace sizes a library mbt allocates itself: room for several
-// deploys before a compress, a secondary for growth, and directory blocks
-// for many members and aliases (six names per block).
-func NewLibrarySpace(needed int) []any {
+// deploys before a compress, a secondary for growth, and a directory for
+// entries names (members and aliases).
+func NewLibrarySpace(needed, entries int) []any {
 	primary := needed * 4
 	if primary < 30 {
 		primary = 30
@@ -68,7 +80,7 @@ func NewLibrarySpace(needed int) []any {
 	if secondary < 15 {
 		secondary = 15
 	}
-	return []any{"TRK", primary, secondary, 20}
+	return []any{"TRK", primary, secondary, DirBlocks(entries)}
 }
 
 // ReallocSpace sizes the library --reallocate allocates in place of the one
@@ -76,14 +88,19 @@ func NewLibrarySpace(needed int) []any {
 // NewLibrarySpace has it, and never smaller than the old library. The old
 // size is a floor, not a base: multiplying it again on every run made the
 // library grow fourfold per --reallocate until the volume refused it.
-func ReallocSpace(a map[string]string, bytes, members int) []any {
+// The data set list does not name the old directory size, so its floor is
+// the directory the old library's oldEntries names call for.
+func ReallocSpace(a map[string]string, bytes, members, entries, oldEntries int) []any {
 	need, ok := NeededTracks(a["dev"], bytes, members)
 	if !ok {
 		need = 30
 	}
-	s := NewLibrarySpace(need)
+	s := NewLibrarySpace(need, entries)
 	if _, total, ok := FreeTracks(a); ok && total > s[1].(int) {
 		s[1] = total
+	}
+	if d := DirBlocks(oldEntries); d > s[3].(int) {
+		s[3] = d
 	}
 	return s
 }
