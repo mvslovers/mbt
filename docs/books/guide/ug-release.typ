@@ -79,6 +79,15 @@ the archive behind it changes too, and the dependent project's
 #cmd("mbt deps") refuses the new one until #cmd("mbt deps --update")
 accepts it (@ug-deps-lock).
 
+#cmd("mbt prerelease") itself does not package. The release workflow that
+the tag starts does (@ug-release-ci), and for a product with an SMP package
+and no #cmd("[smp] fmid") it stops at the #cmd("Package") step: a prerelease
+gets no derived identifier, and nothing is published. Such a product sets a
+throwaway #cmd("fmid") and a #cmd("delete") before its first prerelease
+(@ug-package-prerelease), and takes them out again before
+#cmd("mbt release"). A project without #cmd("[distribution]") is not
+affected.
+
 == The Workflows <ug-release-ci>
 
 #idx("GitHub Actions")#idx("build3.yml")#idx("release3.yml")

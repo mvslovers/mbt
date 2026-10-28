@@ -282,7 +282,8 @@ first four characters of #var("NAME").
     letters, by convention\; not checked.],
   [#cmd("fmid")], [#var("prefix") + major + minor + #cmd("0")], [the FMID,
     seven characters, a letter and six letters or digits. Required for a
-    version whose patch number is not 0.],
+    version whose patch number is not 0, and for a prerelease
+    (@ref-smp-prerelease).],
   [#cmd("delete")], [with a derived #cmd("fmid"): #var("prefix") + major +
     (minor − 1) + #cmd("0")\; with an explicit one: none], [the FMIDs this
     release replaces. Required with an explicit #cmd("fmid"), and with a
@@ -304,8 +305,9 @@ For a release version, #cmd("mbt package") refuses a version whose patch
 number is not 0 without
 an explicit #cmd("fmid"), and a derived #cmd("delete") for #var("x")#cmd(".")#var("y")#cmd(".0")
 when the repository has a release tag #var("x")#cmd(".")#var("y−1")#cmd(".")#var("p")
-with #var("p") > 0. For #cmd("-dev") and #cmd("-rc")#var("n") versions it
-warns and writes no installation package. The tag check needs the
+with #var("p") > 0. It refuses a #cmd("-dev") or #cmd("-rc")#var("n") version
+without an explicit #cmd("fmid"), and writes no installation package
+(@ref-smp-prerelease). The tag check needs the
 repository's tags, which a shallow clone does not have.
 
 == [release] <ref-toml-release>
