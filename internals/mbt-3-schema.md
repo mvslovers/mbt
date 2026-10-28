@@ -111,7 +111,9 @@ exclude`.
 | `aliases` | `[]` | same |
 
 `norent` / `noreus` are gone; `mbt migrate` writes `rent = false` /
-`reus = false`.
+`reus = false`, also for `norent = false` / `noreus = false` (with a `NOTE`):
+mbt 2 passed no flag for those, ld370 links a module neither RENT nor REUS
+unless asked, so `rent = true` would build a different load module.
 
 ## Tests
 

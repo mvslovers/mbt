@@ -310,10 +310,12 @@ def _link_attrs(mod: dict, name: str) -> list[str]:
 
     A declared attribute is passed explicitly in BOTH directions -- rent = true
     gives --rent, rent = false gives --norent -- so the load module does not
-    depend on ld370's default.  That default is RENT+REUS today and becomes
-    'neither' (what IEWL does) once cc370#100 ships; with both directions
-    spelled out, that change alters no build that declared its attributes.
+    depend on ld370's default (cc370#100 changed it from RENT+REUS to
+    'neither', what IEWL does); with both directions spelled out, that change
+    altered no build that declared its attributes.
     An undeclared attribute passes nothing and keeps whatever ld370 does.
+    ld370 links a module neither RENT nor REUS unless asked (as IEWL does);
+    --norent / --noreus are accepted and change nothing on their own.
     REFR has no negative flag in ld370 and is off unless asked for.
 
     Why it matters: cc370 keeps a module's writable statics in the CSECT, and
@@ -322,7 +324,8 @@ def _link_attrs(mod: dict, name: str) -> list[str]:
     the module has no writable data; mbtmoddata.py checks it.
 
     norent / noreus are the old spelling: still accepted, mapped to rent /
-    reus = false, with a warning.
+    reus = false, with a warning.  norent = false (noreus = false) passes
+    no flag at all: the module is not RENT (not REUS).
     """
     want = {}
     for attr in ("rent", "reus", "refr"):
