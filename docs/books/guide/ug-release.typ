@@ -84,8 +84,8 @@ the tag starts does (@ug-release-ci), and for a product with an SMP package
 and no #cmd("[smp] fmid") it stops at the #cmd("Package") step: a prerelease
 gets no derived identifier, and nothing is published. Such a product sets a
 throwaway #cmd("fmid") and a #cmd("delete") before its first prerelease
-(@ug-package-prerelease), and takes them out again before
-#cmd("mbt release"). A project without #cmd("[distribution]") is not
+(@ug-package-prerelease), and takes the #cmd("fmid") out again before
+#cmd("mbt release"), with the throwaway identifier named in #cmd("delete"). A project without #cmd("[distribution]") is not
 affected.
 
 == The Workflows <ug-release-ci>

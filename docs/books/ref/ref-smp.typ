@@ -173,12 +173,107 @@ delete = []
 
 MBT does not notice a throwaway identifier at a release. The version
 #cmd("1.4.0") with an explicit #cmd("fmid") is packaged under that
-#cmd("fmid"), without a warning. Remove #cmd("fmid") and #cmd("delete")
-from #cmd("[smp]") again, and put #cmd("prefix") back, before
-#cmd("mbt release") (_MBT User's Guide_, "Releasing").
+#cmd("fmid"), without a warning. Remove #cmd("fmid") from #cmd("[smp]")
+again, put #cmd("prefix") back, and set #cmd("delete") as
+@ref-smp-replace describes, before #cmd("mbt release")
+(_MBT User's Guide_, "Releasing").
 
 #cmd("mbt prerelease") tags the commit and does not package\; the release
 workflow does, on the tag (_MBT User's Guide_, "The Workflows"). For a product with
 #cmd("[distribution]") and a derived FMID, the #cmd("Package") step of
 #cmd("release3.yml") fails with the message above and nothing is published,
 until the project sets a throwaway #cmd("fmid") and #cmd("delete").
+
+
+== Replacing a Throwaway Installation <ref-smp-replace>
+
+#idx("FMID", "throwaway, replacing")#idx("DELETE", "throwaway")
+The release replaces a throwaway installation the way it replaces its
+predecessor: it names the throwaway identifier in #cmd("delete"). MBT derives
+only the identifier of the previous minor. A #cmd("delete") that is set takes
+the place of the derived one, it does not add to it. After a throwaway
+#cmd("TTST1D0") was installed, the release 1.1.0 therefore names both:
+
+```toml
+[smp]
+prefix = "TSUM"
+delete = ["TSUM100", "TTST1D0"]
+```
+
+For a release #var("x")#cmd(".0.0") there is no derived #cmd("delete") at all\;
+set it to the throwaway identifier next to whatever the release replaces,
+or to #cmd("[]") for a first level that no throwaway build was installed
+for. Take #cmd("fmid") out and put #cmd("prefix") back, as above.
+
+The following was observed on a scratch MVS/CE system with SMP4, with small
+C modules that SMP copies from a #cmd("++JCLIN"), as MBT writes them
+(@ref-smp-sysmod). It was not observed on TK5, nor with other element types
+such as macros, source or modules shared by several load modules.
+
+#deflist(width: 1.4in,
+  [*The throwaway is named*], [The release is received, applied and
+    accepted. It becomes the owner of the modules in the target zone and in
+    the distribution zone. #cmd("LIST") shows the throwaway identifier and
+    the previous minor as deleted, with #cmd("DELBY") naming the release.
+    The target and the distribution library hold exactly the modules of the
+    release, and the modules report the release's version when they run.
+    The #cmd("APPLY") ends with return code 4 and #cmd("HMA2461") for every
+    identifier in #cmd("delete") that is installed, as in an upgrade
+    (_MBT User's Guide_, "Upgrading an Installation").],
+  [*The throwaway has modules of its own names*], [They are deleted from both
+    libraries, with #cmd("HMA2240") for each, and the release installs its
+    own. A throwaway build whose modules carry names the product does not
+    use leaves nothing behind once it is named in #cmd("delete").],
+  [*The throwaway was never installed*], [Naming it costs nothing. SMP
+    gives no message and no return code for it. It does record the
+    identifier as deleted by the release, in both zones, so it is spent.
+    List every throwaway identifier that may be installed on any system the
+    release goes to.],
+  [*Several throwaway levels*], [A second throwaway build can name the first in
+    its own #cmd("delete"), and the release can name the whole chain. The
+    release then owns the modules, all identifiers are recorded as deleted,
+    and the libraries hold only the release's modules. Installing the same
+    throwaway identifier again, while it is installed, ends with return
+    code 0.],
+)
+
+*The throwaway is not named.* Two things can happen, and in both every step
+can end with return code 0:
+
+- *The release has the module names of the throwaway build.* #cmd("RECEIVE"),
+  #cmd("APPLY") and #cmd("ACCEPT") all end with return code 0, and no
+  #cmd("HMA2380") message appears for any module. The elements of the
+  release come back #cmd("NOT SEL") against the release's own SYSMOD. The
+  release is recorded as applied and accepted, but it owns no module. The
+  throwaway build stays the owner, and it is what runs.
+- *The release has other module names.* It installs, and the throwaway build
+  stays installed beside it, with its modules and its identifier not
+  deleted.
+
+#note[In the element summary of a correct upgrade, a module the release
+applied also shows a line #cmd("NOT SEL") that ends in #cmd("DELETED"): that
+is the deleted SYSMOD, which SMP does not select, and it is normal. The
+failure is a module that is #cmd("NOT SEL") against the *new* SYSMOD, with no
+#cmd("HMA2380").]
+
+*Checking.* The return code does not tell the two cases from a replacement.
+What does (_MBT User's Guide_, "Checking an Installation"):
+
++ #cmd("HMA2380 COPY SUCCESSFUL") for each module and each library, with the
+  release's identifier as #cmd("SYSMOD"), in the #cmd("APPLY") and in the
+  #cmd("ACCEPT")\;
++ #cmd("LIST") of the release and of the throwaway identifier in both zones:
+  the release applied and accepted, the other with #cmd("DELBY") naming the
+  release\;
++ #cmd("LIST") of the modules, with the release as the last updater\;
++ the member lists of the target and the distribution library.
+
+*A library of its own.* A #cmd("DELETE") acts on the library that the DD name
+of the deleting job resolves to. A throwaway installed into a target library
+of its own, set with #cmd("[smp] target"), is not cleaned by the release,
+whose job points at the product's library. Its modules stay and run from that
+library, and a library that comes earlier in the STEPLIB than the product's
+hides the release's modules. Take such a library out of the STEPLIB, or delete
+it, after the release is installed. For the same reason a throwaway build
+that names the product's identifier in #cmd("delete") deletes the modules of
+the installed level only in its own target library.

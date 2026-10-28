@@ -223,9 +223,14 @@ shows both, with #cmd("delete = []") because the build replaces nothing.
     delete the installed level's modules.],
   [*Before the release.*], [MBT does not notice a throwaway identifier at a
     release: #cmd("1.0.0") with an explicit #cmd("fmid") is packaged under
-    it, without a warning. Remove #cmd("fmid") and #cmd("delete") from
-    #cmd("[smp]"), and put the #cmd("prefix") back, before
-    #cmd("mbt release") (@ug-release).],
+    it, without a warning. Remove #cmd("fmid") from #cmd("[smp]"), put the
+    #cmd("prefix") back, and name the throwaway identifier in #cmd("delete")
+    next to the previous minor's, before #cmd("mbt release") (@ug-release).
+    A #cmd("delete") that is set replaces the derived one. Without the
+    throwaway identifier in it, a system that carries the throwaway build
+    gets a release that installs nothing, or that stands beside the build,
+    with return code 0\; the Reference describes both (_MBT Reference_,
+    "Replacing a Throwaway Installation").],
 )
 
 == Upgrading an Installation <ug-package-upgrade>
