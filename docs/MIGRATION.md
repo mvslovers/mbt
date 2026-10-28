@@ -104,7 +104,10 @@ What you will notice after migrating:
   first build after migrating therefore lists them in a different order. The
   load modules themselves do not change.
 - **`rent` and `reus` must be stated on every module.** `norent = true` becomes
-  `rent = false`.
+  `rent = false`. So does `norent = false` (and `noreus = false` becomes
+  `reus = false`), with a `NOTE`: mbt 2 passed no flag for it, so the module
+  was never reentrant, and the migration keeps the load module as it is. Write
+  `rent = true` yourself if the module really is reentrant.
 - **`[build]` shrinks to what is project-specific.** `include/` is on the
   include path by convention, and `-Wall -Wextra -Werror` are mbt's own
   defaults. `mbt migrate` leaves all three out (with a `NOTE`, and without

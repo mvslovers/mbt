@@ -257,3 +257,54 @@ target = "P.DEV.LINKLIB"
 		t.Errorf("notes: %s", n)
 	}
 }
+
+// norent = false / noreus = false pass no flag in mbt 2, so ld370 links the
+// module neither RENT nor REUS; the conversion must write rent = false /
+// reus = false (same load module) and say so.  norent = true stays rent = false.
+func TestNorentNoreusFalse(t *testing.T) {
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "src"), 0o755)
+	os.WriteFile(filepath.Join(root, "src", "a.c"), []byte("int main(void){return 0;}\n"), 0o644)
+	os.WriteFile(filepath.Join(root, "project.toml"), []byte(`[project]
+name = "p"
+version = "1.0.0-dev"
+type = "application"
+
+[[module]]
+name = "OFF"
+norent = false  # not non-reentrant
+noreus = false
+sources = ["src/a.c"]
+
+[[module]]
+name = "ON"
+norent = true
+noreus = true
+sources = ["src/a.c"]
+`), 0o644)
+	res, err := Convert(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"[module.OFF]\nrent = false  # not non-reentrant\nreus = false\n",
+		"[module.ON]\nrent = false\nreus = false\n",
+	} {
+		if !strings.Contains(res.Text, want) {
+			t.Errorf("missing:\n%s\n--- in:\n%s", want, res.Text)
+		}
+	}
+	n := strings.Join(res.Notices, "\n")
+	for _, want := range []string{"module OFF: 'norent = false'", "module OFF: 'noreus = false'"} {
+		if !strings.Contains(n, want) {
+			t.Errorf("no note %q in:\n%s", want, n)
+		}
+	}
+	if strings.Contains(n, "module ON:") {
+		t.Errorf("norent = true got a note:\n%s", n)
+	}
+	diffs, err := Check(root, res.Text)
+	if err != nil || len(diffs) > 0 {
+		t.Errorf("check: %v %v", err, diffs)
+	}
+}

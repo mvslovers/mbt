@@ -52,7 +52,12 @@ What you will notice in the new file:
   shows, so the first build lists them in a different order. The load
   modules do not change.
 - *#cmd("rent") and #cmd("reus") are stated on every module*;
-  #cmd("norent = true") becomes #cmd("rent = false").
+  #cmd("norent = true") becomes #cmd("rent = false"). So does
+  #cmd("norent = false") (and #cmd("noreus = false") becomes
+  #cmd("reus = false")), with a #cmd("NOTE"): MBT 2 passed no flag for it, so
+  the module was never reentrant, and the migration keeps the load module as
+  it is. Write #cmd("rent = true") yourself if the module really is
+  reentrant.
 - *#cmd("[build]") is shorter.* #cmd("include/") is on the include path by
   convention, and #cmd("-Wall -Wextra -Werror") are MBT's own, so the
   migration leaves all three out. Other #cmd("-I") pairs move to

@@ -596,9 +596,15 @@ func (c *converter) unit(b *block, raw map[string]any, kind string) (*block, err
 			verbatim(ob, e)
 		case "norent", "noreus":
 			a := strings.TrimPrefix(e.Key, "no")
+			line := e.Lines[0]
 			if v, _ := raw[e.Key].(bool); v {
-				add(ob, e.Lead, rekey(&entry{Key: e.Key, Lines: []string{strings.Replace(e.Lines[0], "true", "false", 1)}}, a))
+				line = strings.Replace(line, "true", "false", 1)
+			} else {
+				// mbt 2 passes no flag for norent = false, so ld370 links the
+				// module neither RENT nor REUS; rent = true would change it
+				c.notice("%s %s: '%s = false' was written as '%s = false' -- mbt 2 never made the module %s, it only passed no flag; set '%s = true' yourself if it should be", kind, name, e.Key, a, strings.ToUpper(a), a)
 			}
+			add(ob, e.Lead, rekey(&entry{Key: e.Key, Lines: []string{line}}, a))
 		case "sources":
 			if kind == "test" && c.implicit[name] && !commented {
 				continue
