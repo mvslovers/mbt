@@ -67,7 +67,10 @@ them.
     library\; #cmd("SET MAXCC=0").],
   [#cmd("RECV")#var("n")], [IKJEFT01: #cmd("RECEIVE INDSN(...)
     DATASET(...)") for each TRANSMIT file. The names to edit are marked
-    #cmd("CHANGE.ME").],
+    #cmd("CHANGE.ME"). Each #cmd("RECEIVE") also carries a commented
+    #cmd("VOLUME('CHANGE.ME')") line: harmless as shipped (TK5), to be
+    uncommented and given a volume where #cmd("RECEIVE") needs one (usually
+    MVS/CE, #cmd("PUB000") on a stock system).],
   [#cmd("RECV")], [SMP #cmd("RESETRC") and #cmd("RECEIVE SELECT(")#var("fmid")#cmd(")")
     of the SYSMOD, inline in the job (#cmd("DD DATA,DLM=@@")), if the last
     #cmd("RECV")#var("n") ended with 0.],

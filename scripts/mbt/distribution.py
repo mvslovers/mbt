@@ -698,6 +698,7 @@ def render_receive_steps(plan: list[tuple[str, str, str, str]]) -> str:
             "//SYSTSPRT DD  SYSOUT=*",
             "//SYSTSIN  DD  *",
             f"  RECEIVE INDSN('{placeholder}') -",
+            f"    /* VOLUME('{XMIT_EDIT_PREFIX}') */ -",
             f"    DATASET('{dsn}')",
             "/*",
         ]

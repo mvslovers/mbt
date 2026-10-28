@@ -337,6 +337,18 @@ class ReceiveTest(unittest.TestCase):
         for ph in placeholders:
             self.assertTrue(ph.startswith(D.XMIT_EDIT_PREFIX), ph)
 
+    def test_every_receive_carries_a_commented_volume_line(self):
+        # MVS/CE wants a VOLUME on the RECEIVE, TK5 runs without; the line
+        # ships as a TSO comment between INDSN and DATASET, so deleting it
+        # cannot leave a dangling continuation.
+        lines = self.jcl.splitlines()
+        receives = [i for i, l in enumerate(lines) if "RECEIVE INDSN" in l]
+        self.assertEqual(len(receives), len(self.plan))
+        for i in receives:
+            self.assertEqual(lines[i + 1],
+                             "    /* VOLUME('CHANGE.ME') */ -")
+            self.assertTrue(lines[i + 2].lstrip().startswith("DATASET("))
+
     def test_targets_are_deleted_before_they_are_received(self):
         # RECEIVE refuses to merge, so without the DELETE the job runs once.
         del_at = self.jcl.index("DELETE")
