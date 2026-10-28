@@ -430,7 +430,15 @@ func parse(name string, m map[string]any) (*Target, bool, error) {
 		if p, ok := s["port"].(int64); ok {
 			t.TN3270.Port = int(p)
 		}
-		t.TN3270.TLS, _ = s["tls"].(bool)
+		if v, ok := s["tls"]; ok {
+			b, isBool := v.(bool)
+			if !isBool {
+				return nil, false, fmt.Errorf("%s: tls must be true or false", w)
+			}
+			if b {
+				return nil, false, fmt.Errorf("%s: tls = true is not supported: TLS for TN3270 is not implemented yet, and the TSO logon would go out in clear; remove the key or set tls = false", w)
+			}
+		}
 		if v, ok := s["size"]; ok {
 			z, isStr := v.(string)
 			if !isStr {

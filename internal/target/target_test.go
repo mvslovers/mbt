@@ -135,6 +135,8 @@ func TestLoadRefuses(t *testing.T) {
 		"more than one default":                  "[target.a]\ndefault = true\n[target.a.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.b]\ndefault = true\n[target.b.mvsmf]\nurl = \"http://b:1\"\nuser = \"U\"\n",
 		"every system is a [target.NAME]":        "[mvsdev]\nhost = \"x\"\n",
 		"write COLSxROWS":                        "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.tn3270]\nhost = \"h\"\nsize = \"43x80\"\n",
+		"TLS for TN3270 is not implemented yet":  "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.tn3270]\nhost = \"h\"\ntls = true\n",
+		"tls must be true or false":              "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.tn3270]\nhost = \"h\"\ntls = \"yes\"\n",
 		"size must be a string":                  "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\n[target.x.tn3270]\nhost = \"h\"\nsize = 4\n",
 		"\"session\" (the default) or \"basic\"": "[target.x.mvsmf]\nurl = \"http://a:1\"\nuser = \"U\"\nauth = \"token\"\n",
 	} {
