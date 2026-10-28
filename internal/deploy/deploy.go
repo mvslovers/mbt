@@ -40,10 +40,11 @@ const (
 type Options struct {
 	Root, BuildDir, LD string
 	Project, Version   string
-	Modules            []string // [[module]] names, in order
-	Target             string   // --target
-	ProjectTarget      string   // [deploy] target
-	Only               []string // --module
+	Modules            []string            // [[module]] names, in order
+	Aliases            map[string][]string // a module's aliases: each takes a directory entry
+	Target             string              // --target
+	ProjectTarget      string              // [deploy] target
+	Only               []string            // --module
 	DryRun, Verbose    bool
 	// Volume is where Receive puts a library (mbt test --mvs's TESTLIB):
 	// "" for the target's volume
@@ -206,16 +207,24 @@ func Run(o Options) int {
 			bytes += int(st.Size())
 		}
 	}
+	entries := len(built)
+	for _, m := range built {
+		entries += len(o.Aliases[m])
+	}
 	step := func() error {
 		attrs, exists := c.DatasetAttrs(target)
 		fresh := false
 		var alloc *Alloc
 		if exists && o.Reallocate {
 			vol := attrs["vol"]
-			alloc = &Alloc{Volume: vol, Space: ReallocSpace(attrs, bytes, len(built))}
+			old, err := c.Members(target)
+			if err != nil {
+				o.warn("cannot list %s to size its directory (%v) -- the new directory follows the %d name(s) of this deploy only", target, err, entries)
+			}
+			alloc = &Alloc{Volume: vol, Space: ReallocSpace(attrs, bytes, len(built), entries, len(old))}
 			// the delete cannot be undone, so first prove the volume has
 			// room for the new size: a job that allocates it and lets go
-			o.log("Reallocating %s on %s as %v tracks (--reallocate: deleted and allocated again)...", target, vol, alloc.Space[1])
+			o.log("Reallocating %s on %s as %v tracks, %v directory blocks (--reallocate: deleted and allocated again)...", target, vol, alloc.Space[1], alloc.Space[3])
 			probe := fmt.Sprintf("%s.%s.MBTPROBE", o.Config.HLQ(), MVSQualifier(o.Project))
 			if err := Probe(&o, c, probe, alloc); err != nil {
 				return err
@@ -233,8 +242,8 @@ func Run(o Options) int {
 				n = 30
 			}
 			vol := o.Config.Volume()
-			o.log("Allocating %s (%s, room for several deploys)...", target, orAny(vol))
-			alloc = &Alloc{Volume: vol, Space: NewLibrarySpace(n)}
+			alloc = &Alloc{Volume: vol, Space: NewLibrarySpace(n, entries)}
+			o.log("Allocating %s (%s, room for several deploys, %v directory blocks)...", target, orAny(vol), alloc.Space[3])
 		} else if free, total, ok := FreeTracks(attrs); !ok {
 			o.warn("cannot measure the free space of %s (device %s, %s) -- copying without the check", target, attrs["dev"], attrs["spacu"])
 		} else if need, _ := NeededTracks(attrs["dev"], bytes, len(built)); need > free && !o.IgnoreSpace {

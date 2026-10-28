@@ -1647,8 +1647,10 @@ func cmdDeploy(args []string) int {
 		return exitConfig
 	}
 	var names []string
+	aliases := map[string][]string{}
 	for _, m := range p.Modules {
 		names = append(names, m.Name)
+		aliases[m.Name] = m.Aliases
 	}
 	pt, _ := rawTable(p.Raw, "deploy")["target"].(string)
 	cfg, client, code := connect(root, *targetName, !*dry)
@@ -1656,7 +1658,7 @@ func cmdDeploy(args []string) int {
 		return code
 	}
 	code = deploy.Run(deploy.Options{Root: root, BuildDir: "build", LD: t.LD, Project: p.Name, Version: p.Version,
-		Modules: names, Target: *linklib, ProjectTarget: pt, Only: mods, DryRun: *dry, Verbose: *verbose,
+		Modules: names, Aliases: aliases, Target: *linklib, ProjectTarget: pt, Only: mods, DryRun: *dry, Verbose: *verbose,
 		IgnoreSpace: *ignoreSpace, Reallocate: *reallocate,
 		Out: os.Stdout, Err: os.Stderr, Config: cfg, Client: client})
 	if code != exitOK {

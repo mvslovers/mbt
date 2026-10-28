@@ -102,8 +102,8 @@ development library on a target, replacing members of the same name. The library
   [#cmd("--ignore-space")], [copy although the free space of the library
     looks too small.],
   [#cmd("--reallocate")], [delete the library and allocate it again on
-    the same volume -- room for several deploys, never smaller than before
-    -- then deploy. A probe job checks the volume has the room before the
+    the same volume -- room for several deploys and a directory for all
+    members and aliases, never smaller than before -- then deploy. A probe job checks the volume has the room before the
     delete. Refused while the library is held.],
 )
 
