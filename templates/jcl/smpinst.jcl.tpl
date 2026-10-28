@@ -9,7 +9,7 @@ $JOBCARD
 //*   2. upload the shipped .xmit files to MVS in BINARY
 //*      (RECFM=FB, LRECL=80) -- any dataset names you like
 //*   3. replace every $EDIT_PREFIX.* below with the names you used
-//*   4. MVS/CE usually needs a volume on each RECEIVE: take the
+//*   4. MVS/CE may need a volume on each RECEIVE: take the
 //*      comment marks off the VOLUME line there and name the volume
 //*      (PUB000 on a stock MVS/CE). On TK5 leave those lines alone.
 //*      ------ steps 3 and 4 are the only edits the job needs ------
