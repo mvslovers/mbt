@@ -237,8 +237,8 @@ such as macros, source or modules shared by several load modules.
     code 0.],
 )
 
-*The throwaway is not named.* Two things can happen, and in both every step
-can end with return code 0:
+*The throwaway is not named.* Two things can happen. Neither is an error for
+SMP:
 
 - *The release has the module names of the throwaway build.* #cmd("RECEIVE"),
   #cmd("APPLY") and #cmd("ACCEPT") all end with return code 0, and no
@@ -256,8 +256,8 @@ is the deleted SYSMOD, which SMP does not select, and it is normal. The
 failure is a module that is #cmd("NOT SEL") against the *new* SYSMOD, with no
 #cmd("HMA2380").]
 
-*Checking.* The return code does not tell the two cases from a replacement.
-What does (_MBT User's Guide_, "Checking an Installation"):
+*Checking.* Do not rely on the return code to tell these cases from a
+replacement. What does (_MBT User's Guide_, "Checking an Installation"):
 
 + #cmd("HMA2380 COPY SUCCESSFUL") for each module and each library, with the
   release's identifier as #cmd("SYSMOD"), in the #cmd("APPLY") and in the

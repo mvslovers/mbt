@@ -229,7 +229,7 @@ shows both, with #cmd("delete = []") because the build replaces nothing.
     A #cmd("delete") that is set replaces the derived one. Without the
     throwaway identifier in it, a system that carries the throwaway build
     gets a release that installs nothing, or that stands beside the build,
-    with return code 0\; the Reference describes both (_MBT Reference_,
+    and no step fails\; the Reference describes both (_MBT Reference_,
     "Replacing a Throwaway Installation").],
 )
 
