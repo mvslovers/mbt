@@ -171,6 +171,7 @@ func renderReceiveSteps(plan []recv) string {
 			"//SYSTSPRT DD  SYSOUT=*",
 			"//SYSTSIN  DD  *",
 			fmt.Sprintf("  RECEIVE INDSN('%s') -", r.placeholder),
+			"    /* VOLUME('"+xmitEditPrefix+"') */ -",
 			fmt.Sprintf("    DATASET('%s')", r.dsn),
 			"/*")
 	}
