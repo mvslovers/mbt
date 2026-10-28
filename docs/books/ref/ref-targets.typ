@@ -84,8 +84,9 @@ For #cmd("mbt test --tso").
   [Key], [Default], [Meaning],
   [#cmd("host")], [required], [the host.],
   [#cmd("port")], [#cmd("3270")], [the port.],
-  [#cmd("tls")], [#cmd("false")], [reserved\; not yet used: connections
-    are plain TCP.],
+  [#cmd("tls")], [#cmd("false")], [not supported yet\; #cmd("tls = true") is
+    rejected when the file is loaded, because connections are plain TCP and
+    the TSO logon would go out in clear. #cmd("tls = false") is accepted.],
   [#cmd("user")], [none], [the TSO user ID the tests log on with.],
   [#cmd("password")], [none], [its password.],
   [#cmd("size")], [#cmd("\"80x24\"")], [the terminal's screen,
