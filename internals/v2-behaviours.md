@@ -40,7 +40,6 @@ Open v2 issues are the other half of the requirements; they are sorted in
 | The installed libc370 is checked against the pin: older fails, newer warns only on release | nothing checked it; an exact check blocked normal work | #69, #71 | yes |
 | The libc370 version is read from the stamp in `libc.a` (EBCDIC), both stamp spellings | the sysroot has no other version marker | `mbt/sysroot.py` | yes |
 | A consumer can hold a libc370 ref in CI during a migration | the 2.0 migration | #121, `build.yml` input | no |
-| The `VERSION` file in this repository is mbt 2's version (last release 2.2.0, no longer bumped) and stays. `mbtconfig.py` (`MBT_VERSION`, fallback `unknown`), `mbtbootstrap.py` and `mvspackage.py` (package manifest, fallback `0.0.0`) read it from the submodule path. mbt 3 takes its version from the release tag and does not read the file | a mbt 2 consumer that raises its submodule pin must keep a real `MBT_VERSION`; removing the file would turn it into `unknown` / `0.0.0` | #308 | yes (`test_version_file.py`) |
 
 ## 3. Dependencies
 

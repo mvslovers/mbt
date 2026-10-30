@@ -1,14 +1,14 @@
-"""The mbt 2 VERSION file and the three legacy scripts that read it.
+"""The legacy scripts that read a VERSION file next to the mbt checkout.
 
-VERSION belongs to mbt 2 (last release 2.2.0, no longer bumped). mbt 3 takes
-its version from the release tag. A mbt 2 consumer that moves its submodule
-pin still reads VERSION through MBT_VERSION and the package manifest, so
-each reader needs a defined result with and without the file.
+mbt takes its version from the release tag; the repository has no VERSION
+file. scripts/legacy/mbtbootstrap.py and mvspackage.py resolve the file from
+scripts/ (not the repository root), and mbtconfig.py only finds it through
+MBT_ROOT, so each reader has a defined fallback. These tests load the real
+modules from scripts/legacy/ without touching their paths.
 """
 
 import importlib.util
 import os
-import re
 import sys
 import tempfile
 import unittest
@@ -36,17 +36,30 @@ def _load_legacy(name):
     return mod
 
 
-class CommittedVersionFileTest(unittest.TestCase):
-    def test_is_a_plain_release_version(self):
-        text = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
-        self.assertRegex(text, r"^\d+\.\d+\.\d+$")
-
-    def test_is_still_mbt_2(self):
-        major = int((ROOT / "VERSION").read_text(encoding="utf-8").split(".")[0])
-        self.assertEqual(major, 2)
+def _env_without_mbt_root():
+    env = {k: v for k, v in os.environ.items() if k != "MBT_ROOT"}
+    return mock.patch.dict(os.environ, env, clear=True)
 
 
-class MbtconfigReaderTest(unittest.TestCase):
+class NoVersionFileTest(unittest.TestCase):
+    def test_repository_has_no_version_file(self):
+        self.assertFalse((ROOT / "VERSION").exists())
+
+    def test_mbtconfig_falls_back_to_unknown(self):
+        mod = _load_legacy("mbtconfig")
+        with _env_without_mbt_root():
+            self.assertEqual(mod._mbt_version(), "unknown")
+
+    def test_mbtbootstrap_falls_back_to_zero(self):
+        self.assertEqual(_load_legacy("mbtbootstrap")._read_mbt_version(), "0.0.0")
+
+    def test_mvspackage_falls_back_to_zero(self):
+        self.assertEqual(_load_legacy("mvspackage")._read_mbt_version(), "0.0.0")
+
+
+class MbtRootOverrideTest(unittest.TestCase):
+    """MBT_ROOT is the only way mbtconfig finds a VERSION file."""
+
     @classmethod
     def setUpClass(cls):
         cls.mod = _load_legacy("mbtconfig")
@@ -61,25 +74,6 @@ class MbtconfigReaderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with mock.patch.dict(os.environ, {"MBT_ROOT": d}):
                 self.assertEqual(self.mod._mbt_version(), "unknown")
-
-
-class RootRelativeReaderTest(unittest.TestCase):
-    """mbtbootstrap and mvspackage resolve the root from their own __file__."""
-
-    def _check(self, name):
-        mod = _load_legacy(name)
-        with tempfile.TemporaryDirectory() as d:
-            fake = Path(d) / "scripts" / "mod.py"
-            with mock.patch.object(mod, "__file__", str(fake)):
-                self.assertEqual(mod._read_mbt_version(), "0.0.0")
-                (Path(d) / "VERSION").write_text("2.2.0\n", encoding="utf-8")
-                self.assertEqual(mod._read_mbt_version(), "2.2.0")
-
-    def test_mbtbootstrap(self):
-        self._check("mbtbootstrap")
-
-    def test_mvspackage(self):
-        self._check("mvspackage")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,7 @@ the mvslovers projects. This repository holds three generations side by side:
 | Generation | Code | What it is |
 |---|---|---|
 | **mbt 3** | `cmd/mbt/`, `internal/` (Go) | one installed program, `mbt`; reads `mbt.toml` (schema 3) or an mbt 2 `project.toml`. Released on `v3.*` tags (`.github/workflows/mbt-release.yml`). Status and command summary: `cmd/mbt/README.md` |
-| **mbt 2** | `mk/mbt.mk`, `scripts/` (Python) | git submodule + two-line `Makefile` + `project.toml`; cc370 host build. `VERSION` is mbt 2's. Kept until every project has migrated (`docs/MIGRATION.md`) |
+| **mbt 2** | `mk/mbt.mk`, `scripts/` (Python) | git submodule + two-line `Makefile` + `project.toml`; cc370 host build. Kept until every project has migrated (`docs/MIGRATION.md`) |
 | **v1 (legacy)** | `mk/legacy/`, `scripts/legacy/` | remote mvsMF/JCL build (assemble and link on MVS); maintenance mode |
 
 `scripts/mbt/` is the Python package shared by mbt 2 and v1.
