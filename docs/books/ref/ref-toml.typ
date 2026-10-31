@@ -327,6 +327,11 @@ first four characters of #var("NAME").
   [#cmd("prereq")], [#cmd("[]")], [SYSMODs that must be installed.],
   [#cmd("accept_fmid")], [#cmd("true")], [accept the FMID in the
     installation job.],
+  [#cmd("procedure")], [none], [#cmd("\"mvsce\"") or #cmd("\"tk5\""): the
+    system the package installs on. The two #cmd("SMPAPP") procedures list
+    different DDs (MVS/CE has #cmd("ASAMPLIB"), TK5 has not), and the install
+    job must name an overridden DD in the procedure's order. Needed only if
+    the order is not the same for both, and then mbt refuses to guess.],
   [#cmd("lklib")], [#var("NAME")#cmd(".")#var("P4")#cmd("LOAD")], [the
     staging library the load modules are received into. Not the same as
     #cmd("target").],

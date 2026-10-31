@@ -7,6 +7,7 @@ because the failures they cover are the silent kind: SMP reports success and
 the module is in the wrong library, or truncated, or never copied at all.
 """
 
+import itertools
 import sys
 import unittest
 from pathlib import Path
@@ -430,10 +431,76 @@ class ApplyDDTest(unittest.TestCase):
         # F1/T9: an added DD before an overriding one makes the override stop
         # being an override -- silently, with the log still naming the ddname
         # we wanted.
-        kinds = [ln.split(".")[1].split()[0] in D.SMPAPP_PROC_DDS
+        kinds = [ln.split(".")[1].split()[0] in D.SMPAPP_PROCEDURES["mvsce"]
                  for ln in self.dds.splitlines()]
         self.assertEqual(kinds, sorted(kinds, reverse=True),
                          f"overrides must come first:\n{self.dds}")
+
+    def _dds(self, *roles, procedure=None):
+        extra = {} if procedure is None else {"procedure": procedure}
+        dist = D.parse(_cfg(target=f"UFSD.@VRM@.{roles[0]}",
+                            lklib=f"UFSD.@VRM@.{roles[1]}",
+                            distlib=f"UFSD.@VRM@.{roles[2]}", **extra),
+                       "V1R1M1")
+        return [ln.split(".")[1].split()[0]
+                for ln in D.render_apply_dds(dist).splitlines()]
+
+    def test_overrides_follow_the_procedure_order(self):
+        # An override that is out of sequence is a second DD of the same name:
+        # with distlib = ASAMPLIB behind LINKLIB, ACCEPT allocated both
+        # SYS1.ASAMPLIB and ours, SMP used the procedure's, and IEBCOPY wrote
+        # into IBM's library. SMPAPP on MVS/CE lists ASAMPLIB, LINKLIB, SAMPLIB.
+        names = ["ASAMPLIB", "LINKLIB", "SAMPLIB"]
+        for roles in itertools.permutations(names):
+            with self.subTest(roles=roles):
+                self.assertEqual(self._dds(*roles, procedure="mvsce"), names)
+
+    def test_the_tk5_procedure_has_no_asamplib(self):
+        # There ASAMPLIB is an addition, and so it goes last: put first, it
+        # would turn LINKLIB and SAMPLIB into second DDs and SMP would write
+        # into SYS1.LINKLIB and SYS1.SAMPLIB.
+        names = ["LINKLIB", "SAMPLIB", "ASAMPLIB"]
+        for roles in itertools.permutations(names):
+            with self.subTest(roles=roles):
+                self.assertEqual(self._dds(*roles, procedure="tk5"), names)
+
+    def test_an_addition_still_follows_every_override(self):
+        for procedure in D.SMPAPP_PROCEDURES:
+            for roles in itertools.permutations(
+                    ("SAMPLIB", "UFSDLOAD", "LINKLIB")):
+                with self.subTest(procedure=procedure, roles=roles):
+                    self.assertEqual(self._dds(*roles, procedure=procedure),
+                                     ["LINKLIB", "SAMPLIB", "UFSDLOAD"])
+
+    def test_the_same_in_both_procedures_needs_no_procedure(self):
+        for roles in itertools.permutations(("SAMPLIB", "LINKLIB", "PARMLIB")):
+            with self.subTest(roles=roles):
+                self.assertEqual(self._dds(*roles),
+                                 ["LINKLIB", "PARMLIB", "SAMPLIB"])
+
+    def test_a_dd_that_depends_on_the_system_must_name_it(self):
+        # ASAMPLIB with LINKLIB is right in one order on MVS/CE and in
+        # another on TK5; picking one would be the silent failure.
+        with self.assertRaises(D.DistributionError) as cm:
+            self._dds("LINKLIB", "SAMPLIB", "ASAMPLIB")
+        self.assertIn("procedure", str(cm.exception))
+
+    def test_an_unknown_procedure_is_refused(self):
+        with self.assertRaises(D.DistributionError):
+            self._dds("LINKLIB", "UFSDLOAD", "AUFSDLOD", procedure="vm370")
+
+    def test_procedure_orders_have_no_duplicates(self):
+        for name, order in D.SMPAPP_PROCEDURES.items():
+            with self.subTest(procedure=name):
+                self.assertEqual(len(order), len(set(order)))
+
+    def test_any_dlib_of_the_procedure_is_an_override(self):
+        # The DLIB DDs the MVS/CE procedure carries are not only the ones in
+        # a short list: AMACLIB, APROCLIB and the AOS libraries are DDs of it
+        # as well.
+        self.assertEqual(
+            self._dds("LINKLIB", "UFSDLOAD", "AMACLIB", procedure="mvsce"),
+            ["AMACLIB", "LINKLIB", "UFSDLOAD"])
 
     def test_every_dd_is_qualified_with_the_proc_step(self):
         for line in self.dds.splitlines():
