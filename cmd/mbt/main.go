@@ -1691,6 +1691,11 @@ func cmdDeps(args []string) int {
 	if err != nil {
 		return fail(err)
 	}
+	// a project file mbt does not accept stops here, before anything is fetched
+	p, err := project.Load(root)
+	if err != nil {
+		return fail(err)
+	}
 	err = deps.Run(root, file, deps.Options{
 		Update: *update,
 		Log:    func(s string) { fmt.Printf("[mbt] %s\n", s) },
@@ -1700,10 +1705,6 @@ func cmdDeps(args []string) int {
 		return fail(err)
 	}
 	// [tools] are pinned and staged with the dependencies
-	p, err := project.Load(root)
-	if err != nil {
-		return fail(err)
-	}
 	ts, err := tools.Declared(p.Raw)
 	if err != nil {
 		return fail(err)

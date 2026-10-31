@@ -368,3 +368,139 @@ func TestLoadV3ElementLibrary(t *testing.T) {
 		t.Errorf("recfm accepted: %v", err)
 	}
 }
+
+// A table written in the wrong form is an error that names the key and the
+// form to write, never a table that is quietly left out (mbt#312).
+func TestLoadV3WrongForm(t *testing.T) {
+	lib := "[distribution.library.samplib]\n"
+	cases := []struct {
+		name string
+		edit func(string) string
+		want []string
+	}{
+		{"array library", func(s string) string {
+			return strings.Replace(s, lib, "[[distribution.library]]\ndir = \"samplib\"\n", 1)
+		},
+			[]string{"[[distribution.library]]", "[distribution.library.DIR]"}},
+		{"library with keys of its own", func(s string) string {
+			return strings.Replace(s, lib, "[distribution.library]\ntarget = \"UFSD.SAMPLIB\"\n", 1)
+		},
+			[]string{"distribution.library", "'target'", "[distribution.library.DIR]"}},
+		{"array build", func(s string) string { return strings.Replace(s, "[build]\n", "[[build]]\n", 1) },
+			[]string{"[[build]]", "[build]"}},
+		{"array smp", func(s string) string { return strings.Replace(s, "[smp]\n", "[[smp]]\n", 1) },
+			[]string{"[[smp]]", "[smp]"}},
+		{"array distribution", func(s string) string { return strings.Replace(s, "[distribution]\n", "[[distribution]]\n", 1) },
+			[]string{"[[distribution]]", "[distribution]"}},
+		{"array project", func(s string) string { return strings.Replace(s, "[project]\n", "[[project]]\n", 1) },
+			[]string{"[[project]]", "[project]"}},
+		{"array deploy", func(s string) string { return s + "[[deploy]]\ntarget = \"X.Y\"\n" },
+			[]string{"[[deploy]]", "[deploy]"}},
+		{"array tests", func(s string) string { return strings.Replace(s, "[tests]\n", "[[tests]]\n", 1) },
+			[]string{"[[tests]]", "[tests]"}},
+		{"array build.host", func(s string) string { return s + "[[build.host]]\ncc = \"cc\"\n" },
+			[]string{"[[build.host]]", "[build.host]"}},
+		{"array tso", func(s string) string { return s + "[[tso]]\nsize = \"80x24\"\n" },
+			[]string{"[[tso]]", "[tso.NAME]"}},
+		{"project a string", func(s string) string {
+			return strings.Replace(s, "[project]\nname = \"ufsd\"\nversion = \"1.4.0-dev\"\n", "project = \"ufsd\"\n", 1)
+		},
+			[]string{"project is a string", "[project]"}},
+		{"parm an array", func(s string) string {
+			return strings.Replace(s, `parm = { batch = "0", tso = "1" }`, `parm = ["0"]`, 1)
+		},
+			[]string{"test.TSTB.parm", "an array"}},
+		{"fixtures a list", func(s string) string {
+			return strings.Replace(s, `fixtures = { SYSPROC = ["f/b"], SYSEXEC = ["f/a"] }`, `fixtures = ["f/a"]`, 1)
+		}, []string{"test.TSTB.fixtures"}},
+		{"dependency a table", func(s string) string { return s + "[dependencies.\"mvslovers/libc370\"]\nversion = \"^2\"\n" },
+			[]string{"mvslovers/libc370", "range"}},
+		{"tools array", func(s string) string { return s + "[[tools]]\nrepo = \"a/b\"\n" },
+			[]string{"[[tools]]", "[tools]"}},
+		{"tool unknown key", func(s string) string { return s + "[tools.x]\nrepo = \"a/b\"\nversion = \"1\"\nrelease = \"2\"\n" },
+			[]string{"[tools]", "'release'"}},
+		{"plugins wrong", func(s string) string { return s + "[plugins]\nufs = \"^1\"\n" },
+			[]string{"[plugins]", "ufs"}},
+	}
+	for _, c := range cases {
+		_, err := LoadV3(v3Tree(t, c.edit(v3Base)), FileV3)
+		if err == nil {
+			t.Errorf("%s: loaded without an error", c.name)
+			continue
+		}
+		for _, w := range c.want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s: %q lacks %q", c.name, err, w)
+			}
+		}
+		if !strings.Contains(err.Error(), "mbt.toml") {
+			t.Errorf("%s: %q does not name the file", c.name, err)
+		}
+	}
+}
+
+// A misspelt key is an error in every table that has keys of its own.
+func TestLoadV3UnknownKeyEverywhere(t *testing.T) {
+	cases := []struct{ name, from, to, want string }{
+		{"top level", "schema = 3\n", "schema = 3\nbogus = 1\n", "'bogus' in the top level"},
+		{"project", `version = "1.4.0-dev"`, "version = \"1.4.0-dev\"\nkindd = \"library\"", "'kindd' in [project]"},
+		{"build", `cflags = ["-Wall"]`, `cflags = ["-Wall"]` + "\nmaxrc = 4", "'maxrc' in [build]"},
+		{"module", "[module.UFSD]\n", "[module.UFSD]\nsrc = []\n", "'src' in [module.UFSD]"},
+		{"test", "[test.TSTB]\n", "[test.TSTB]\nhots = true\n", "'hots' in [test.TSTB]"},
+		{"tests", "[tests]\n", "[tests]\nrnt = true\n", "'rnt' in [tests]"},
+		{"distribution", `readme = "README.md"`, "readme = \"README.md\"\nreadmee = \"x\"", "'readmee' in [distribution]"},
+		{"library", "[distribution.library.samplib]\n", "[distribution.library.samplib]\nelements = \"MAC\"\n", "'elements' in [distribution.library.samplib]"},
+		{"smp", `prefix = "TUFS"`, "prefix = \"TUFS\"\nprefx = \"x\"", "'prefx' in [smp]"},
+	}
+	for _, c := range cases {
+		in := strings.Replace(v3Base, c.from, c.to, 1)
+		if in == v3Base {
+			t.Fatalf("%s: edit did not apply", c.name)
+		}
+		_, err := LoadV3(v3Tree(t, in), FileV3)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: got %v, want %q", c.name, err, c.want)
+		}
+	}
+}
+
+// Every mbt.toml the repository ships as an example or in the books loads:
+// the checks of mbt#312 must not turn a documented file into an error.
+func TestShippedMbtTomlLoads(t *testing.T) {
+	top := filepath.Join("..", "..")
+	n := 0
+	err := filepath.WalkDir(top, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && (d.Name() == ".git" || d.Name() == ".mbt") {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || d.Name() != FileV3 {
+			return nil
+		}
+		n++
+		if _, err := LoadV3(filepath.Dir(p), FileV3); err != nil {
+			t.Errorf("%s: %v", p, err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n == 0 {
+		t.Fatal("no mbt.toml found under the repository root")
+	}
+}
+
+// parm is a string for both runs, or a table with one per run.
+func TestLoadV3ParmString(t *testing.T) {
+	in := strings.Replace(v3Base, `parm = { batch = "0", tso = "1" }`, `parm = "21771"`, 1)
+	p, err := LoadV3(v3Tree(t, in), FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tb := p.RawTables("test")[1]; tb["parm"] != "21771" {
+		t.Errorf("TSTB %v", tb)
+	}
+}

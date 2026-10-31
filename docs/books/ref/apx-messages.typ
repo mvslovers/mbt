@@ -50,6 +50,12 @@ the way out.
       [make the data #cmd("const"), move it, or declare
       #cmd("rent = false"). The same text with #cmd("(ac = 1 ...)") or
       #cmd("(RENT by ld370's default)") is a warning.],
+    [#cmd("mbt.toml: unknown key '...' in [...]")], [the key is misspelt or
+      not one MBT knows: correct it, or take it out
+      (@ref-toml).],
+    [#cmd("mbt.toml: [[...]] is the v2 spelling -- write one table per entry, [....NAME]")],
+      [write one table per entry, for a library
+      #cmd("[distribution.library.DIR]") (@ref-toml-distlib).],
     [#cmd("mbt.toml: [smp] fmid is explicit, so delete must be too: ...")],
       [name the FMID this release replaces, or write #cmd("delete = []")
       for a product's first level.],
