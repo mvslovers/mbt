@@ -67,7 +67,6 @@ func TestElementRejects(t *testing.T) {
 	for name, l := range map[string]map[string]any{
 		"unknown element":    lib(map[string]any{"element": "MOD"}),
 		"stage w/o element":  {"dir": "x", "target": "ABC.X", "stage": "ABC.TX"},
-		"distlib w/o elem":   {"dir": "x", "target": "ABC.X", "distlib": "ABC.AX"},
 		"default too long":   lib(map[string]any{"target": "ABC.SAMPLIB1"}),
 		"distlib = target":   lib(map[string]any{"distlib": "ABC.RXLIB"}),
 		"stage = distlib":    lib(map[string]any{"stage": "ABC.ARXLIB"}),
@@ -451,5 +450,19 @@ func TestBuildEndToEnd(t *testing.T) {
 	err = Build(cfg, "abc", "1.0.0", []Module{{Name: "ABCMOD"}}, Options{Root: root, DistDir: "dist", BuildDir: "build", Log: func(string) {}})
 	if err == nil || !strings.Contains(err.Error(), "rxlib/bad.rexx:1:81") {
 		t.Errorf("an 81-column line must stop the build: %v", err)
+	}
+}
+
+func TestMembersNamedLikeJCLCards(t *testing.T) {
+	d := parseElem(t, map[string]any{"dir": "m", "target": "ABC.MACLIB2", "element": "MAC"})
+	withElements(d, "m", "JOBCAT", "JOBLIB", "STEPCAT", "STEPLIB", "WORK")
+	mcs, err := AssembleMCS(d, []string{"ABCMOD"}, "abc", "1.0.0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"TXLIB(TX000001)", "TXLIB(TX000002)", "TXLIB(TX000003)", "TXLIB(TX000004)", "TXLIB(WORK)"} {
+		if !strings.Contains(mcs, want) {
+			t.Errorf("MCS lacks %s:\n%s", want, mcs)
+		}
 	}
 }

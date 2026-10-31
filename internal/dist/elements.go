@@ -11,7 +11,9 @@ import (
 // TK5 define, with the ones SMP itself reads. A TXLIB card under one of these
 // would be a second DD of the same name in the step and SMP would use the
 // procedure's (the same silent failure the DD order below guards against), so
-// a member called like one gets a ddname of its own.
+// a member called like one gets a ddname of its own. JOBLIB, STEPLIB and
+// the CAT cards are JCL, not procedure DDs: a JOBLIB card in a step is a JCL
+// error and a STEPLIB one fails the step with S706.
 var smpDDNames = func() map[string]bool {
 	m := map[string]bool{}
 	for _, n := range strings.Fields(`
@@ -20,10 +22,10 @@ var smpDDNames = func() map[string]bool {
 		AOSA1 AOSB0 AOSB3 AOSBN AOSC2 AOSC5 AOSC6 AOSCA AOSCD AOSCE AOSD0 AOSD7
 		AOSD8 AOSG0 AOSH1 AOSH3 AOST3 AOST4 AOSU0 APARMLIB APROCLIB ASAMPLIB
 		ASMPRINT ATCAMMAC ATSOMAC AUADS CMDLIB CMPPRINT COPPRINT E37PRINT HASPSRC
-		HELP IMAGE IMAGELIB LINKLIB LKDPRINT LPALIB MACLIB NUCLEUS PARMLIB PROCLIB
+		HELP IMAGE IMAGELIB JOBCAT JOBLIB LINKLIB LKDPRINT LPALIB MACLIB NUCLEUS PARMLIB PROCLIB
 		SAMPLIB SMPACDS SMPACRQ SMPCDS SMPCNTL SMPCRQ SMPLOG SMPMTS SMPOUT SMPPTFIN
 		SMPPTS SMPSCDS SMPSTS SMPTLIB SMPWRK1 SMPWRK2 SMPWRK3 SMPWRK4 SMPWRK5
-		SVCLIB SYSLIB SYSPRINT SYSUT1 SYSUT2 SYSUT3 SYSUT4 TCOMMAC TELCMLIB UADS
+		STEPCAT STEPLIB SVCLIB SYSLIB SYSPRINT SYSUT1 SYSUT2 SYSUT3 SYSUT4 TCOMMAC TELCMLIB UADS
 		UMODLIB UMODOBJ UPDPRINT VTAMLIB ZAPPRINT`) {
 		m[n] = true
 	}

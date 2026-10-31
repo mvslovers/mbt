@@ -171,7 +171,7 @@ target`. mbt does not shorten a library name a started task has to name.
 | `[distribution.library.<dir>]` | | `[[distribution.library]]`, keyed by its `dir` |
 | ↳ `target` | `<NAME>.<DIR>` | same |
 | ↳ `element` | — | new (mbt#310): `"MAC"` or `"SRC"`, the library is installed by SMP, one element per member |
-| ↳ `distlib` | `target` with `A` before the last qualifier | new; only with `element` |
+| ↳ `distlib` | `target` with `A` before the last qualifier | new; only with `element` (without it the key is still accepted and ignored, as in mbt 2) |
 | ↳ `stage` | `target` with `T` before the last qualifier | new; only with `element` |
 
 An element library is fixed 80 (`FB`, `LRECL=80`, `BLKSIZE=3120`), with no key

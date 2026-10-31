@@ -421,10 +421,8 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 				return nil, err
 			}
 		} else {
-			for _, k := range []string{"distlib", "stage"} {
-				if _, ok := lc[k]; ok {
-					return nil, errf("[[distribution.library]] %s: %s only means something with element = \"MAC\" or \"SRC\"", lib.Dir, k)
-				}
+			if _, ok := lc["stage"]; ok {
+				return nil, errf("[[distribution.library]] %s: stage only means something with element = \"MAC\" or \"SRC\"", lib.Dir)
 			}
 		}
 		d.Libraries = append(d.Libraries, lib)
@@ -459,7 +457,7 @@ func elementDSN(lc map[string]any, key, prefix string, l Library, expand func(an
 	}
 	i := strings.LastIndex(l.Target, ".")
 	if i < 0 || len(prefix+l.Target[i+1:]) > 8 {
-		return "", errf("%s: no default for the target '%s' (%s + its last qualifier would pass 8 characters, or it has no qualifier to put it beside) -- name it with %s", what, l.Target, prefix, key)
+		return "", errf("%s of '%s': no default for the target '%s' (%s + its last qualifier would pass 8 characters, or it has no qualifier to put it beside) -- name it with %s", what, l.Dir, l.Target, prefix, key)
 	}
 	return checkDSN(l.Target[:i+1]+prefix+l.Target[i+1:], what)
 }

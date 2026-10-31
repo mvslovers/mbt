@@ -141,7 +141,7 @@ SYSMOD, after the #cmd("++VER") and before the #cmd("++JCLIN"):
 #cmd("DISTLIB") and #cmd("SYSLIB") are the DD names of the distribution and
 the target library, #cmd("TXLIB") the DD name of the card that points to the
 member. The members are in name order, the libraries in the order of the
-configuration.
+configuration in a `project.toml` and sorted by `dir` in an `mbt.toml`.
 
 *The staging library and the TXLIB cards.* The library travels as a TRANSMIT
 file of its own and is received into the staging library, by default
