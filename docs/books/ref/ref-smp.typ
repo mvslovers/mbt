@@ -178,12 +178,12 @@ which #cmd("xmit370") converts through CP037\; any other
 file is read as Latin-1, as #cmd("xmit370") reads it. Nothing is
 renumbered, cut or stripped.
 
-*Return codes.* A library of #cmd("MAC") elements ends the #cmd("APPLY")
-at return code 0. A library of #cmd("SRC") elements ends the #cmd("APPLY
-CHECK") and the #cmd("APPLY") at return code 4 (#cmd("HMA4441"), one
-message per element: SMP has no assembly step for the source and says so),
-so the job allows 4 there and continues to the #cmd("ACCEPT"), which ends at
-0. The installation job's header says so.
+*Return codes.* With a library of #cmd("SRC") elements the #cmd("APPLY
+CHECK") and the #cmd("APPLY") end at return code 4 (#cmd("HMA4441"), twice
+per element: SMP has no assembly step for the source and says so), so the
+job allows 4 there and continues to the #cmd("ACCEPT"), which ends at 0.
+The installation job's header says so. A project without such a library
+keeps the check on 0.
 
 *A name SMP already knows.* An element name belongs to one SYSMOD. A
 #cmd("MAC") whose name is in the target system's CDS already, delivered by
