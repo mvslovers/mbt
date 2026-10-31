@@ -86,13 +86,17 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	sd := statsDate(o.Root)
 	srcRoot := filepath.Join(stage, "src")
 	files := map[string]string{d.SMP.LKLib: loadXMIT}
-	for _, l := range d.Libraries {
+	for i := range d.Libraries {
+		l := &d.Libraries[i]
 		fname := fmt.Sprintf("%s-%s.xmit", prefix, strings.ToLower(l.targetDD()))
 		staged, err := stageLibrary(o.Root, l, subst, srcRoot)
 		if err != nil {
 			return err
 		}
-		args := []string{"create", "-o", filepath.Join(stage, fname), "--dsn", l.Target}
+		args := []string{"create", "-o", filepath.Join(stage, fname), "--dsn", l.received()}
+		if l.needsLatin1 {
+			args = append(args, "--latin1")
+		}
 		if sd != "" {
 			args = append(args, "--stats-date", sd)
 		}
@@ -104,10 +108,18 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 			}
 			return errf("xmit370 failed for %s (%v):\n%s", staged, err, strings.TrimSpace(string(res)))
 		}
-		files[l.Target] = fname
-		o.Log(fmt.Sprintf("Packaged %s (%s -> %s)", fname, l.Dir, l.Target))
+		files[l.received()] = fname
+		if l.delivers() {
+			o.Log(fmt.Sprintf("Packaged %s (%s -> %s, %d %s elements via %s)", fname, l.Dir, l.Target, len(l.Elements), l.Element, l.Stage))
+		} else {
+			o.Log(fmt.Sprintf("Packaged %s (%s -> %s)", fname, l.Dir, l.Target))
+		}
 	}
 	os.RemoveAll(srcRoot)
+	if err := checkElementNames(d); err != nil {
+		return err
+	}
+	assignDDs(d)
 
 	// ---- the SYSMOD and the two jobs ----
 	names := make([]string, 0, len(modules))
@@ -139,6 +151,22 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		summary = append(summary, fmt.Sprintf("//*   %s %s", ljust(r.step, 9), r.file), "//*               -> "+r.dsn)
 	}
 	cleanupNote := "//*   CLEANUP   scratch the staging library, now spent"
+	loadsOnly := "//* SMP handles the load modules only. The sample library is a plain\n" +
+		"//* PDS restored by TSO RECEIVE and is none of SMP's business: the\n" +
+		"//* product owns those patterns, the site owns the copies it makes of\n" +
+		"//* them. See the README for which member goes where."
+	applyWhat := "copy the load modules into the target library"
+	applyChkCond := "(0,NE,APPLYCHK.HMASMP)"
+	applyChkRC := "RC=0"
+	if len(d.delivered()) > 0 {
+		cleanupNote = "//*   CLEANUP   scratch the staging libraries, now spent"
+		loadsOnly = elementNote(d)
+		applyWhat = "copy load modules and elements into target libraries"
+	}
+	if d.hasSRC() {
+		applyChkCond = "(4,LT,APPLYCHK.HMASMP)"
+		applyChkRC = "RC<=4"
+	}
 	var acceptSummary, acceptStep, last string
 	if d.SMP.AcceptFMID {
 		acceptSummary = "//*   ACCEPT    make this level the base a RESTORE returns to"
@@ -174,11 +202,16 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		"DELIM": instreamDelimiter, "MCS": strings.TrimRight(mcs, "\n"),
 		"RECEIVE_SUMMARY": strings.Join(summary, "\n"), "RECEIVE_STEPS": renderReceiveSteps(plan),
 		"LAST_RECV": plan[len(plan)-1].step, "APPLY_DDS": renderApplyDDs(d),
+		"RECV_DDS": renderRecvDDs(d), "SMP_SCOPE": loadsOnly, "APPLY_WHAT": applyWhat,
+		"CHECK_COND": applyChkCond, "CHECK_RC": applyChkRC,
 		"ACCEPT_SUMMARY": acceptSummary + "\n" + cleanupNote, "ACCEPT_STEP": acceptStep,
 		"CLEANUP_STEP": cleanup,
 	})
 	if err != nil {
 		return err
+	}
+	for _, line := range ElementReport(d) {
+		o.Log(line)
 	}
 	if err := checkCardText(allocJCL, allocJob); err != nil {
 		return err
@@ -231,7 +264,12 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 // stageLibrary copies a library directory with placeholders substituted;
 // subdirectories and dot-files are skipped, as xmit370 does.  Text is read
 // with universal newlines, as v2 read it.
-func stageLibrary(root string, l Library, subst [][2]string, stageRoot string) (string, error) {
+//
+// A library delivered as SMP elements is not substituted into -- its
+// columns reach the card images unchanged -- but checked: every member must
+// survive the conversion to 80-column EBCDIC records, and the members become
+// the library's elements.
+func stageLibrary(root string, l *Library, subst [][2]string, stageRoot string) (string, error) {
 	src := filepath.Join(root, l.Dir)
 	if st, err := os.Stat(src); err != nil || !st.IsDir() {
 		return "", errf("[[distribution.library]] dir = '%s' is not a directory", l.Dir)
@@ -244,11 +282,15 @@ func stageLibrary(root string, l Library, subst [][2]string, stageRoot string) (
 	entries, _ := os.ReadDir(src)
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	count := 0
+	var names, problems []string
+	owner := map[string]string{}
+	l.records, l.needsLatin1 = 0, false
 	for _, e := range entries {
 		if !e.Type().IsRegular() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
-		if _, err := memberName(filepath.Join(l.Dir, e.Name())); err != nil {
+		member, err := memberName(filepath.Join(l.Dir, e.Name()))
+		if err != nil {
 			return "", err
 		}
 		data, err := os.ReadFile(filepath.Join(src, e.Name()))
@@ -256,8 +298,25 @@ func stageLibrary(root string, l Library, subst [][2]string, stageRoot string) (
 			return "", err
 		}
 		text := strings.ReplaceAll(strings.ReplaceAll(string(data), "\r\n", "\n"), "\r", "\n")
-		for _, s := range subst {
-			text = strings.ReplaceAll(text, s[0], s[1])
+		if l.delivers() {
+			file := filepath.Join(l.Dir, e.Name())
+			if prev, dup := owner[member]; dup {
+				return "", errf("%s and %s are both member %s of %s. Rename one of them.", prev, file, member, l.Dir)
+			}
+			owner[member] = file
+			converted, latin1, probs := checkMember(file, text)
+			if len(probs) == 0 && strings.TrimSpace(converted) == "" {
+				probs = []string{file + ": the member is empty"}
+			}
+			problems = append(problems, probs...)
+			text = converted
+			l.needsLatin1 = l.needsLatin1 || latin1
+			l.records += strings.Count(text, "\n")
+			names = append(names, member)
+		} else {
+			for _, s := range subst {
+				text = strings.ReplaceAll(text, s[0], s[1])
+			}
 		}
 		if err := os.WriteFile(filepath.Join(dest, e.Name()), []byte(text), 0o644); err != nil {
 			return "", err
@@ -267,6 +326,10 @@ func stageLibrary(root string, l Library, subst [][2]string, stageRoot string) (
 	if count == 0 {
 		return "", errf("[[distribution.library]] dir = '%s' contains no members", l.Dir)
 	}
+	if len(problems) > 0 {
+		return "", errf("[[distribution.library]] dir = '%s' (%s elements) cannot be delivered as 80-column records:\n    %s", l.Dir, l.Element, capProblems(problems, 20))
+	}
+	l.Elements = sortedElements(names)
 	return dest, nil
 }
 

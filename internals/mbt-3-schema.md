@@ -172,6 +172,23 @@ target`. mbt does not shorten a library name a started task has to name.
 | `extra` | `[]` | same |
 | `[distribution.library.<dir>]` | | `[[distribution.library]]`, keyed by its `dir` |
 | ↳ `target` | `<NAME>.<DIR>` | same |
+| ↳ `element` | — | new (mbt#310): `"MAC"` or `"SRC"`, the library is installed by SMP, one element per member |
+| ↳ `distlib` | `target` with `A` before the last qualifier | new; only with `element` (without it the key is still accepted and ignored, as in mbt 2) |
+| ↳ `stage` | `target` with `T` before the last qualifier | new; only with `element` |
+
+An element library is fixed 80 (`FB`, `LRECL=80`, `BLKSIZE=3120`), with no key
+for another format. `stageLibrary` checks each member before `xmit370` sees it
+(a line past column 80 after tab expansion, a control character, a character
+without a CP037 equivalent), names file, line and column, and leaves all 80
+columns alone. Each member gets a TXLIB DD card (the member name, or
+`TX000001`, ... when that is a reserved or used ddname) in the RECEIVE, APPLY
+CHECK, APPLY and ACCEPT steps. A ++SRC ends APPLY CHECK and APPLY at RC 4
+(HMA4441), so their COND and the ACCEPT/CLEANUP condition allow 4 then. A ++SRC
+whose name is a MOD in the target's CDS is assembled into that module by SMP
+(HMA2402, RC 12 when the assembly fails); `mbt package` prints the `LIST CDS`
+statements to run before the first install. Templates carry the new values as
+variables with defaults, so a project without an element library renders the
+old text byte for byte (mbt 2 passes the same defaults).
 
 ## `[smp]`
 

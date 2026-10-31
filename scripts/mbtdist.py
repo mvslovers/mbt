@@ -264,6 +264,15 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         "RECEIVE_STEPS": D.render_receive_steps(plan),
         "LAST_RECV": plan[-1][0],
         "APPLY_DDS": D.render_apply_dds(dist),
+        "RECV_DDS": "",
+        "SMP_SCOPE": (
+            "//* SMP handles the load modules only. The sample library is a plain\n"
+            "//* PDS restored by TSO RECEIVE and is none of SMP's business: the\n"
+            "//* product owns those patterns, the site owns the copies it makes of\n"
+            "//* them. See the README for which member goes where."),
+        "APPLY_WHAT": "copy the load modules into the target library",
+        "CHECK_COND": "(0,NE,APPLYCHK.HMASMP)",
+        "CHECK_RC": "RC=0",
         "ACCEPT_SUMMARY": f"{accept_summary}\n{cleanup_note}",
         "ACCEPT_STEP": accept_step,
         "CLEANUP_STEP": cleanup_step,

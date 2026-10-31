@@ -125,12 +125,71 @@ func splitLines(s string) []string {
 
 func pyCharRepr(r rune) string { return fmt.Sprintf("'%c'", r) }
 
-// Library is a host directory shipped as its own XMIT, outside SMP.
+// The record format of a library delivered as SMP elements. Only fixed 80
+// is accepted: ++MAC does not take a variable-length member (measured), and
+// IEBCOPY refuses to re-block between the staging, distribution and target
+// libraries, so all three carry exactly this.
+const (
+	elemRecfm     = "FB"
+	elemLrecl     = 80
+	elemBlksize   = 3120
+	elemMinDirBlk = 20
+)
+
+// Element is one member of a library delivered as SMP elements.
+type Element struct {
+	// Name is the member, and the element name SMP knows it by.
+	Name string
+	// DD is the ddname of the TXLIB card pointing at the member.
+	DD string
+}
+
+// Library is a host directory shipped as its own XMIT. Without Element the
+// XMIT is received straight into Target, outside SMP. With Element ("MAC" or
+// "SRC") it is received into Stage and SMP installs every member from there
+// into Target as an element of its own, DistLib being the library SMP keeps
+// the accepted copy in.
 type Library struct {
-	Dir, Target string
+	Dir, Target    string
+	Element        string
+	DistLib, Stage string
+	Elements       []Element
+	records        int
+	needsLatin1    bool
 }
 
 func (l Library) targetDD() string { return ddnameOf(l.Target) }
+
+// delivers: the library is installed by SMP, member by member.
+func (l Library) delivers() bool { return l.Element != "" }
+
+// received is the dataset the library's XMIT is restored into.
+func (l Library) received() string {
+	if l.delivers() {
+		return l.Stage
+	}
+	return l.Target
+}
+
+// elementSpace sizes a library delivered as elements: twice what the first
+// version needs, so the next one fits, and enough directory blocks for the
+// members with their ISPF statistics (about six entries to a block).
+func (l Library) elementSpace() (primary, secondary, dir int) {
+	const bytesPerCyl = 400000
+	primary = (2*l.records*elemLrecl + bytesPerCyl - 1) / bytesPerCyl
+	if primary < 5 {
+		primary = 5
+	}
+	secondary = primary / 2
+	if secondary < 2 {
+		secondary = 2
+	}
+	dir = len(l.Elements)/3 + 10
+	if dir < elemMinDirBlk {
+		dir = elemMinDirBlk
+	}
+	return
+}
 
 // SMP is the SMP4 side of the descriptor.
 type SMP struct {
@@ -147,20 +206,48 @@ type Distribution struct {
 	Extra     []string
 }
 
-func (d *Distribution) allocated() []string { return []string{d.SMP.Target, d.SMP.DistLib} }
+func (d *Distribution) allocated() []string {
+	out := []string{d.SMP.Target, d.SMP.DistLib}
+	for _, l := range d.Libraries {
+		if l.delivers() {
+			out = append(out, l.Target, l.DistLib)
+		}
+	}
+	return out
+}
 
 func (d *Distribution) received() []string {
 	out := []string{d.SMP.LKLib}
 	for _, l := range d.Libraries {
-		out = append(out, l.Target)
+		out = append(out, l.received())
 	}
 	return out
+}
+
+// delivered are the libraries SMP installs element by element.
+func (d *Distribution) delivered() []Library {
+	var out []Library
+	for _, l := range d.Libraries {
+		if l.delivers() {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+func (d *Distribution) hasSRC() bool {
+	for _, l := range d.delivered() {
+		if l.Element == "SRC" {
+			return true
+		}
+	}
+	return false
 }
 
 var (
 	distKeys = []string{"extra", "library", "readme", "smp"}
 	smpKeys  = []string{"accept_fmid", "delete", "distlib", "fmid", "lklib", "prereq", "system", "target"}
-	libKeys  = []string{"dir", "distlib", "target"}
+	libKeys  = []string{"dir", "distlib", "element", "stage", "target"}
 )
 
 func rejectUnknown(section map[string]any, known []string, where string) error {
@@ -321,7 +408,24 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 		if err != nil {
 			return nil, err
 		}
-		d.Libraries = append(d.Libraries, Library{Dir: pyStr(dir), Target: t})
+		lib := Library{Dir: pyStr(dir), Target: t}
+		if ev, ok := lc["element"]; ok {
+			lib.Element = strings.ToUpper(pyStr(ev))
+			if lib.Element != "MAC" && lib.Element != "SRC" {
+				return nil, errf("[[distribution.library]] %s: element = '%s' -- only MAC and SRC are supported", lib.Dir, pyStr(ev))
+			}
+			if lib.DistLib, err = elementDSN(lc, "distlib", "A", lib, expand); err != nil {
+				return nil, err
+			}
+			if lib.Stage, err = elementDSN(lc, "stage", "T", lib, expand); err != nil {
+				return nil, err
+			}
+		} else {
+			if _, ok := lc["stage"]; ok {
+				return nil, errf("[[distribution.library]] %s: stage only means something with element = \"MAC\" or \"SRC\"", lib.Dir)
+			}
+		}
+		d.Libraries = append(d.Libraries, lib)
 	}
 	if r, ok := dist["readme"]; ok && r != nil {
 		d.Readme = pyStr(r)
@@ -338,5 +442,45 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 		}
 		seen[dd] = dsn
 	}
+	if err := distinctDSNs(d); err != nil {
+		return nil, err
+	}
 	return d, nil
+}
+
+// elementDSN is the distribution or staging library of an element library:
+// the key as given, else the target with the last qualifier prefixed.
+func elementDSN(lc map[string]any, key, prefix string, l Library, expand func(any, string) (string, error)) (string, error) {
+	what := "[[distribution.library]] " + key
+	if v, ok := lc[key]; ok {
+		return expand(v, what)
+	}
+	i := strings.LastIndex(l.Target, ".")
+	if i < 0 || len(prefix+l.Target[i+1:]) > 8 {
+		return "", errf("%s of '%s': no default for the target '%s' (%s + its last qualifier would pass 8 characters, or it has no qualifier to put it beside) -- name it with %s", what, l.Dir, l.Target, prefix, key)
+	}
+	return checkDSN(l.Target[:i+1]+prefix+l.Target[i+1:], what)
+}
+
+// distinctDSNs: a dataset named twice is one dataset used for two things, and
+// nothing says so.
+func distinctDSNs(d *Distribution) error {
+	seen := map[string]string{}
+	for _, l := range d.Libraries {
+		if !l.delivers() {
+			continue
+		}
+		for _, x := range []struct{ dsn, role string }{{l.Target, "target"}, {l.DistLib, "distlib"}, {l.Stage, "stage"}} {
+			if prev, ok := seen[x.dsn]; ok {
+				return errf("[[distribution.library]] %s: %s '%s' is already the %s", l.Dir, x.role, x.dsn, prev)
+			}
+			seen[x.dsn] = x.role + " of " + l.Dir
+		}
+	}
+	for _, x := range []struct{ role, dsn string }{{"lklib", d.SMP.LKLib}, {"target", d.SMP.Target}, {"distlib", d.SMP.DistLib}} {
+		if prev, ok := seen[x.dsn]; ok {
+			return errf("[distribution.smp] %s '%s' is already the %s", x.role, x.dsn, prev)
+		}
+	}
+	return nil
 }

@@ -62,7 +62,9 @@ modules:
     text members made from the directory #var("dir") of the project, such
     as sample JCL and procedures. It travels as a TRANSMIT file of its own
     and is received with TSO #cmd("RECEIVE"), outside SMP, into
-    #cmd("target"), by default #var("NAME")#cmd(".")#var("DIR").],
+    #cmd("target"), by default #var("NAME")#cmd(".")#var("DIR"). With
+    #cmd("element = \"MAC\"") or #cmd("\"SRC\"") SMP installs it
+    instead, one element per member (@ug-package-elements).],
 )
 
 #cmd("[smp]") describes the SMP side: above all the function identifier,
@@ -103,11 +105,13 @@ step it depends on failed:
       not a file of its own.],
     [#cmd("APPLYCHK")], [checks the installation without changing
       anything.],
-    [#cmd("APPLY")], [copies the modules into the target library.],
+    [#cmd("APPLY")], [copies the modules into the target library, and
+      the elements of an element library into theirs.],
     [#cmd("ACCEPT")], [copies them into the distribution library, the level
       a later #cmd("RESTORE") returns to. Left out with
       #cmd("[smp] accept_fmid = false").],
-    [#cmd("CLEANUP")], [deletes the staging library.],
+    [#cmd("CLEANUP")], [deletes the staging library, and those of the
+      element libraries.],
   )
 ] <ug-package-steps>
 
@@ -122,6 +126,34 @@ Its #cmd("++JCLIN") is a copy job, not a link-edit: SMP copies each module
 as MBT linked it and does not bind it again. So every attribute set at the
 link, such as #cmd("ac = 1"), the entry point and the aliases, survives the
 installation. Aliases are carried as such on the #cmd("++MOD").
+
+== Libraries Installed by SMP <ug-package-elements>
+
+#idx("element library")
+A library of members that SMP should know, such as REXX functions and
+their sources, goes into the package as #cmd("[distribution.library.")#var("dir")#cmd("]")
+with #cmd("element = \"MAC\"") (or #cmd("\"SRC\"") for sources). Every
+file of the directory becomes a #cmd("++MAC") (or #cmd("++SRC")) of the
+SYSMOD, and the installation job reads each from the staging library of
+its library through a #cmd("TXLIB") card of its own, in four steps. It
+then has about as many DD cards per step as the library has members\: 235
+for libraries of 114 and 121 members ran on MVS/CE and TK5.
+
+The members are fixed 80, and nothing in the 80 columns is changed.
+#cmd("mbt package") refuses a file with a line past column 80, with a
+control character or a character that EBCDIC (CP037) has no equivalent for,
+and names the file, the line and the column. Sequence numbers in
+columns 73 to 80 are carried as they are.
+
+#note[Before the first installation run the #cmd("LIST CDS") statements
+#cmd("mbt package") prints on the target system. A name SMP already has as
+the same type of element is silently not installed (#cmd("NOT SEL"), return
+code 0). A #cmd("SRC") with the name of a load module makes SMP assemble the
+member into that module, or end the #cmd("APPLY") at return code 12.]
+
+A later version that leaves a member out removes it from the target library
+and the distribution library when it installs, as for a load module.
+The Reference has the rules in full (_MBT Reference_, "Libraries as SMP Elements").
 
 == The Function Identifier <ug-package-fmid>
 
