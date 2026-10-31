@@ -268,7 +268,34 @@ A text library made from the directory #var("DIR") and received with TSO
   [Key], [Default], [Meaning],
   [#cmd("target")], [#var("NAME")#cmd(".")#var("DIR"), the last part of
     #var("DIR") in upper case], [the library it is received into.],
+  [#cmd("element")], [none], [#cmd("\"MAC\"") or #cmd("\"SRC\"")\: SMP
+    installs the library member by member, every member an element of that
+    type, instead of the library being received as a plain data set
+    (@ref-smp-elements).],
+  [#cmd("distlib")], [#cmd("A") before the last qualifier of
+    #cmd("target")], [the distribution library SMP keeps the elements in.
+    Only with #cmd("element").],
+  [#cmd("stage")], [#cmd("T") before the last qualifier of
+    #cmd("target")], [the library the shipped members are received into
+    and SMP reads them from. Only with #cmd("element").],
 )
+
+With #cmd("element") a member is a file of the directory, the member name its
+base name in upper case. The records are fixed 80 (#cmd("FB"),
+#cmd("LRECL=80"), #cmd("BLKSIZE=3120")); there is no key for another format.
+All 80 columns reach the library as they are -- columns 73 to 80 may hold
+sequence numbers, and mbt neither renumbers nor strips them.
+#cmd("mbt package") refuses a member with a line past column 80 (tabs are
+expanded to every eighth column and trailing blanks do not count, as
+#cmd("xmit370") does), a control character, or a character without a CP037
+equivalent, and names the file, line and column. A file is read as UTF-8
+when it is valid UTF-8, else as Latin-1.
+
+An element name is one for the whole SYSMOD: the same member name in two
+libraries of the same #cmd("element") type is an error, the same name as
+#cmd("MAC") in one library and #cmd("SRC") in another is not. Names, targets,
+#cmd("distlib") and #cmd("stage") must differ from each other and from the
+libraries of the load modules.
 
 == [smp] <ref-toml-smp>
 

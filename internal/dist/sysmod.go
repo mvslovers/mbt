@@ -74,6 +74,9 @@ func AssembleMCS(d *Distribution, modules []string, product, version string, ali
 	out = append(out, ver,
 		ljust(fmt.Sprintf("   /* %s %s", product, version), 65)+"*/",
 		ljust("   /* Load modules are copied from the LKLIB, not re-bound.", 65)+"*/ .",
+	)
+	out = append(out, elementStatements(d)...)
+	out = append(out,
 		"++JCLIN .",
 		fmt.Sprintf("//%s JOB 1,'%s JCLIN',MSGLEVEL=1,CLASS=A", smp.FMID, upperCut(product, 20)))
 	out = append(out, copyStep("COPYLOAD", ddnameOf(smp.DistLib), smp.DistLib, ddnameOf(smp.Target), smp.Target, modules)...)
@@ -106,10 +109,16 @@ func upperCut(s string, n int) string {
 }
 
 // renderApplyDDs: procedure overrides first, additions after -- the only
-// order in which an override is an override.
+// order in which an override is an override. The libraries of the elements
+// follow the SYSMOD's own, then one TXLIB card per element: APPLY and ACCEPT
+// read an element from its TXLIB again (HMA2832 DDCARD MISSING otherwise).
 func renderApplyDDs(d *Distribution) string {
 	var over, add []string
-	for _, dsn := range []string{d.SMP.Target, d.SMP.LKLib, d.SMP.DistLib} {
+	dsns := []string{d.SMP.Target, d.SMP.LKLib, d.SMP.DistLib}
+	for _, l := range d.delivered() {
+		dsns = append(dsns, l.Target, l.DistLib)
+	}
+	for _, dsn := range dsns {
 		dd := ddnameOf(dsn)
 		line := fmt.Sprintf("//%s.%s DD  DISP=SHR,DSN=%s", smpProcStep, ljust(dd, 8), dsn)
 		if smpappProcDDs[dd] {
@@ -118,17 +127,33 @@ func renderApplyDDs(d *Distribution) string {
 			add = append(add, line)
 		}
 	}
+	add = append(add, txCards(d, smpProcStep+".")...)
 	return strings.Join(append(over, add...), "\n")
+}
+
+// allocDCB: the DCB and space of one allocated library. SMP's own libraries
+// hold load modules; the element libraries are fixed 80, sized for their
+// content, and the same for the target and the distribution copy.
+func allocDCB(d *Distribution, dsn string) (space, dcb string) {
+	for _, l := range d.delivered() {
+		if dsn == l.Target || dsn == l.DistLib {
+			p, s, dir := l.elementSpace()
+			return fmt.Sprintf("SPACE=(CYL,(%d,%d,%d))", p, s, dir),
+				fmt.Sprintf("DCB=(DSORG=PO,RECFM=%s,LRECL=%d,BLKSIZE=%d)", elemRecfm, elemLrecl, elemBlksize)
+		}
+	}
+	return "SPACE=(CYL,(5,2,20))", "DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)"
 }
 
 // renderAllocDDs: NEW,CATLG,DELETE in cylinders, no DELETE step anywhere.
 func renderAllocDDs(d *Distribution) string {
 	var lines []string
 	for _, dsn := range d.allocated() {
+		space, dcb := allocDCB(d, dsn)
 		lines = append(lines,
 			fmt.Sprintf("//%s DD  DSN=%s,DISP=(NEW,CATLG,DELETE),", ljust(ddnameOf(dsn), 8), dsn),
-			"//            UNIT=SYSDA,SPACE=(CYL,(5,2,20)),",
-			"//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)")
+			"//            UNIT=SYSDA,"+space+",",
+			"//            "+dcb)
 	}
 	return strings.Join(lines, "\n")
 }
@@ -179,9 +204,10 @@ func renderReceiveSteps(plan []recv) string {
 }
 
 // acceptCond: relaxed to RC 4 only when a DELETE is in play (an upgrade's
-// APPLY ends RC 04 on HMA2461, measured).
+// APPLY ends RC 04 on HMA2461, measured) or a ++SRC is (HMA4441: SMP cannot
+// assemble a source it has no assembly step for, and says so at RC 04).
 func acceptCond(d *Distribution) string {
-	if len(d.SMP.Delete) > 0 {
+	if len(d.SMP.Delete) > 0 || d.hasSRC() {
 		return "(4,LT,APPLY.HMASMP)"
 	}
 	return "(0,NE,APPLY.HMASMP)"
@@ -193,19 +219,27 @@ func renderCleanupStep(d *Distribution, after string) (string, error) {
 			return "", errf("refusing to generate a cleanup step for %s: it is one of the libraries SMP installs into", d.SMP.LKLib)
 		}
 	}
-	return strings.Join([]string{
+	cond := "0,NE"
+	if d.hasSRC() {
+		cond = "4,LT"
+	}
+	dels := []string{fmt.Sprintf("  DELETE %s NONVSAM SCRATCH PURGE", d.SMP.LKLib)}
+	for _, l := range d.delivered() {
+		dels = append(dels, fmt.Sprintf("  DELETE %s NONVSAM SCRATCH PURGE", l.Stage))
+	}
+	lines := []string{
 		"//*",
 		"//* ---- remove the staging library -----------------------------------",
 		"//* Only reached when everything above worked. Comment the step out",
 		"//* if you would rather keep the shipped modules on the system.",
 		"//*",
-		fmt.Sprintf("//CLEANUP EXEC PGM=IDCAMS,COND=(0,NE,%s)", after),
+		fmt.Sprintf("//CLEANUP EXEC PGM=IDCAMS,COND=(%s,%s)", cond, after),
 		"//SYSPRINT DD  SYSOUT=*",
 		"//SYSIN    DD  *",
-		fmt.Sprintf("  DELETE %s NONVSAM SCRATCH PURGE", d.SMP.LKLib),
-		"/*",
-		"//",
-	}, "\n"), nil
+	}
+	lines = append(lines, dels...)
+	lines = append(lines, "/*", "//")
+	return strings.Join(lines, "\n"), nil
 }
 
 var notQualifier = regexp.MustCompile(`[^A-Z0-9@#$]`)

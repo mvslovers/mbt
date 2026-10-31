@@ -41,6 +41,11 @@ one directory #var("n")#cmd("-")#var("v")#cmd("/") with:
     (#cmd("distlib"))], [the accepted modules.],
   [text library], [#var("NAME")#cmd(".")#var("DIR")], [received with TSO
     #cmd("RECEIVE"), outside SMP.],
+  [element library], [#var("NAME")#cmd(".")#var("DIR") (#cmd("target")),
+    #cmd("A") before its last qualifier (#cmd("distlib")), #cmd("T")
+    before it (#cmd("stage"))], [a library with #cmd("element"): the
+    members are received into the staging library, SMP installs each one
+    into the target and distribution libraries (@ref-smp-elements).],
 )
 
 The DD name of each data set in the jobs and the SYSMOD is its last
@@ -57,7 +62,9 @@ of each library's target) are replaced by the values of the release.
 
 The allocation job allocates the target and distribution libraries,
 #cmd("RECFM=U"), #cmd("BLKSIZE=15040"), in cylinders, and never deletes
-them.
+them. The target and distribution library of an element library are
+allocated by it as well, fixed 80, #cmd("BLKSIZE=3120"), sized for the
+first version twice over, with a directory of at least 20 blocks.
 
 == The Installation Job <ref-smp-job>
 
@@ -118,6 +125,105 @@ The #cmd("++JCLIN") is a copy, so SMP copies each module as it was linked
 and keeps its attributes, entry point and authorization code. Aliases
 travel as #cmd("TALIAS").
 
+
+== Libraries as SMP Elements <ref-smp-elements>
+
+A library with #cmd("element = \"MAC\"") or #cmd("\"SRC\"")
+(@ref-toml-distlib) is installed by SMP, member by member, not received
+into its target as a plain data set. Every member becomes an element of the
+SYSMOD, after the #cmd("++VER") and before the #cmd("++JCLIN"):
+
+```
+++MAC(DAYSBETW) DISTLIB(ARXLIB) SYSLIB(RXLIB) TXLIB(DAYSBETW) .
+++SRC(XMAS) DISTLIB(ASAMPLES) SYSLIB(SAMPLES) TXLIB(XMAS) .
+```
+
+#cmd("DISTLIB") and #cmd("SYSLIB") are the DD names of the distribution and
+the target library, #cmd("TXLIB") the DD name of the card that points to the
+member. The members are in name order, the libraries in the order of the
+configuration.
+
+*The staging library and the TXLIB cards.* The library travels as a TRANSMIT
+file of its own and is received into the staging library, by default
+#var("NAME")#cmd(".T")#var("DIR"). The installation job has one DD card per
+element, in the #cmd("RECEIVE"), #cmd("APPLY CHECK"), #cmd("APPLY") and
+#cmd("ACCEPT") steps, each pointing to the member of the same name:
+
+```
+//DAYSBETW DD  DISP=SHR,DSN=ABC.TRXLIB(DAYSBETW)
+```
+
+SMP reads the element again in each of the four steps and fails with
+#cmd("HMA2832") (DDCARD MISSING) when the card is not there. The DD name is
+the member name, except when that name is taken: a name of the SMP
+procedures or beginning with #cmd("SMP") or #cmd("SYS"), the DD name of
+one of the libraries of the job, or a name already used by the other type.
+Those members get #cmd("TX000001"), #cmd("TX000002"), and so on. A card
+that would pass column 71 continues on a second card. The target and
+distribution libraries are DDs of the #cmd("APPLY") and #cmd("ACCEPT")
+steps and are allocated by the allocation job, like the load libraries.
+
+A library of 116 members and one of 122 make about 240 DD cards in each of
+the four steps. They fit: the TIOT limit was not reached on MVS/CE nor on
+TK5 with 235 cards in a step at the job card's #cmd("REGION=4096K").
+
+*What a member must be.* Fixed 80, no other format. All 80 columns reach the
+library unchanged, columns 73 to 80 included. #cmd("mbt package") checks
+every file before it makes the TRANSMIT file and stops, naming file, line
+and column, for a line past column 80 (tabs are expanded to every eighth
+column and trailing blanks do not count), a control character, and a
+character CP037 has no equivalent for. A file that is valid UTF-8 is
+read as UTF-8 and a character up to #cmd("U+00FF") is passed on as Latin-1,
+which #cmd("xmit370") converts through CP037\; any other
+file is read as Latin-1, as #cmd("xmit370") reads it. Nothing is
+renumbered, cut or stripped.
+
+*Return codes.* A library of #cmd("MAC") elements ends the #cmd("APPLY")
+at return code 0. A library of #cmd("SRC") elements ends the #cmd("APPLY
+CHECK") and the #cmd("APPLY") at return code 4 (#cmd("HMA4441"), one
+message per element: SMP has no assembly step for the source and says so),
+so the job allows 4 there and continues to the #cmd("ACCEPT"), which ends at
+0. The installation job's header says so.
+
+*A name SMP already knows.* An element name belongs to one SYSMOD. A
+#cmd("MAC") whose name is in the target system's CDS already, delivered by
+another SYSMOD, is not installed: the element shows as #cmd("NOT SEL") in the
+#cmd("APPLY") and the return code stays 0. Nothing is wrong with the member
+in the library\; the system's own element stays. A #cmd("SRC") is worse when
+its name is that of a load module (#cmd("MOD")) in the CDS: SMP takes the
+member for the source of that module and assembles it. When the assembly
+fails (it did on MVS/CE for a REXX member named like a TSO command) the
+#cmd("APPLY") ends at return code 12 with #cmd("HMA2402") and
+#cmd("HMA3020") and the SYSMOD is not applied. If the assembly worked, the
+module would be replaced.
+
+#cmd("mbt package") therefore prints the names of every element library,
+with the statements to run on the target system before the first
+installation (a #cmd("LIST") statement takes one element type, so a
+library of sources has two):
+
+```
+120 SRC elements for ABC.SAMPLES (library samples) -- ...:
+    LIST CDS MOD(ALPHA,BETA,...) .
+    LIST CDS SRC(ALPHA,BETA,...) .
+```
+
+A name listed under #cmd("MODULE ENTRIES") or under another SYSMOD's
+entries is a collision\: rename the member's file.
+
+*Dropping a member.* The next minor release names its predecessor in
+#cmd("delete"). SMP deletes every element of the predecessor from the target
+and distribution libraries, and installs those the new SYSMOD has. A member
+the later version no longer has is gone from both libraries
+afterwards (measured with 114 and 121 members: the dropped ones were absent
+from the target library and the distribution library, a new one was
+present, a changed one had its new content). The #cmd("APPLY") ends at 4
+with #cmd("HMA2461") and the #cmd("ACCEPT") at 0, as for a library of load
+modules only (@ref-smp-sysmod).
+
+*Staging libraries.* The #cmd("CLEANUP") step deletes the staging library of
+every element library together with that of the load modules, since SMP has
+copied what it needs.
 
 == Prerelease Builds <ref-smp-prerelease>
 

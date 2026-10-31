@@ -17,14 +17,11 @@ $JOBCARD
 //* WHAT THIS JOB DOES
 $RECEIVE_SUMMARY
 //*   RECV      receive SYSMOD $FMID into the SMP inventory
-//*   APPLYCHK  dry run; APPLY only proceeds if this ends RC=0
-//*   APPLY     copy the load modules into the target library
+//*   APPLYCHK  dry run; APPLY only proceeds if this ends $CHECK_RC
+//*   APPLY     $APPLY_WHAT
 $ACCEPT_SUMMARY
 //*
-//* SMP handles the load modules only. The sample library is a plain
-//* PDS restored by TSO RECEIVE and is none of SMP's business: the
-//* product owns those patterns, the site owns the copies it makes of
-//* them. See the README for which member goes where.
+$SMP_SCOPE
 //*
 //* The SYSMOD travels inline in this job -- it is plain text, so
 //* there is no third file to upload and no dataset to allocate for
@@ -48,7 +45,7 @@ $DELIM
 //SMPCNTL  DD  *
  RESETRC .
  RECEIVE SELECT($FMID) .
-/*
+/*$RECV_DDS
 //*
 //* ---- APPLY CHECK: reports what would happen, changes nothing ------
 //* NOTE ON THE DD ORDER: every DD that OVERRIDES one the SMPAPP
@@ -65,7 +62,7 @@ $APPLY_DDS
 /*
 //*
 //* ---- APPLY --------------------------------------------------------
-//APPLY   EXEC SMPAPP,COND=(0,NE,APPLYCHK.HMASMP)
+//APPLY   EXEC SMPAPP,COND=$CHECK_COND
 $APPLY_DDS
 //SMPCNTL  DD  *
  APPLY S($FMID) DIS(WRITE) .

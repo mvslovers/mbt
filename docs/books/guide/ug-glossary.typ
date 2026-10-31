@@ -26,6 +26,11 @@ _CC/370 User's Guide_.
     installs into.],
   [distribution library], [The library in which _SMP_ keeps the accepted
     level of each element, the level a #cmd("RESTORE") returns to.],
+  [element], [A member that _SMP_ installs and tracks by name, here a
+    #cmd("++MAC") or #cmd("++SRC") made from a file of a library with
+    #cmd("element") in #cmd("[distribution.library.")#var("dir")#cmd("]").
+    Each is read from the staging library through its own #cmd("TXLIB")
+    card.],
   [FMID], [The function identifier of a _SYSMOD_ of type #cmd("FUNCTION"):
     #cmd("T"), three letters for the product and three digits for the
     version, such as #cmd("TSUM140").],

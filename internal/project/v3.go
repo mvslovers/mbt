@@ -52,7 +52,7 @@ var v3Keys = map[string][]string{
 	"test":         {"sources", "exclude", "rent", "reus", "refr", "entry", "startup", "dep_startup", "ac", "host", "mvs", "parm", "fixtures"},
 	"deploy":       {"target", "test_target"},
 	"distribution": {"readme", "extra", "library"},
-	"library":      {"target"},
+	"library":      {"target", "element", "distlib", "stage"},
 	"smp":          {"prefix", "fmid", "delete", "system", "prereq", "accept_fmid", "lklib", "target", "distlib"},
 	"release":      {"version_files"},
 	"tso":          {"fixtures", "size"},
@@ -575,7 +575,13 @@ func v3Distribution(root string, in, d map[string]any, upper string, v version.V
 					return nil, "", err
 				}
 			}
-			list = append(list, map[string]any{"dir": dir, "target": t})
+			entry := map[string]any{"dir": dir, "target": t}
+			for _, k := range []string{"element", "distlib", "stage"} {
+				if x, ok := l[k]; ok {
+					entry[k] = x
+				}
+			}
+			list = append(list, entry)
 		}
 		out["library"] = list
 	}

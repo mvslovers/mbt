@@ -347,3 +347,24 @@ func TestV3COBOL(t *testing.T) {
 		}
 	}
 }
+
+// A library delivered as SMP elements: element, distlib and stage reach the
+// distribution section untouched, and an unknown per-library key (a record
+// format, say) is still refused.
+func TestLoadV3ElementLibrary(t *testing.T) {
+	in := strings.Replace(v3Base, "[distribution.library.samplib]\n",
+		"[distribution.library.samplib]\nelement = \"MAC\"\ndistlib = \"UFSD.ASAMP\"\nstage = \"UFSD.TSAMP\"\n", 1)
+	p, err := LoadV3(v3Tree(t, in), FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lib := tables(table(p.Raw, "distribution"), "library")
+	if len(lib) != 1 || lib[0]["element"] != "MAC" || lib[0]["distlib"] != "UFSD.ASAMP" ||
+		lib[0]["stage"] != "UFSD.TSAMP" || lib[0]["target"] != "UFSD.SAMPLIB" {
+		t.Errorf("library %v", lib)
+	}
+	bad := strings.Replace(v3Base, "[distribution.library.samplib]\n", "[distribution.library.samplib]\nelement = \"MAC\"\nrecfm = \"VB\"\n", 1)
+	if _, err := LoadV3(v3Tree(t, bad), FileV3); err == nil || !strings.Contains(err.Error(), "recfm") {
+		t.Errorf("recfm accepted: %v", err)
+	}
+}
