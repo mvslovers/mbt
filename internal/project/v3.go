@@ -13,7 +13,9 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/mvslovers/mbt/internal/plugins"
 	"github.com/mvslovers/mbt/internal/tn3270"
+	"github.com/mvslovers/mbt/internal/tools"
 	"github.com/mvslovers/mbt/internal/version"
 )
 
@@ -98,12 +100,101 @@ func checkKeys(t map[string]any, kind, where string) error {
 	return configErr("mbt.toml: unknown key '%s' in %s (internals/mbt-3-schema.md)", bad[0], where)
 }
 
+// v3Plain are the top-level tables that are one table each, [name]; v3Keyed
+// hold one table per entry, [name.ENTRY].
+var (
+	v3Plain = []string{"project", "toolchain", "dependencies", "build", "lib", "internal", "tests", "deploy", "distribution", "smp", "release", "tools", "plugins"}
+	v3Keyed = map[string]string{"module": "NAME", "test": "NAME", "tso": "NAME"}
+)
+
+// tableAt returns parent[key] as a table, nil when it is not there. path is
+// the key as written in the file ("distribution.library"); entry is the name
+// of the entries of a table that holds one table each ("DIR"), "" for a
+// plain table. An array of tables ([[path]]) or a value that is no table is
+// an error, never a table that is silently left out.
+func tableAt(parent map[string]any, key, path, entry string) (map[string]any, error) {
+	v, ok := parent[key]
+	if !ok {
+		return nil, nil
+	}
+	want := "[" + path + "]"
+	if entry != "" {
+		want = "[" + path + "." + entry + "]"
+	}
+	switch x := v.(type) {
+	case map[string]any:
+		return x, nil
+	case []map[string]any, []any:
+		if entry != "" {
+			return nil, configErr("mbt.toml: [[%s]] is the v2 spelling -- write one table per entry, %s (mbt migrate converts a project.toml)", path, want)
+		}
+		return nil, configErr("mbt.toml: [[%s]] is an array of tables -- write one table, %s", path, want)
+	}
+	return nil, configErr("mbt.toml: %s is %s, not a table -- write %s", path, kindOf(v), want)
+}
+
+// kindOf names the TOML type of a decoded value, for a message.
+func kindOf(v any) string {
+	switch v.(type) {
+	case string:
+		return "a string"
+	case int64:
+		return "an integer"
+	case float64:
+		return "a float"
+	case bool:
+		return "a boolean"
+	case []any, []map[string]any:
+		return "an array"
+	case map[string]any:
+		return "a table"
+	}
+	return "a value of another type"
+}
+
+// checkForms refuses every table written in a form other than the one the
+// schema has, before anything reads it: the readers below skip what is not
+// the table they look for.
+func checkForms(in map[string]any) error {
+	for _, k := range v3Plain {
+		if _, err := tableAt(in, k, k, ""); err != nil {
+			return err
+		}
+	}
+	for k, entry := range v3Keyed {
+		if _, err := tableAt(in, k, k, entry); err != nil {
+			return err
+		}
+	}
+	if b, _ := in["build"].(map[string]any); b != nil {
+		if _, err := tableAt(b, "host", "build.host", ""); err != nil {
+			return err
+		}
+	}
+	if d, _ := in["distribution"].(map[string]any); d != nil {
+		if _, err := tableAt(d, "library", "distribution.library", "DIR"); err != nil {
+			return err
+		}
+	}
+	if deps, _ := in["dependencies"].(map[string]any); deps != nil {
+		for k, v := range deps {
+			if _, ok := v.(string); !ok {
+				return configErr("mbt.toml: [dependencies] %q is %s, not a version range -- write %q = \"^1\"", k, kindOf(v), k)
+			}
+		}
+	}
+	return nil
+}
+
 func translateV3(root string, in map[string]any) (map[string]any, string, error) {
 	if err := checkKeys(in, "", ""); err != nil {
 		return nil, "", err
 	}
 	if s, ok := in["schema"].(int64); !ok || s != 3 {
 		return nil, "", configErr("mbt.toml: 'schema = 3' is required")
+	}
+	if err := checkForms(in); err != nil {
+		return nil, "", err
 	}
 	out := map[string]any{}
 
@@ -281,11 +372,18 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 		out["tso"] = tso
 	}
 
-	// checked where they are used (internal/tools, internal/plugins)
 	for _, k := range []string{"tools", "plugins"} {
 		if t := table(in, k); t != nil {
 			out[k] = t
 		}
+	}
+	// their keys are checked here, not only where a tool or plugin is needed,
+	// so that every command refuses a misspelt one
+	if _, err := tools.Declared(out); err != nil {
+		return nil, "", configErr("mbt.toml: %v", err)
+	}
+	if _, err := plugins.Declared(out); err != nil {
+		return nil, "", configErr("mbt.toml: %v", err)
 	}
 
 	rel := table(in, "release")
@@ -300,19 +398,16 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 
 // keyedTables returns the entries of [kind.NAME] tables, sorted by name.
 func keyedTables(in map[string]any, kind string) ([]string, map[string]map[string]any, error) {
-	t := table(in, kind)
-	if t == nil {
-		if _, isList := in[kind].([]map[string]any); isList {
-			return nil, nil, configErr("mbt.toml: [[%s]] is the v2 spelling -- write [%s.NAME] (mbt migrate converts a project.toml)", kind, kind)
-		}
-		return nil, nil, nil
+	t, err := tableAt(in, kind, kind, "NAME")
+	if t == nil || err != nil {
+		return nil, nil, err
 	}
 	names := make([]string, 0, len(t))
 	entries := map[string]map[string]any{}
 	for n, v := range t {
 		e, ok := v.(map[string]any)
 		if !ok {
-			return nil, nil, configErr("mbt.toml: %s.%s must be a table: [%s.%s]", kind, n, kind, n)
+			return nil, nil, configErr("mbt.toml: [%s] holds one table per entry, [%s.NAME]; '%s' is %s", kind, kind, n, kindOf(v))
 		}
 		names = append(names, n)
 		entries[n] = e
@@ -421,6 +516,14 @@ func v3Tests(root string, in map[string]any) ([]map[string]any, error) {
 	for _, n := range names {
 		if err := checkKeys(entries[n], "test", fmt.Sprintf("[test.%s]", quoteKey(n))); err != nil {
 			return nil, err
+		}
+		if _, err := tableAt(entries[n], "fixtures", "test."+quoteKey(n)+".fixtures", ""); err != nil {
+			return nil, err
+		}
+		switch pv := entries[n]["parm"].(type) {
+		case nil, string, map[string]any:
+		default:
+			return nil, configErr("mbt.toml: test.%s.parm is %s -- write a string, or a table [test.%s.parm] with batch and tso", quoteKey(n), kindOf(pv), quoteKey(n))
 		}
 		for _, s := range strs(entries[n], "sources") {
 			claimed[s] = true
@@ -564,7 +667,10 @@ func v3Distribution(root string, in, d map[string]any, upper string, v version.V
 		sort.Strings(dirs)
 		var list []map[string]any
 		for _, dir := range dirs {
-			l, _ := libs[dir].(map[string]any)
+			l, ok := libs[dir].(map[string]any)
+			if !ok {
+				return nil, "", configErr("mbt.toml: [distribution.library] holds one table per directory, [distribution.library.DIR]; '%s' is %s", dir, kindOf(libs[dir]))
+			}
 			if err := checkKeys(l, "library", fmt.Sprintf("[distribution.library.%s]", quoteKey(dir))); err != nil {
 				return nil, "", err
 			}

@@ -9,12 +9,19 @@ name in upper case.
 
 A key not listed here is an error that names it, with return code 2, in
 every table except #cmd("[dependencies]") and #cmd("[plugins]"), whose keys
-are repository names, and #cmd("[tools]"), whose entries are checked when a
-tool is needed (return code 3). The reserved tables of @ref-toml-reserved
-are errors too. The types of the values are not checked: give them as
-shown. A directory that holds both #cmd("mbt.toml") and an MBT 2
-#cmd("project.toml") is an error, and so are the MBT 2 forms
-#cmd("[[module]]") and #cmd("[[test]]").
+are repository names, and in #cmd("[tools]") the keys of an entry are
+checked the same way. So is a table in a form other than the one shown
+here: #cmd("[[distribution.library]]") where
+#cmd("[distribution.library.DIR]") is meant, #cmd("[[build]]") or
+#cmd("[[smp]]") for a table of its own, a key that is a string where a table
+belongs, a #cmd("[dependencies]") entry that is no version range. The
+message names the key and the form to write. Every command that reads
+#cmd("mbt.toml") stops with it, #cmd("mbt build") and #cmd("mbt deps")
+included; nothing is left out of a package without a word. The reserved
+tables of @ref-toml-reserved are errors too. The types of the other
+values are not checked: give them as shown. A directory that holds both
+#cmd("mbt.toml") and an MBT 2 #cmd("project.toml") is an error, and so are
+the MBT 2 forms #cmd("[[module]]") and #cmd("[[test]]").
 
 
 == Top Level <ref-toml-top>

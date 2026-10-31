@@ -8,6 +8,15 @@ from.
 A directory holding both `mbt.toml` and `project.toml` is a configuration
 error (exit 2): mbt does not pick one.
 
+mbt refuses what it does not understand (exit 2, mbt#312), in every command
+that reads the file: a key that is not listed here, and a table in a form
+other than the one listed (`[[distribution.library]]` where
+`[distribution.library.<dir>]` is meant, `[[build]]`, a scalar where a table
+belongs). Nothing is skipped silently. The check is `checkForms` and
+`checkKeys` in `internal/project/v3.go`; the error names the key but no
+line, because the TOML decoder reports positions for syntax errors only.
+`[dependencies]` and `[plugins]` take repository names as keys.
+
 ## Decisions behind it (maintainer, 2026-10-06)
 
 - **Modules and tests are keyed tables** (`[module.HTTPD]`), and mbt orders
