@@ -122,12 +122,28 @@ func TestElementStatementsAndDDs(t *testing.T) {
 	if len(lines) != 3+2*2+5 {
 		t.Errorf("want 3 SMP + 4 element-library + 5 TXLIB cards, got %d:\n%s", len(lines), apply)
 	}
-	// a library that overrides a procedure DD still goes before the additions
-	d2 := parseElem(t, map[string]any{"dir": "m", "target": "ABC.SAMPLIB", "element": "SRC", "distlib": "ABC.ASAMPLIB"})
-	withElements(d2, "m", "ONE")
-	got := strings.Split(renderApplyDDs(d2), "\n")
-	if !strings.HasPrefix(got[0], "//HMASMP.LINKLIB") || !strings.HasPrefix(got[1], "//HMASMP.SAMPLIB") || !strings.HasPrefix(got[2], "//HMASMP.ASAMPLIB") {
-		t.Errorf("overrides first:\n%s", strings.Join(got, "\n"))
+	// a library that overrides a procedure DD still goes before the additions,
+	// in the order of the procedure of the system it installs on
+	for procedure, want := range map[string]string{
+		"mvsce": "ASAMPLIB LINKLIB SAMPLIB",
+		"tk5":   "LINKLIB SAMPLIB ASAMPLIB",
+	} {
+		cfg := elemCfg(map[string]any{"dir": "m", "target": "ABC.SAMPLIB", "element": "SRC", "distlib": "ABC.ASAMPLIB"})
+		cfg["distribution"].(map[string]any)["smp"].(map[string]any)["procedure"] = procedure
+		d2, err := Parse(cfg, "V1R0M0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		withElements(d2, "m", "ONE")
+		var got []string
+		for _, n := range ddsOf(renderApplyDDs(d2)) {
+			if n == "ASAMPLIB" || n == "LINKLIB" || n == "SAMPLIB" {
+				got = append(got, n)
+			}
+		}
+		if g := strings.Join(got, " "); g != want {
+			t.Errorf("%s: overrides first, in the order of the procedure: %s", procedure, g)
+		}
 	}
 	// the RECEIVE step reads the same members, without a step qualifier
 	recv := renderRecvDDs(d)
@@ -463,6 +479,141 @@ func TestMembersNamedLikeJCLCards(t *testing.T) {
 	for _, want := range []string{"TXLIB(TX000001)", "TXLIB(TX000002)", "TXLIB(TX000003)", "TXLIB(TX000004)", "TXLIB(WORK)"} {
 		if !strings.Contains(mcs, want) {
 			t.Errorf("MCS lacks %s:\n%s", want, mcs)
+		}
+	}
+}
+
+// ddsOf: the ddnames of the APPLY DD block, in order.
+func ddsOf(apply string) []string {
+	var out []string
+	for _, l := range strings.Split(apply, "\n") {
+		if strings.HasPrefix(l, "//HMASMP.") {
+			out = append(out, strings.Fields(strings.TrimPrefix(l, "//HMASMP."))[0])
+		}
+	}
+	return out
+}
+
+func permutations(a []string) [][]string {
+	if len(a) <= 1 {
+		return [][]string{append([]string(nil), a...)}
+	}
+	var out [][]string
+	for i := range a {
+		rest := append(append([]string(nil), a[:i]...), a[i+1:]...)
+		for _, p := range permutations(rest) {
+			out = append(out, append([]string{a[i]}, p...))
+		}
+	}
+	return out
+}
+
+// applyDDsOf parses a descriptor whose target, lklib and distlib end in the
+// given roles (and, if procedure is not empty, names that procedure).
+func applyDDsOf(t *testing.T, procedure string, roles ...string) ([]string, error) {
+	t.Helper()
+	cfg := elemCfg()
+	smp := cfg["distribution"].(map[string]any)["smp"].(map[string]any)
+	smp["target"], smp["lklib"], smp["distlib"] = "ABC."+roles[0], "ABC."+roles[1], "ABC."+roles[2]
+	if procedure != "" {
+		smp["procedure"] = procedure
+	}
+	d, err := Parse(cfg, "V1R0M0")
+	if err != nil {
+		return nil, err
+	}
+	return ddsOf(renderApplyDDs(d)), nil
+}
+
+// An override out of sequence is a second DD of the same name: ACCEPT then
+// allocated SYS1.ASAMPLIB and ours, SMP used the procedure's, and IEBCOPY
+// wrote into IBM's library. SMPAPP on MVS/CE lists ASAMPLIB, LINKLIB, SAMPLIB.
+func TestOverridesFollowTheProcedureOrder(t *testing.T) {
+	for _, roles := range permutations([]string{"ASAMPLIB", "LINKLIB", "SAMPLIB"}) {
+		got, err := applyDDsOf(t, "mvsce", roles...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g := strings.Join(got, " "); g != "ASAMPLIB LINKLIB SAMPLIB" {
+			t.Errorf("target=%s lklib=%s distlib=%s: %s", roles[0], roles[1], roles[2], g)
+		}
+	}
+}
+
+// TK5's procedure has no ASAMPLIB: there it is an addition and goes last. Put
+// first, it would turn LINKLIB and SAMPLIB into second DDs and SMP would
+// write into SYS1.LINKLIB and SYS1.SAMPLIB.
+func TestTK5ProcedureHasNoASAMPLIB(t *testing.T) {
+	for _, roles := range permutations([]string{"ASAMPLIB", "LINKLIB", "SAMPLIB"}) {
+		got, err := applyDDsOf(t, "tk5", roles...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g := strings.Join(got, " "); g != "LINKLIB SAMPLIB ASAMPLIB" {
+			t.Errorf("target=%s lklib=%s distlib=%s: %s", roles[0], roles[1], roles[2], g)
+		}
+	}
+}
+
+func TestAdditionStillFollowsEveryOverride(t *testing.T) {
+	for _, procedure := range procedureNames() {
+		for _, roles := range permutations([]string{"SAMPLIB", "ABCLOAD", "LINKLIB"}) {
+			got, err := applyDDsOf(t, procedure, roles...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if g := strings.Join(got, " "); g != "LINKLIB SAMPLIB ABCLOAD" {
+				t.Errorf("%s target=%s lklib=%s distlib=%s: %s", procedure, roles[0], roles[1], roles[2], g)
+			}
+		}
+	}
+}
+
+func TestSameInBothProceduresNeedsNoProcedure(t *testing.T) {
+	for _, roles := range permutations([]string{"SAMPLIB", "LINKLIB", "PARMLIB"}) {
+		got, err := applyDDsOf(t, "", roles...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if g := strings.Join(got, " "); g != "LINKLIB PARMLIB SAMPLIB" {
+			t.Errorf("target=%s lklib=%s distlib=%s: %s", roles[0], roles[1], roles[2], g)
+		}
+	}
+}
+
+// ASAMPLIB with LINKLIB is right in one order on MVS/CE and in another on
+// TK5; picking one would be the silent failure.
+func TestSystemDependentOrderMustNameTheProcedure(t *testing.T) {
+	_, err := applyDDsOf(t, "", "LINKLIB", "SAMPLIB", "ASAMPLIB")
+	if err == nil || !strings.Contains(err.Error(), "procedure") {
+		t.Errorf("want an error naming `procedure`, got %v", err)
+	}
+}
+
+func TestUnknownProcedureIsRefused(t *testing.T) {
+	if _, err := applyDDsOf(t, "vm370", "LINKLIB", "ABCLOAD", "AABCLOD"); err == nil {
+		t.Error("an unknown procedure was accepted")
+	}
+}
+
+func TestAnyDLibOfTheProcedureIsAnOverride(t *testing.T) {
+	got, err := applyDDsOf(t, "mvsce", "LINKLIB", "LKLIB", "AMACLIB")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := strings.Join(got, " "); g != "AMACLIB LINKLIB LKLIB" {
+		t.Errorf("got %s", g)
+	}
+}
+
+func TestProcedureOrdersHaveNoDuplicates(t *testing.T) {
+	for name, order := range smpappProcedures {
+		seen := map[string]bool{}
+		for _, n := range order {
+			if seen[n] {
+				t.Errorf("%s: %s twice", name, n)
+			}
+			seen[n] = true
 		}
 	}
 }

@@ -3,6 +3,7 @@ package dist
 import (
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -108,27 +109,92 @@ func upperCut(s string, n int) string {
 	return s
 }
 
-// renderApplyDDs: procedure overrides first, additions after -- the only
-// order in which an override is an override. The libraries of the elements
-// follow the SYSMOD's own, then one TXLIB card per element: APPLY and ACCEPT
-// read an element from its TXLIB again (HMA2832 DDCARD MISSING otherwise).
-func renderApplyDDs(d *Distribution) string {
-	var over, add []string
+// procedureNames are the keys of smpappProcedures, sorted.
+func procedureNames() []string {
+	var out []string
+	for n := range smpappProcedures {
+		out = append(out, n)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// arrangeApplyDDs: the DDs the procedure has first, in the procedure's order,
+// then the additions -- the only order in which an override is an override.
+// The libraries of the elements follow the SYSMOD's own, then one TXLIB card
+// per element: APPLY and ACCEPT read an element from its TXLIB again
+// (HMA2832 DDCARD MISSING otherwise).
+func arrangeApplyDDs(d *Distribution, order []string) []string {
+	pos := map[string]int{}
+	for i, n := range order {
+		pos[n] = i
+	}
+	type dd struct {
+		pos  int
+		line string
+	}
+	var over []dd
+	var add []string
 	dsns := []string{d.SMP.Target, d.SMP.LKLib, d.SMP.DistLib}
 	for _, l := range d.delivered() {
 		dsns = append(dsns, l.Target, l.DistLib)
 	}
 	for _, dsn := range dsns {
-		dd := ddnameOf(dsn)
-		line := fmt.Sprintf("//%s.%s DD  DISP=SHR,DSN=%s", smpProcStep, ljust(dd, 8), dsn)
-		if smpappProcDDs[dd] {
-			over = append(over, line)
+		name := ddnameOf(dsn)
+		line := fmt.Sprintf("//%s.%s DD  DISP=SHR,DSN=%s", smpProcStep, ljust(name, 8), dsn)
+		if p, ok := pos[name]; ok {
+			over = append(over, dd{p, line})
 		} else {
 			add = append(add, line)
 		}
 	}
+	sort.SliceStable(over, func(i, j int) bool { return over[i].pos < over[j].pos })
 	add = append(add, txCards(d, smpProcStep+".")...)
-	return strings.Join(append(over, add...), "\n")
+	lines := make([]string, 0, len(over)+len(add))
+	for _, o := range over {
+		lines = append(lines, o.line)
+	}
+	return append(lines, add...)
+}
+
+// applyDDs: the block for the procedure the descriptor names. Without one it
+// is arranged for every known procedure and used if they agree; if they do
+// not (a DD one procedure has and the other lacks, such as ASAMPLIB), no block
+// is right for both systems and guessing is the silent failure.
+func applyDDs(d *Distribution) ([]string, error) {
+	if d.SMP.Procedure != "" {
+		return arrangeApplyDDs(d, smpappProcedures[d.SMP.Procedure]), nil
+	}
+	var first []string
+	for i, name := range procedureNames() {
+		lines := arrangeApplyDDs(d, smpappProcedures[name])
+		if i > 0 && strings.Join(lines, "\n") != strings.Join(first, "\n") {
+			return nil, errf("[distribution.smp]: the DD overrides of the SMPAPP step depend on the system: the %s procedures list different DDs, and the right order of %s is not the same on both. Set `procedure` (%s) to the system the package installs on.",
+				"MVS/CE and TK5", strings.Join(ddNames(d), ", "), strings.Join(procedureNames(), ", "))
+		}
+		first = lines
+	}
+	return first, nil
+}
+
+// ddNames are the ddnames of the libraries the APPLY step names, sorted.
+func ddNames(d *Distribution) []string {
+	names := []string{ddnameOf(d.SMP.Target), ddnameOf(d.SMP.LKLib), ddnameOf(d.SMP.DistLib)}
+	for _, l := range d.delivered() {
+		names = append(names, ddnameOf(l.Target), ddnameOf(l.DistLib))
+	}
+	sort.Strings(names)
+	return names
+}
+
+// renderApplyDDs: the block of applyDDs. The descriptor parser has already
+// refused one that has none.
+func renderApplyDDs(d *Distribution) string {
+	lines, err := applyDDs(d)
+	if err != nil {
+		panic(err)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // allocDCB: the DCB and space of one allocated library. SMP's own libraries

@@ -43,10 +43,34 @@ const (
 var (
 	// SMPAPP/SMPREC define SMPTLIB themselves.
 	reservedDDNames = map[string]bool{"SMPTLIB": true}
-	// DDs the SMPAPP procedure carries: an override of one must come first.
-	smpappProcDDs = map[string]bool{"CMDLIB": true, "HELP": true, "MACLIB": true, "PARMLIB": true,
-		"UMODLIB": true, "LINKLIB": true, "LPALIB": true, "PROCLIB": true, "SAMPLIB": true,
-		"ASAMPLIB": true, "UMODOBJ": true}
+	// The DDs of the HMASMP step of SMPAPP in the order each system's
+	// procedure lists them (HMASMP LVL 04.48). One of ours with such a name is
+	// an override: JCL wants the overrides in this order and ahead of every
+	// added DD, or the second DD of the same name is not an override and SMP
+	// uses the procedure's. SMPREC has no library DDs. The two differ: MVS/CE
+	// also lists the A* and AOS* distribution libraries (ASAMPLIB among
+	// them) and UMODLIB/UMODOBJ, TK5 does not; ASAMPLIB is an override ahead
+	// of LINKLIB there and an addition after SAMPLIB here.
+	smpappProcedures = map[string][]string{
+		"mvsce": strings.Fields(`
+			SYSUT1 SYSUT2 SYSUT3 SYSUT4 SYSPRINT ASMPRINT CMPPRINT COPPRINT LKDPRINT
+			E37PRINT UPDPRINT ZAPPRINT SMPOUT SMPLOG SMPTLIB SYSLIB SMPACDS SMPACRQ
+			SMPCDS SMPCRQ SMPMTS SMPPTS SMPSTS SMPSCDS SMPWRK1 SMPWRK2 SMPWRK3
+			SMPWRK4 SMPWRK5 ACMDLIB AGENLIB AHELP AIMAGE ALPALIB AMACLIB AMODGEN
+			AOS00 AOS03 AOS04 AOS05 AOS06 AOS07 AOS11 AOS12 AOS20 AOS21 AOS24 AOS26
+			AOS29 AOS32 AOSA0 AOSA1 AOSB0 AOSB3 AOSBN AOSC2 AOSC5 AOSC6 AOSCA AOSCD
+			AOSCE AOSD0 AOSD7 AOSD8 AOSG0 AOSH1 AOSH3 AOST3 AOST4 AOSU0 APARMLIB
+			APROCLIB ASAMPLIB ATCAMMAC ATSOMAC AUADS HASPSRC CMDLIB HELP IMAGELIB
+			IMAGE LPALIB LINKLIB NUCLEUS MACLIB PARMLIB PROCLIB SAMPLIB SVCLIB
+			TCOMMAC TELCMLIB UADS UMODLIB UMODOBJ VTAMLIB`),
+		"tk5": strings.Fields(`
+			SYSUT1 SYSUT2 SYSUT3 SYSUT4 SYSPRINT ASMPRINT CMPPRINT COPPRINT LKDPRINT
+			E37PRINT UPDPRINT ZAPPRINT SMPOUT SMPLOG SMPTLIB SYSLIB SMPACDS SMPACRQ
+			SMPCDS SMPCRQ SMPMTS SMPPTS SMPSTS SMPSCDS SMPWRK1 SMPWRK2 SMPWRK3
+			SMPWRK4 SMPWRK5 CMDLIB HASPSRC HELP IMAGELIB IMAGE LPALIB LINKLIB
+			NUCLEUS MACLIB PARMLIB PROCLIB SAMPLIB SVCLIB TCOMMAC TELCMLIB UADS
+			VTAMLIB`),
+	}
 
 	fmidRE      = regexp.MustCompile(`^[A-Z][A-Z0-9]{6}$`)
 	ddnameRE    = regexp.MustCompile(`^[A-Z@#$][A-Z0-9@#$]{0,7}$`)
@@ -194,8 +218,11 @@ func (l Library) elementSpace() (primary, secondary, dir int) {
 // SMP is the SMP4 side of the descriptor.
 type SMP struct {
 	FMID, System, LKLib, Target, DistLib string
-	Prereq, Delete                       []string
-	AcceptFMID                           bool
+	// Procedure names the SMPAPP layout of the system the package installs
+	// on (a key of smpappProcedures); empty if the descriptor does not say.
+	Procedure      string
+	Prereq, Delete []string
+	AcceptFMID     bool
 }
 
 // Distribution is the parsed [distribution].
@@ -246,7 +273,7 @@ func (d *Distribution) hasSRC() bool {
 
 var (
 	distKeys = []string{"extra", "library", "readme", "smp"}
-	smpKeys  = []string{"accept_fmid", "delete", "distlib", "fmid", "lklib", "prereq", "system", "target"}
+	smpKeys  = []string{"accept_fmid", "delete", "distlib", "fmid", "lklib", "prereq", "procedure", "system", "target"}
 	libKeys  = []string{"dir", "distlib", "element", "stage", "target"}
 )
 
@@ -387,6 +414,12 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 	if a, ok := smpCfg["accept_fmid"]; ok {
 		smp.AcceptFMID = pyTruthy(a)
 	}
+	if pv, ok := smpCfg["procedure"]; ok {
+		smp.Procedure = pyStr(pv)
+		if _, ok := smpappProcedures[smp.Procedure]; !ok {
+			return nil, errf("[distribution.smp]: procedure '%s' is not one of %s", smp.Procedure, strings.Join(procedureNames(), ", "))
+		}
+	}
 	if smp.LKLib == smp.Target {
 		return nil, errf("[distribution.smp]: lklib and target are both '%s'. The staging library the APPLY reads from must be a different dataset than the library it installs into.", smp.LKLib)
 	}
@@ -443,6 +476,9 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 		seen[dd] = dsn
 	}
 	if err := distinctDSNs(d); err != nil {
+		return nil, err
+	}
+	if _, err := applyDDs(d); err != nil {
 		return nil, err
 	}
 	return d, nil

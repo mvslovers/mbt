@@ -71,16 +71,51 @@ RESERVED_DDNAMES = frozenset({"SMPTLIB"})
 #: PARAMETER LENGTH and the job never runs.
 MAX_PROGRAMMER_NAME = 20
 
-#: DD names the SMPAPP/SMPREC procedures already carry (all pointing at SYS1.*),
-#: read off the procs on a live MVS 3.8j system.  A DD of ours whose name is in
-#: here is an **override** and must be written before every added DD, or JCL
-#: treats it as a second DD of the same name: both datasets get allocated, SMP
-#: uses the procedure's, and every message still reports the ddname we wanted --
-#: the mistake is not visible in the log (F1/T9).
-SMPAPP_PROC_DDS = frozenset({
-    "CMDLIB", "HELP", "MACLIB", "PARMLIB", "UMODLIB", "LINKLIB",
-    "LPALIB", "PROCLIB", "SAMPLIB", "ASAMPLIB", "UMODOBJ",
-})
+#: The DDs of the HMASMP step of the SMPAPP procedure, in the order the
+#: procedure lists them (HMASMP LVL 04.48; the library DDs all point at
+#: SYS1.*), for the two systems we install on.  A DD of ours whose name is in
+#: the procedure is an **override**.  JCL wants the overrides in the
+#: procedure's order and ahead of every added DD; an override out of sequence
+#: is not an override but a second DD of the same name: both datasets get
+#: allocated, SMP uses the procedure's, and every message still reports the
+#: ddname we wanted -- the mistake is not visible in the log (F1/T9).  SMPREC
+#: carries no library DDs, so the RECEIVE step has nothing to override.
+#:
+#: The two procedures differ: the MVS/CE one also lists the A* and AOS*
+#: distribution libraries (ASAMPLIB among them) and UMODLIB/UMODOBJ, the TK5
+#: one does not.  ASAMPLIB is an override ahead of LINKLIB on MVS/CE and an
+#: addition after SAMPLIB on TK5, so for a descriptor that uses both names no
+#: single order serves both systems.
+SMPAPP_PROCEDURES = {
+    "mvsce": (
+        "SYSUT1", "SYSUT2", "SYSUT3", "SYSUT4", "SYSPRINT", "ASMPRINT",
+        "CMPPRINT", "COPPRINT", "LKDPRINT", "E37PRINT", "UPDPRINT",
+        "ZAPPRINT", "SMPOUT", "SMPLOG", "SMPTLIB", "SYSLIB", "SMPACDS",
+        "SMPACRQ", "SMPCDS", "SMPCRQ", "SMPMTS", "SMPPTS", "SMPSTS",
+        "SMPSCDS", "SMPWRK1", "SMPWRK2", "SMPWRK3", "SMPWRK4", "SMPWRK5",
+        "ACMDLIB", "AGENLIB", "AHELP", "AIMAGE", "ALPALIB", "AMACLIB",
+        "AMODGEN", "AOS00", "AOS03", "AOS04", "AOS05", "AOS06", "AOS07",
+        "AOS11", "AOS12", "AOS20", "AOS21", "AOS24", "AOS26", "AOS29",
+        "AOS32", "AOSA0", "AOSA1", "AOSB0", "AOSB3", "AOSBN", "AOSC2",
+        "AOSC5", "AOSC6", "AOSCA", "AOSCD", "AOSCE", "AOSD0", "AOSD7",
+        "AOSD8", "AOSG0", "AOSH1", "AOSH3", "AOST3", "AOST4", "AOSU0",
+        "APARMLIB", "APROCLIB", "ASAMPLIB", "ATCAMMAC", "ATSOMAC", "AUADS",
+        "HASPSRC", "CMDLIB", "HELP", "IMAGELIB", "IMAGE", "LPALIB",
+        "LINKLIB", "NUCLEUS", "MACLIB", "PARMLIB", "PROCLIB", "SAMPLIB",
+        "SVCLIB", "TCOMMAC", "TELCMLIB", "UADS", "UMODLIB", "UMODOBJ",
+        "VTAMLIB",
+    ),
+    "tk5": (
+        "SYSUT1", "SYSUT2", "SYSUT3", "SYSUT4", "SYSPRINT", "ASMPRINT",
+        "CMPPRINT", "COPPRINT", "LKDPRINT", "E37PRINT", "UPDPRINT",
+        "ZAPPRINT", "SMPOUT", "SMPLOG", "SMPTLIB", "SYSLIB", "SMPACDS",
+        "SMPACRQ", "SMPCDS", "SMPCRQ", "SMPMTS", "SMPPTS", "SMPSTS",
+        "SMPSCDS", "SMPWRK1", "SMPWRK2", "SMPWRK3", "SMPWRK4", "SMPWRK5",
+        "CMDLIB", "HASPSRC", "HELP", "IMAGELIB", "IMAGE", "LPALIB",
+        "LINKLIB", "NUCLEUS", "MACLIB", "PARMLIB", "PROCLIB", "SAMPLIB",
+        "SVCLIB", "TCOMMAC", "TELCMLIB", "UADS", "VTAMLIB",
+    ),
+}
 
 #: The single step of both SMP procedures; DD overrides must carry it as a
 #: qualifier, and so must a COND referback (F4: an unqualified one is IEF645I).
@@ -250,6 +285,7 @@ class Smp:
     prereq: tuple[str, ...] = ()
     delete: tuple[str, ...] = ()
     accept_fmid: bool = True
+    procedure: str | None = None   # key into SMPAPP_PROCEDURES, if pinned
 
     @property
     def lklib_dd(self) -> str:
@@ -299,7 +335,7 @@ class Distribution:
 
 _DIST_KEYS = {"readme", "extra", "smp", "library"}
 _SMP_KEYS = {"fmid", "system", "lklib", "target", "distlib", "prereq",
-             "delete", "accept_fmid"}
+             "delete", "accept_fmid", "procedure"}
 _LIB_KEYS = {"dir", "target", "distlib"}
 
 
@@ -376,6 +412,13 @@ def parse(cfg: dict, vrm: str) -> Distribution | None:
             f"a new id, and that id is what deletes the one before it."
         )
 
+    procedure = smp_cfg.get("procedure")
+    if procedure is not None and procedure not in SMPAPP_PROCEDURES:
+        raise DistributionError(
+            f"[distribution.smp]: procedure '{procedure}' is not one of "
+            f"{', '.join(sorted(SMPAPP_PROCEDURES))}"
+        )
+
     smp = Smp(
         fmid=fmid,
         system=str(_require(smp_cfg, "system", "[distribution.smp]")).upper(),
@@ -388,6 +431,7 @@ def parse(cfg: dict, vrm: str) -> Distribution | None:
         prereq=prereq,
         delete=delete,
         accept_fmid=bool(smp_cfg.get("accept_fmid", True)),
+        procedure=procedure,
     )
 
     # The staging library is where the APPLY reads the module *from*; the
@@ -416,6 +460,7 @@ def parse(cfg: dict, vrm: str) -> Distribution | None:
         extra=tuple(dist.get("extra", [])),
     )
     _check_ddname_collisions(result)
+    render_apply_dds(result)
     return result
 
 
@@ -593,16 +638,8 @@ def assemble_mcs(dist: Distribution,
 # JCL fragments
 # --------------------------------------------------------------------------
 
-def render_apply_dds(dist: Distribution) -> str:
-    """The DD block for an APPLY/ACCEPT step, in the only order that works.
-
-    JCL requires every DD *added* to a procedure step to follow all DDs that
-    *override* one the procedure already has.  Get it wrong and the override
-    is not an override at all: both datasets are allocated under the same
-    ddname, SMP uses the procedure's, and every message still names the ddname
-    we intended -- so the log does not show the mistake.  The sort below is
-    that rule, mechanised: known procedure DDs first, our additions after.
-    """
+def _arrange_apply_dds(dist: Distribution, order: tuple[str, ...]) -> list[str]:
+    """The DD lines of the APPLY/ACCEPT step for one procedure's DD order."""
     overrides: list[tuple[str, str]] = []
     additions: list[tuple[str, str]] = []
     # Only the three libraries SMP itself touches: it reads the modules from
@@ -610,12 +647,45 @@ def render_apply_dds(dist: Distribution) -> str:
     # in the DLIB. A shipped sample library is none of SMP's business.
     for dsn in (dist.smp.target, dist.smp.lklib, dist.smp.distlib):
         dd = ddname_of(dsn)
-        (overrides if dd in SMPAPP_PROC_DDS else additions).append((dd, dsn))
+        (overrides if dd in order else additions).append((dd, dsn))
+    overrides.sort(key=lambda o: order.index(o[0]))
+    return [f"//{SMP_PROC_STEP}.{dd:<8} DD  DISP=SHR,DSN={dsn}"
+            for dd, dsn in overrides + additions]
 
-    lines = []
-    for dd, dsn in overrides + additions:
-        lines.append(f"//{SMP_PROC_STEP}.{dd:<8} DD  DISP=SHR,DSN={dsn}")
-    return "\n".join(lines)
+
+def render_apply_dds(dist: Distribution) -> str:
+    """The DD block for an APPLY/ACCEPT step, in the only order that works.
+
+    JCL requires the DDs that *override* one the procedure already has to
+    come first and in the procedure's own order, and every DD *added* to the
+    step after them.  Get it wrong and the override is not an override at
+    all: both datasets are allocated under the same ddname, SMP uses the
+    procedure's, and every message still names the ddname we intended -- so
+    the log does not show the mistake.  The order is the procedure's, taken
+    from SMPAPP_PROCEDURES (`[distribution.smp] procedure`).
+
+    Without `procedure` the block is arranged for every known procedure and
+    used if they agree.  If they do not (a DD that one procedure has and the
+    other lacks, such as ASAMPLIB), no block is right for both systems, and
+    guessing is the silent failure -- so that is an error.
+    """
+    procedure = dist.smp.procedure
+    if procedure is not None:
+        return "\n".join(_arrange_apply_dds(dist, SMPAPP_PROCEDURES[procedure]))
+    blocks = {name: _arrange_apply_dds(dist, order)
+              for name, order in SMPAPP_PROCEDURES.items()}
+    if len({tuple(b) for b in blocks.values()}) > 1:
+        raise DistributionError(
+            "[distribution.smp]: the DD overrides of the SMPAPP step depend "
+            "on the system: the MVS/CE and TK5 procedures list different "
+            "DDs, and for "
+            + ", ".join(sorted(ddname_of(d) for d in (
+                dist.smp.target, dist.smp.lklib, dist.smp.distlib)))
+            + " the right order is not the same on both. Set `procedure` "
+            f"({', '.join(sorted(SMPAPP_PROCEDURES))}) to the system the "
+            "package installs on."
+        )
+    return "\n".join(next(iter(blocks.values())))
 
 
 def render_alloc_dds(dist: Distribution, volume: str | None = None) -> str:
