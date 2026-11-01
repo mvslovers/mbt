@@ -184,6 +184,7 @@ target`. mbt does not shorten a library name a started task has to name.
 | ↳ `element` | — | new (mbt#310): `"MAC"` or `"SRC"`, the library is installed by SMP, one element per member |
 | ↳ `distlib` | `target` with `A` before the last qualifier | new; only with `element` (without it the key is still accepted and ignored, as in mbt 2) |
 | ↳ `stage` | `target` with `T` before the last qualifier | new; only with `element` |
+| ↳ `target_dd`, `distlib_dd` | the last qualifier of `target`, `distlib` | new; only with `element` (refused without it) |
 
 An element library is fixed 80 (`FB`, `LRECL=80`, `BLKSIZE=3120`), with no key
 for another format. `stageLibrary` checks each member before `xmit370` sees it
@@ -217,6 +218,7 @@ upper case, `<P4>` its first four characters.
 | `distlib` | `<NAME>.A<P4>LOD` | same |
 | `target_volume` | `MVSRES` | `distribution.smp.target_volume` (new in 3.0.0, mbt 2 reads it too) |
 | `dlib_volume` | `SMP000` | `distribution.smp.dlib_volume` (new in 3.0.0, mbt 2 reads it too) |
+| `lklib_dd`, `target_dd`, `distlib_dd` | the last qualifier of `lklib`, `target`, `distlib` | `distribution.smp.*_dd` (new in 3.0.0; mbt 2 refuses the keys) |
 
 The derivation gives one FMID per minor (design §6.4): a patch release is a
 PTF, which mbt does not build yet. Until it does, packaging a version with a

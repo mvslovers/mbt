@@ -54,8 +54,8 @@ var v3Keys = map[string][]string{
 	"test":         {"sources", "exclude", "rent", "reus", "refr", "entry", "startup", "dep_startup", "ac", "host", "mvs", "parm", "fixtures"},
 	"deploy":       {"target", "test_target"},
 	"distribution": {"readme", "extra", "library"},
-	"library":      {"target", "element", "distlib", "stage"},
-	"smp":          {"prefix", "fmid", "delete", "system", "prereq", "accept_fmid", "procedure", "lklib", "target", "distlib", "target_volume", "dlib_volume"},
+	"library":      {"target", "element", "distlib", "stage", "target_dd", "distlib_dd"},
+	"smp":          {"prefix", "fmid", "delete", "system", "prereq", "accept_fmid", "procedure", "lklib", "target", "distlib", "lklib_dd", "target_dd", "distlib_dd", "target_volume", "dlib_volume"},
 	"release":      {"version_files"},
 	"tso":          {"fixtures", "size"},
 }
@@ -682,7 +682,7 @@ func v3Distribution(root string, in, d map[string]any, upper string, v version.V
 				}
 			}
 			entry := map[string]any{"dir": dir, "target": t}
-			for _, k := range []string{"element", "distlib", "stage"} {
+			for _, k := range []string{"element", "distlib", "stage", "target_dd", "distlib_dd"} {
 				if x, ok := l[k]; ok {
 					entry[k] = x
 				}

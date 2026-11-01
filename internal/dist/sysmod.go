@@ -80,9 +80,9 @@ func AssembleMCS(d *Distribution, modules []string, product, version string, ali
 	out = append(out,
 		"++JCLIN .",
 		fmt.Sprintf("//%s JOB 1,'%s JCLIN',MSGLEVEL=1,CLASS=A", smp.FMID, upperCut(product, 20)))
-	out = append(out, copyStep("COPYLOAD", ddnameOf(smp.DistLib), smp.DistLib, ddnameOf(smp.Target), smp.Target, modules)...)
+	out = append(out, copyStep("COPYLOAD", d.dd(smp.DistLib), smp.DistLib, d.dd(smp.Target), smp.Target, modules)...)
 	for _, m := range modules {
-		lines, err := modStatement(m, ddnameOf(smp.LKLib), ddnameOf(smp.DistLib), aliases[m])
+		lines, err := modStatement(m, d.dd(smp.LKLib), d.dd(smp.DistLib), aliases[m])
 		if err != nil {
 			return "", err
 		}
@@ -140,7 +140,7 @@ func arrangeApplyDDs(d *Distribution, order []string) []string {
 		dsns = append(dsns, l.Target, l.DistLib)
 	}
 	for _, dsn := range dsns {
-		name := ddnameOf(dsn)
+		name := d.dd(dsn)
 		line := fmt.Sprintf("//%s.%s DD  DISP=SHR,DSN=%s", smpProcStep, ljust(name, 8), dsn)
 		if p, ok := pos[name]; ok {
 			over = append(over, dd{p, line})
@@ -179,9 +179,9 @@ func applyDDs(d *Distribution) ([]string, error) {
 
 // ddNames are the ddnames of the libraries the APPLY step names, sorted.
 func ddNames(d *Distribution) []string {
-	names := []string{ddnameOf(d.SMP.Target), ddnameOf(d.SMP.LKLib), ddnameOf(d.SMP.DistLib)}
+	names := []string{d.dd(d.SMP.Target), d.dd(d.SMP.LKLib), d.dd(d.SMP.DistLib)}
 	for _, l := range d.delivered() {
-		names = append(names, ddnameOf(l.Target), ddnameOf(l.DistLib))
+		names = append(names, d.dd(l.Target), d.dd(l.DistLib))
 	}
 	sort.Strings(names)
 	return names
@@ -233,7 +233,7 @@ func renderAllocDDs(d *Distribution) string {
 	for _, dsn := range d.allocated() {
 		space, dcb := allocDCB(d, dsn)
 		lines = append(lines,
-			fmt.Sprintf("//%s DD  DSN=%s,DISP=(NEW,CATLG,DELETE),", ljust(ddnameOf(dsn), 8), dsn),
+			fmt.Sprintf("//%s DD  DSN=%s,DISP=(NEW,CATLG,DELETE),", ljust(d.dd(dsn), 8), dsn),
 			"//            UNIT=SYSDA,VOL=SER="+volSymbol(d, dsn)+","+space+",",
 			"//            "+dcb)
 	}
@@ -259,7 +259,7 @@ func receivePlan(d *Distribution, files map[string]string) []recv {
 		if !ok {
 			f = "?"
 		}
-		plan = append(plan, recv{fmt.Sprintf("RECV%d", i+1), dsn, xmitEditPrefix + "." + ddnameOf(dsn), f})
+		plan = append(plan, recv{fmt.Sprintf("RECV%d", i+1), dsn, xmitEditPrefix + "." + d.dd(dsn), f})
 	}
 	return plan
 }
