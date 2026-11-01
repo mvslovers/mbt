@@ -24,7 +24,10 @@ one directory #var("n")#cmd("-")#var("v")#cmd("/") with:
     @ref-smp-ddnames) in lower case.],
   [#var("n")#cmd("-")#var("v")#cmd("-alloc.jcl")], [the allocation job.],
   [#var("n")#cmd("-")#var("v")#cmd("-inst.jcl")], [the installation job,
-    with the SYSMOD inline.],
+    with the SYSMOD inline. It ends after the #cmd("APPLY").],
+  [#var("n")#cmd("-")#var("v")#cmd("-accept.jcl")], [the accept job:
+    #cmd("ACCEPT") and #cmd("CLEANUP") (@ref-smp-accept). Not written with
+    #cmd("accept_fmid = false").],
   [#cmd("extra") files], [under their own names.],
 )
 
@@ -34,7 +37,8 @@ one directory #var("n")#cmd("-")#var("v")#cmd("/") with:
   [Data set], [Default], [Role],
   [staging], [#var("NAME")#cmd(".")#var("P4")#cmd("LOAD") (#cmd("lklib"))],
     [the load modules are received into it\; the #cmd("LKLIB") of the
-    #cmd("++MOD")s. Deleted at the end.],
+    #cmd("++MOD")s. Deleted by the accept job, or by hand
+    (@ref-smp-accept).],
   [target], [#var("NAME")#cmd(".LINKLIB") (#cmd("target"))], [the
     installed modules.],
   [distribution], [#var("NAME")#cmd(".A")#var("P4")#cmd("LOD")
@@ -294,12 +298,92 @@ the table is removed again.
     #cmd("RECV")#var("n") ended with 0.],
   [#cmd("APPLYCHK")], [#cmd("APPLY CHECK"), if #cmd("RECV") ended with 0.],
   [#cmd("APPLY")], [#cmd("APPLY"), only after a clean check.],
-  [#cmd("ACCEPT")], [#cmd("ACCEPT"), unless #cmd("accept_fmid = false").
-    With #cmd("delete"), it also runs after an #cmd("APPLY") that ended with
-    4.],
-  [#cmd("CLEANUP")], [IDCAMS: deletes the staging library, if
-    #cmd("ACCEPT") (or, without it, #cmd("APPLY")) ended with 0.],
+  [#cmd("CLEANUP")], [only with #cmd("accept_fmid = false"): IDCAMS deletes
+    the staging library, if the #cmd("APPLY") ended with 0.],
 )
+
+With #cmd("accept_fmid") (the default) the job has no #cmd("ACCEPT") and no
+#cmd("CLEANUP"). It ends after the #cmd("APPLY"), and its closing comment
+says what to do next. The staging libraries stay, because SMP reads the
+elements from them again at the #cmd("ACCEPT"). The comment also holds the
+#cmd("DELETE") statements of the staging libraries, as comment cards, for a
+site that never accepts it, or that takes it out with a #cmd("RESTORE")
+(@ref-smp-accept).
+
+*Return codes.* A clean run ends with return code 0, also with
+#cmd("prereq"). The #cmd("APPLY CHECK") and the #cmd("APPLY") stay strict
+with #cmd("prereq"): a prerequisite that is not applied ends them with return
+code 12 and #cmd("HMA3590     --- ") followed by the identifier and #cmd("REQ")
+(@ref-smp-prereq), and the job ends with 12. With #cmd("delete") the
+#cmd("APPLY") ends with 4 (#cmd("HMA2461"), @ref-smp-sysmod).
+
+== The Accept Job <ref-smp-accept>
+
+#idx("SMP", "ACCEPT")
+#idx("accept job")
+The #cmd("ACCEPT") is the point after which a #cmd("RESTORE") cannot take the
+function out again, so it is not a step of the installation job but a job of
+its own, which the user submits after trying the product. The job needs no
+editing: the staging libraries have fixed names, the same as in the
+installation job.
+
+#table(columns: (1.1in, 1fr),
+  [Step], [Action],
+  [#cmd("ACCEPT")], [#cmd("ACCEPT S(")#var("fmid")#cmd(") DIS(WRITE)"), with
+    #cmd("BYPASS(REQ)") if #cmd("prereq") is not empty (@ref-smp-prereq).],
+  [#cmd("CLEANUP")], [IDCAMS: deletes the staging library, and those of the
+    element libraries, if the #cmd("ACCEPT") ended with 0. With
+    #cmd("prereq"), the #cmd("ACCEPT") ends with 4 by design, and the step runs
+    at 4 as well, but not above.],
+)
+
+The job ends with return code 0, with #cmd("prereq") with 4. A failed
+#cmd("ACCEPT") (return code 8 or above, for example a staging library that
+was deleted) leaves the staging libraries alone, and the job can be
+submitted again once the cause is fixed.
+
+Until the #cmd("ACCEPT") ran, a #cmd("RESTORE") takes the load modules out
+again. It does not take out macros: SMP4 copies the previous level of an
+element back from the distribution library, which is empty until the first
+#cmd("ACCEPT"), so the #cmd("RESTORE") of a function with a macro library
+ends with return code 12 and #cmd("HMA4092"), and flags the SYSMOD as in
+error. A #cmd("RESTORE") needs the same DD cards as the #cmd("APPLY"), among
+them the staging libraries.
+
+With #cmd("accept_fmid = false") there is no accept job: the level is never
+accepted, and the #cmd("CLEANUP") step stays in the installation job, behind
+the #cmd("APPLY").
+
+== A Prerequisite That Cannot Be Accepted <ref-smp-prereq>
+
+#idx("SMP", "prereq")
+#idx("BYPASS(REQ)")
+With #cmd("[smp] prereq"), the SYSMOD carries the identifiers in
+#cmd("++VER(...) REQ(...)"), and the #cmd("APPLY CHECK") and the
+#cmd("APPLY") refuse to go on while one of them is not applied: they end with
+return code 12 and #cmd("HMA3590     --- ") followed by the identifier and
+#cmd("REQ"). SMP checks a requisite against the target zone at #cmd("APPLY")
+and against the distribution zone at #cmd("ACCEPT"). A prerequisite that is
+applied but cannot be accepted, such as a usermod whose own requisite is not
+accepted either, would let the #cmd("ACCEPT") end with 12 on every system.
+
+So when #cmd("prereq") is not empty, the ACCEPT of the accept job is
+
+```
+ ACCEPT S(TABC120) BYPASS(REQ) DIS(WRITE) .
+```
+
+for the product's own SYSMOD alone, and the header of the job says why. One
+#cmd("BYPASS(REQ)") covers every identifier of the list. The
+#cmd("APPLY CHECK") and the #cmd("APPLY") of the installation job stay
+strict, and the requisite is still written as #cmd("REQ"). The accept job
+ends with return code 4 and #cmd("HMA3590     --- ") #var("id")
+#cmd(" REQ BYPASSED") for each prerequisite: that is expected. Without
+#cmd("prereq"), the step has no #cmd("BYPASS").
+
+The accept job is not submitted by the installation job, so a failed
+#cmd("APPLY CHECK") cannot lead to an #cmd("ACCEPT") that bypasses a missing
+prerequisite.
 
 == The SYSMOD <ref-smp-sysmod>
 
@@ -356,15 +440,16 @@ configuration in a `project.toml` and sorted by `dir` in an `mbt.toml`.
 
 *The staging library and the TXLIB cards.* The library travels as a TRANSMIT
 file of its own and is received into the staging library, by default
-#var("NAME")#cmd(".T")#var("DIR"). The installation job has one DD card per
-element, in the #cmd("RECEIVE"), #cmd("APPLY CHECK"), #cmd("APPLY") and
+#var("NAME")#cmd(".T")#var("DIR"). The installation job and the accept job
+have one DD card per element, in the #cmd("RECEIVE"), #cmd("APPLY CHECK"), #cmd("APPLY") and
 #cmd("ACCEPT") steps, each pointing to the member of the same name:
 
 ```
 //DAYSBETW DD  DISP=SHR,DSN=ABC.TRXLIB(DAYSBETW)
 ```
 
-SMP reads the element again in each of the four steps and fails with
+SMP reads the element again in each of the four steps (the last one is the
+#cmd("ACCEPT") of the accept job) and fails with
 #cmd("HMA2832") (DDCARD MISSING) when the card is not there. The DD name is
 the member name, except when that name is taken: a name of the SMP
 procedures or beginning with #cmd("SMP") or #cmd("SYS"), the DD name of
@@ -392,7 +477,7 @@ renumbered, cut or stripped.
 *Return codes.* With a library of #cmd("SRC") elements the #cmd("APPLY
 CHECK") and the #cmd("APPLY") end at return code 4 (#cmd("HMA4441"), twice
 per element: SMP has no assembly step for the source and says so), so the
-job allows 4 there and continues to the #cmd("ACCEPT"), which ends at 0.
+job allows 4 there and goes on. The accept job ends at 0.
 The installation job's header says so. A project without such a library
 keeps the check on 0.
 
@@ -432,9 +517,12 @@ present, a changed one had its new content). The #cmd("APPLY") ends at 4
 with #cmd("HMA2461") and the #cmd("ACCEPT") at 0, as for a library of load
 modules only (@ref-smp-sysmod).
 
-*Staging libraries.* The #cmd("CLEANUP") step deletes the staging library of
-every element library together with that of the load modules, since SMP has
-copied what it needs.
+*Staging libraries.* The #cmd("CLEANUP") step of the accept job deletes the
+staging library of every element library together with that of the load
+modules, once the #cmd("ACCEPT") has ended, since SMP has copied what it needs.
+Until then they stay, because SMP reads the elements from them again at the
+#cmd("ACCEPT"). The closing comment of the installation job lists the
+#cmd("DELETE") statements for all of them.
 
 == Prerelease Builds <ref-smp-prerelease>
 

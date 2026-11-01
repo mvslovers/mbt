@@ -3,10 +3,10 @@
 Reads the `[distribution]` table of project.toml and writes two release
 assets into dist/:
 
-    <product>-<version>-dist.zip     README + every XMIT + both jobs
+    <product>-<version>-dist.zip     README + every XMIT + the jobs
     <product>-<version>-dist.tar.gz  the same, for people without unzip
 
-Their contents -- the source-library XMITs and the two generated jobs -- are
+Their contents -- the source-library XMITs and the generated jobs -- are
 built under <builddir>/dist-stage/ and published only inside the archives.
 They are of no use on their own: a job that installs a SYSMOD belongs with
 the SYSMOD it installs. What stays a separate asset is what stands on its
@@ -160,6 +160,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     prefix = f"{name}-{version}"
     alloc_job = f"{prefix}-alloc.jcl"
     inst_job = f"{prefix}-inst.jcl"
+    accept_job = f"{prefix}-accept.jcl"
     load_xmit = f"{prefix}-load.xmit"
 
     out = Path(distdir)
@@ -202,7 +203,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         _log(f"Packaged {fname} ({lib.dir} -> {lib.target})")
     shutil.rmtree(src_root, ignore_errors=True)
 
-    # ---- the SYSMOD and the two jobs ----
+    # ---- the SYSMOD and the jobs ----
     aliases = {m["name"]: m["aliases"]
                for m in cfg.get("module", []) if m.get("aliases")}
     mcs = D.assemble_mcs(dist, modules, name, version, aliases)
@@ -225,32 +226,33 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         receive_summary.append(f"//*               -> {dsn}")
     cleanup_note = ("//*   CLEANUP   scratch the staging library, now spent")
 
+    # With accept_fmid the install job ends after the APPLY: ACCEPT is the
+    # point without a way back, so it is a job of its own that the user
+    # submits (accept_jcl), and it takes the CLEANUP with it, since SMP reads
+    # the staging library again at the ACCEPT.
+    accept_jcl = ""
     if dist.smp.accept_fmid:
-        accept_summary = ("//*   ACCEPT    make this level the base a RESTORE "
-                          "returns to")
-        accept_cond = D.accept_cond(dist)
-        accept_step = (
-            "//*\n"
-            "//* ---- ACCEPT -------------------------------------------------------\n"
-            "//* Accepting the FMID once fills the distribution library, so a\n"
-            "//* later RESTORE has a previous level to go back to. Without it\n"
-            "//* a RESTORE would DELETE the module instead of reverting it.\n"
-            "//* Service (PTFs) is deliberately never accepted.\n"
-            "//*\n"
-            f"//ACCEPT  EXEC SMPAPP,COND={accept_cond}\n"
-            f"{D.render_apply_dds(dist)}\n"
-            "//SMPCNTL  DD  *\n"
-            f" ACCEPT S({dist.smp.fmid}) DIS(WRITE) .\n"
-            "/*"
-        )
-        last_smp_step = "ACCEPT.HMASMP"
+        accept_summary = ("//*   (ACCEPT and CLEANUP are a job of their own, "
+                          "see the end)")
+        accept_step = D.render_install_end(dist, accept_job)
+        cleanup_step = "//"
+        accept_jcl = render_template("smpaccept.jcl.tpl", {
+            "JOBCARD": D.jobcard(D.job_name(name, "ACC"),
+                                 f"{name.upper()[:12]} ACCEPT"),
+            "PRODUCT": name,
+            "VERSION": version,
+            "FMID": dist.smp.fmid,
+            "INSTALL_JOB": inst_job,
+            "STAGING": "library",
+            "BYPASS_NOTE": D.bypass_note(dist),
+            "ACCEPT_STEP": D.render_accept_step(dist),
+            "CLEANUP_STEP": D.render_cleanup_step(dist, "ACCEPT.HMASMP"),
+        })
     else:
         accept_summary = ("//*   (no ACCEPT -- this level never becomes the "
-                          "restore base)")
+                          "restore base)\n" + cleanup_note)
         accept_step = "//*"
-        last_smp_step = "APPLY.HMASMP"
-
-    cleanup_step = D.render_cleanup_step(dist, last_smp_step)
+        cleanup_step = D.render_cleanup_step(dist, "APPLY.HMASMP")
 
     inst_jcl = render_template("smpinst.jcl.tpl", {
         "JOBCARD": D.jobcard(D.job_name(name, "INS"), f"{name.upper()[:12]} INSTALL"),
@@ -275,7 +277,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         "APPLY_WHAT": "copy the load modules into the target library",
         "CHECK_COND": "(0,NE,APPLYCHK.HMASMP)",
         "CHECK_RC": "RC=0",
-        "ACCEPT_SUMMARY": f"{accept_summary}\n{cleanup_note}",
+        "ACCEPT_SUMMARY": accept_summary,
         "ACCEPT_STEP": accept_step,
         "CLEANUP_STEP": cleanup_step,
     })
@@ -289,8 +291,12 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
 
     (stage / alloc_job).write_text(alloc_jcl, encoding="utf-8")
     (stage / inst_job).write_text(inst_jcl, encoding="utf-8")
-    _log(f"Generated {alloc_job} and {inst_job} (FMID {dist.smp.fmid}) "
-         f"in {stage}/")
+    jobs = f"{alloc_job} and {inst_job}"
+    if accept_jcl:
+        D.check_card_text(accept_jcl, accept_job)
+        (stage / accept_job).write_text(accept_jcl, encoding="utf-8")
+        jobs = f"{alloc_job}, {inst_job} and {accept_job}"
+    _log(f"Generated {jobs} (FMID {dist.smp.fmid}) in {stage}/")
 
     # ---- archive ----
     payload: list[tuple[str, Path]] = []
@@ -307,6 +313,8 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
             payload.append((fname, stage / fname))
     payload.append((alloc_job, stage / alloc_job))
     payload.append((inst_job, stage / inst_job))
+    if accept_jcl:
+        payload.append((accept_job, stage / accept_job))
     for item in dist.extra:
         p = Path(item)
         if not p.is_file():

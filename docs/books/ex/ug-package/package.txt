@@ -8,6 +8,6 @@ $ mbt package
 [mbt] Packaging sums-1.0.0-dev-load.xmit (1 module(s) -> SUMS.V1R0M0D.LINKLIB)
 [mbt] Packaging sums-1.0.0-dev-lib.tar.gz
 [mbt] WARNING: [distribution.smp] target 'SUMS.LINKLIB' is addressed by the DD name LINKLIB, a DD of the SMP procedures (SMPAPP on MVS/CE and TK5). SMP stores the DD name with every element it installs, so a later run of the standard procedures resolves it to the system library of that name, not to 'SUMS.LINKLIB'. Set target_dd to a name of your own.
-[mbt] Generated sums-1.0.0-dev-alloc.jcl and sums-1.0.0-dev-inst.jcl (FMID TTST100) in build/dist-stage/
-[mbt] Packaged sums-1.0.0-dev-dist.zip and sums-1.0.0-dev-dist.tar.gz (4 files)
+[mbt] Generated sums-1.0.0-dev-alloc.jcl, sums-1.0.0-dev-inst.jcl and sums-1.0.0-dev-accept.jcl (FMID TTST100) in build/dist-stage/
+[mbt] Packaged sums-1.0.0-dev-dist.zip and sums-1.0.0-dev-dist.tar.gz (5 files)
 [mbt] Package complete -> dist/

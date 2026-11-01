@@ -801,35 +801,79 @@ def render_receive_steps(plan: list[tuple[str, str, str, str]]) -> str:
     return "\n".join(lines)
 
 
-def accept_cond(dist: Distribution) -> str:
-    """The COND that decides whether the ACCEPT step runs.
+def render_accept_step(dist: Distribution) -> str:
+    """The ACCEPT step of the accept job.
 
-    Normally the APPLY must end RC 0.  A SYSMOD that DELETEs a predecessor the
-    system actually holds cannot: SMP looks for a backup of what it is about to
-    delete, the deleted id has no SMPSCDS entry and never will, and the APPLY
-    says
-
-        HMA2270 APPLY PROCESSING SUCCESSFULLY COMPLETED FOR SYSMOD <new>
-        HMA2461 SYSMOD <old> NOT FOUND ON SMPSCDS LIBRARY
-        HMA2050 APPLY PROCESSING COMPLETED - HIGHEST RETURN CODE IS 04
-
-    and RC 04 is the honest result.  Under the strict gate the ACCEPT is then
-    skipped *in silence*, leaving the old id deleted in the CDS and still
-    REC APP ACC RGN in the ACDS -- each zone is deleted by its own pass, the
-    CDS by APPLY and the ACDS by ACCEPT.  Measured on mvsdev 2026-09-14:
-    JOB00293 skipped the ACCEPT, JOB00297 with the relaxed gate completed.
-
-    Only an upgrade produces that 04.  A *fresh* install carrying the same
-    DELETE has nothing to delete and therefore nothing to miss a backup of: it
-    ends CC 0000 with no HMA2461 at all (measured JOB00304 / ftpd JOB00309
-    against JOB00297 / ftpd JOB00325).  So the relaxed gate is load-bearing on
-    an upgrade and merely harmless on a first install -- not a weaker form of
-    the same case.
-
-    Relaxed only when there is a DELETE.  With no deletion in play, RC 04 out
-    of an APPLY is still worth stopping for.
+    With a prerequisite (prereq) the ACCEPT carries BYPASS(REQ).  APPLY checks
+    a requisite against the CDS, ACCEPT against the ACDS, and a prerequisite
+    that is applied but can never be accepted (a usermod whose own requisite is
+    not accepted) would make ACCEPT end RC 12 for good.  BYPASS(REQ) covers
+    this one ACCEPT S(<FMID>) only; APPLY CHECK and APPLY, in the install job,
+    keep checking.
     """
-    return "(4,LT,APPLY.HMASMP)" if dist.smp.delete else "(0,NE,APPLY.HMASMP)"
+    bypass = " BYPASS(REQ)" if dist.smp.prereq else ""
+    return (
+        "//*\n"
+        "//* ---- ACCEPT -------------------------------------------------------\n"
+        "//* Accepting the FMID once fills the distribution library, so a\n"
+        "//* later RESTORE has a previous level to go back to. Without it\n"
+        "//* a RESTORE would DELETE the module instead of reverting it.\n"
+        "//* Service (PTFs) is deliberately never accepted.\n"
+        "//*\n"
+        "//ACCEPT  EXEC SMPAPP\n"
+        f"{render_apply_dds(dist)}\n"
+        "//SMPCNTL  DD  *\n"
+        f" ACCEPT S({dist.smp.fmid}){bypass} DIS(WRITE) .\n"
+        "/*"
+    )
+
+
+def bypass_note(dist: Distribution) -> str:
+    """Why the ACCEPT bypasses REQ and what the expected end is, for the
+    header of the accept job; empty without prereq.  It follows a "//*" card,
+    hence the leading newline."""
+    if not dist.smp.prereq:
+        return ""
+    return (
+        "\n//* BYPASS(REQ) ON THE ACCEPT\n"
+        "//*   This SYSMOD names a prerequisite (++VER ... REQ). APPLY checked\n"
+        "//*   it against the CDS and still does. ACCEPT checks a requisite\n"
+        "//*   again, against the ACDS, and a prerequisite that is applied but\n"
+        "//*   cannot be accepted (a usermod whose own requisite is not\n"
+        "//*   accepted) would fail this step for good. So the ACCEPT bypasses\n"
+        "//*   REQ, for this one SYSMOD only.\n"
+        "//*   The expected end of this job is RC 04, with the message\n"
+        "//*     HMA3590     --- <id> REQ BYPASSED\n"
+        "//*   for each prerequisite."
+    )
+
+
+def staging_deletes(dist: Distribution) -> list[str]:
+    """The DELETE statements that remove the staging library."""
+    return [f"DELETE {dist.smp.lklib} NONVSAM SCRATCH PURGE"]
+
+
+def render_install_end(dist: Distribution, accept_job: str) -> str:
+    """The end of the install job when the ACCEPT is a job of its own: what
+    to do next, and how to remove the staging library for someone who never
+    accepts."""
+    lines = [
+        "//*",
+        "//* ---- WHAT NEXT ----------------------------------------------------",
+        "//* The function is APPLIED, not accepted. Try the product. When you",
+        "//* want to keep this level, submit",
+        f"//*     {accept_job}",
+        "//* ACCEPT is the point without a way back, so the decision is yours.",
+        "//* That job scratches the staging library, which stays until then.",
+        "//*",
+        "//* Until then a RESTORE takes the load modules out again, but SMP4",
+        "//* fails it for macros (HMA4092): the distribution library is empty.",
+        "//*",
+        "//* If you RESTORE it, or never ACCEPT it, scratch the staging",
+        "//* library yourself, with IDCAMS:",
+    ]
+    lines += [f"//*     {d}" for d in staging_deletes(dist)]
+    return "\n".join(lines)
 
 
 def render_cleanup_step(dist: Distribution, after_step: str) -> str:
@@ -854,16 +898,18 @@ def render_cleanup_step(dist: Distribution, after_step: str) -> str:
             f"refusing to generate a cleanup step for {dist.smp.lklib}: "
             f"it is one of the libraries SMP installs into"
         )
+    # BYPASS(REQ) ends the ACCEPT at RC 4 by design (REQ BYPASSED)
+    rc = "4,LT" if after_step == "ACCEPT.HMASMP" and dist.smp.prereq else "0,NE"
     return "\n".join([
         "//*",
         "//* ---- remove the staging library -----------------------------------",
         "//* Only reached when everything above worked. Comment the step out",
         "//* if you would rather keep the shipped modules on the system.",
         "//*",
-        f"//CLEANUP EXEC PGM=IDCAMS,COND=(0,NE,{after_step})",
+        f"//CLEANUP EXEC PGM=IDCAMS,COND=({rc},{after_step})",
         "//SYSPRINT DD  SYSOUT=*",
         "//SYSIN    DD  *",
-        f"  DELETE {dist.smp.lklib} NONVSAM SCRATCH PURGE",
+        *[f"  {d}" for d in staging_deletes(dist)],
         "/*",
         "//",
     ])
