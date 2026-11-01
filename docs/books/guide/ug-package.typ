@@ -146,7 +146,8 @@ deletes the staging libraries, and there is no accept job.
 is the decision to keep the level. Until it has run, a #cmd("RESTORE") can
 take the function out of the system again. Its #cmd("ACCEPT") copies the
 modules into the distribution library, the level a later #cmd("RESTORE")
-returns to, and cannot be undone. Behind a successful #cmd("ACCEPT") its
+returns to, and cannot be undone. Submit it only after the installation job
+ended with return code 0. Behind a successful #cmd("ACCEPT") its
 #cmd("CLEANUP") deletes the staging library, and those of the element
 libraries. A failed #cmd("ACCEPT") leaves them in place, and the job can be
 submitted again. It needs no editing.
