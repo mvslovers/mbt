@@ -404,7 +404,7 @@ func renderAcceptStep(d *Distribution) string {
 	bypass, why := "", ""
 	if len(d.SMP.Prereq) > 0 {
 		bypass = " BYPASS(REQ)"
-		why = "//* BYPASS(REQ): this SYSMOD names " + strings.Join(d.SMP.Prereq, ", ") + " as a prerequisite.\n" +
+		why = "//* BYPASS(REQ): this SYSMOD names a prerequisite (see ++VER REQ).\n" +
 			"//* APPLY checked it against the CDS and stays strict. ACCEPT checks\n" +
 			"//* against the ACDS, and a prerequisite that is applied but cannot be\n" +
 			"//* accepted (a usermod whose own requisite is not accepted) would fail\n" +

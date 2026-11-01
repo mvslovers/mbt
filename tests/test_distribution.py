@@ -393,10 +393,11 @@ class AcceptStepTest(unittest.TestCase):
         self.assertIn(" ACCEPT S(TUFS110) DIS(WRITE) .\n", jcl)
 
     def test_prereq_bypasses_req_in_the_accept_only(self):
-        for ids in (["MS00100"], ["MS00100", "ZP60017"]):
+        for ids in (["MS00100"], ["MS00100", "ZP60017"],
+                    ["MS00100", "ZP60017", "TNIP800", "ZP60099"]):
             jcl = D.render_accept_step(D.parse(_cfg(prereq=ids), "V1R1M1"))
             self.assertIn(" ACCEPT S(TUFS110) BYPASS(REQ) DIS(WRITE) .\n", jcl)
-            self.assertIn(f"names {', '.join(ids)} as a prerequisite", jcl)
+            self.assertIn("//* BYPASS(REQ): this SYSMOD names a prerequisite (see ++VER REQ).\n", jcl)
             self.assertIn("COND=((0,NE,APPLYCHK.HMASMP),(0,NE,APPLY.HMASMP))", jcl)
             D.check_card_text(jcl, "accept step")
 

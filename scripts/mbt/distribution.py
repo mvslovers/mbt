@@ -857,7 +857,7 @@ def render_accept_step(dist: Distribution) -> str:
     if dist.smp.prereq:
         bypass = " BYPASS(REQ)"
         why = (
-            f"//* BYPASS(REQ): this SYSMOD names {', '.join(dist.smp.prereq)} as a prerequisite.\n"
+            "//* BYPASS(REQ): this SYSMOD names a prerequisite (see ++VER REQ).\n"
             "//* APPLY checked it against the CDS and stays strict. ACCEPT checks\n"
             "//* against the ACDS, and a prerequisite that is applied but cannot be\n"
             "//* accepted (a usermod whose own requisite is not accepted) would fail\n"

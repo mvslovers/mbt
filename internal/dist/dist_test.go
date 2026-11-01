@@ -111,7 +111,7 @@ func TestAcceptStepWithoutPrereq(t *testing.T) {
 // With prereq the ACCEPT, and only the ACCEPT, bypasses REQ; one BYPASS(REQ)
 // covers a list of prerequisites.
 func TestAcceptStepBypassesReq(t *testing.T) {
-	for _, ids := range [][]string{{"MS00100"}, {"MS00100", "ZP60017"}} {
+	for _, ids := range [][]string{{"MS00100"}, {"MS00100", "ZP60017"}, {"MS00100", "ZP60017", "TNIP800", "ZP60099"}} {
 		got := acceptStepFor(t, ids...)
 		if !strings.Contains(got, "//ACCEPT  EXEC SMPAPP,COND=((0,NE,APPLYCHK.HMASMP),(0,NE,APPLY.HMASMP))\n") {
 			t.Errorf("%v: the ACCEPT does not stop behind a failed APPLY CHECK:\n%s", ids, got)
@@ -122,8 +122,11 @@ func TestAcceptStepBypassesReq(t *testing.T) {
 		if n := strings.Count(got, "BYPASS(REQ)"); n != 2 { // header comment + command
 			t.Errorf("%v: %d mentions of BYPASS(REQ)", ids, n)
 		}
-		if !strings.Contains(got, "names "+strings.Join(ids, ", ")+" as a prerequisite") {
-			t.Errorf("%v: header comment does not name the prerequisites:\n%s", ids, got)
+		if !strings.Contains(got, "//* BYPASS(REQ): this SYSMOD names a prerequisite (see ++VER REQ).\n") {
+			t.Errorf("%v: header comment missing:\n%s", ids, got)
+		}
+		if err := checkCardText(got, "accept step"); err != nil {
+			t.Errorf("%v: %v", ids, err)
 		}
 		for _, line := range strings.Split(got, "\n") {
 			if len(line) > 71 && strings.HasPrefix(line, "//*") {
