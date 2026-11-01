@@ -220,27 +220,37 @@ needs a card for the old name, or the delete looks in the wrong place:
   library keeps its modules.
 
 #cmd("[smp.predecessor]") gives the job those cards. One line for each library
-the deleted level was installed through, written as the card it becomes:
+whose DD name changes, written as the card it becomes. The old library is a
+data set of its own; the new level gets another one:
 
 ```
 [smp]
-prefix     = "TUFS"
-target_dd  = "UFSDLINK"
-distlib_dd = "AUFSDLOD"
+prefix    = "TABC"
+target    = "ABC.ABCLINK"
+target_dd = "ABCLINK"
 
 [smp.predecessor]
-LINKLIB = "UFSD.LINKLIB"
-AUFSLOD = "UFSD.AUFSLOD"
+LINKLIB = "ABC.LINKLIB"
 ```
 
-The job then carries #cmd("//HMASMP.LINKLIB DD DISP=SHR,DSN=UFSD.LINKLIB")
-and the other card in the DD block of the #cmd("APPLYCHK"), #cmd("APPLY") and
-#cmd("ACCEPT") steps, after the cards of the new level and in the order the
-SMPAPP procedure requires: a DD of the procedure, such as #cmd("LINKLIB"),
-comes before every other card, or the procedure's own wins without a message.
-List the target library and the distribution library of the load modules, and
-the target and distribution library of each element library the old level
-shipped.
+The job then carries #cmd("//HMASMP.LINKLIB DD DISP=SHR,DSN=ABC.LINKLIB") in
+the DD block of the #cmd("APPLYCHK"), #cmd("APPLY") and #cmd("ACCEPT") steps,
+in the order the SMPAPP procedure requires: a DD of the procedure, such as
+#cmd("LINKLIB"), comes before every other card, or the procedure's own wins
+without a message. The cards of the new level follow it. A library whose DD
+name and data set stay the same needs no line; a line for it is accepted and
+the card is written once. List the target library and the distribution
+library of the load modules, and the target and distribution library of each
+element library, whenever the old level used another DD name for it.
+
+*Not supported yet: the same data set name under another DD name.* A new
+level that installs into #cmd("ABC.LINKLIB") through #cmd("ABCLINK"), while
+the table names #cmd("LINKLIB = \"ABC.LINKLIB\""), gets both cards, for one
+data set. What SMP does when the delete and the copy of the new module work
+on the same library is not defined and not tested. Do not release it that
+way: give the new level a data set name of its own, as in the example.
+The new library does not exist when the upgrade starts; the guide says how to
+allocate it (_MBT User's Guide_, "Upgrading an Installation").
 
 #cmd("mbt package") checks the table:
 
