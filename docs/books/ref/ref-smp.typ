@@ -243,13 +243,19 @@ the card is written once. List the target library and the distribution
 library of the load modules, and the target and distribution library of each
 element library, whenever the old level used another DD name for it.
 
-*Not supported yet: the same data set name under another DD name.* A new
-level that installs into #cmd("ABC.LINKLIB") through #cmd("ABCLINK"), while
-the table names #cmd("LINKLIB = \"ABC.LINKLIB\""), gets both cards, for one
-data set. What SMP does when the delete and the copy of the new module work
-on the same library is not defined and not tested. Do not release it that
-way: give the new level a data set name of its own, as in the example.
-The new library does not exist when the upgrade starts; the guide says how to
+*The same data set name under another DD name* is supported. A new level
+that installs into #cmd("ABC.LINKLIB") through #cmd("ABCLINK"), while the
+table names #cmd("LINKLIB = \"ABC.LINKLIB\""), gets both cards, for one data
+set. Measured on TK5 with the cards in the job: SMP runs the delete of the
+predecessor before it copies the new modules, so a module the new level
+writes stays, and a module the new level no longer has is deleted. The card
+for the old name is required here too. Without it the delete does not reach
+the library: for #cmd("LINKLIB") it removes a module from
+#cmd("SYS1.LINKLIB") and leaves the old copy in the product library, and a
+module the new level no longer has stays behind as an orphan.
+
+When the new level gets a data set of its own, as in the example, that
+library does not exist when the upgrade starts; the guide says how to
 allocate it (_MBT User's Guide_, "Upgrading an Installation").
 
 #cmd("mbt package") checks the table:

@@ -331,9 +331,13 @@ LINKLIB = "ABC.LINKLIB"
 
 MBT adds the cards to the installation job (_MBT Reference_, "Moving a
 Library to Another DD Name"). The release after that removes the table.
-Keeping the data set name and changing only the DD name is not supported yet.
+Keeping the data set name and changing only the DD name works as well, and
+the line for the old DD name is required there too: the delete of the
+predecessor runs before the new modules are copied, so the new level's
+modules stay and the ones it no longer has are deleted.
 
-The new library does not exist yet. The allocation job of the release would
+With a library of its own name, the new library does not exist yet. The
+allocation job of the release would
 also allocate the libraries that do, and fails on them. Submit a job of your
 own instead, with one #cmd("IEFBR14") step and the #cmd("DD") statement of the
 new library taken from the allocation job, its volume written out. If you cut

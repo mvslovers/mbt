@@ -69,8 +69,8 @@ func TestPredecessorSameDDSameDSNIsOneCard(t *testing.T) {
 }
 
 func TestPredecessorSameDSNUnderAnotherDDIsEmitted(t *testing.T) {
-	// two DDs, one data set: legal JCL. What the DELETE does with the module
-	// the same job wrote is not settled (MVS-1423); this only pins the cards.
+	// two DDs, one data set: measured, supported (MVS-1423). The DELETE runs
+	// before the COPY, so the card for the old DD is required; this pins the cards.
 	c := moveCfg()
 	predSMP(c)["predecessor"] = map[string]any{"LINKLIB": "ABC.LINKLIB"}
 	d, err := Parse(c, "V1R0M0")
