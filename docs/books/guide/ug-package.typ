@@ -144,9 +144,10 @@ deletes the staging libraries, and there is no accept job.
 
 *The accept job*, #var("name")#cmd("-")#var("version")#cmd("-accept.jcl"),
 is the decision to keep the level. Until it has run, a #cmd("RESTORE") can
-take the function out of the system again. Its #cmd("ACCEPT") copies the
-modules into the distribution library, the level a later #cmd("RESTORE")
-returns to, and cannot be undone. Behind a successful #cmd("ACCEPT") its
+take the load modules out of the system again (not the macros of a package
+with a macro library: SMP4 ends that #cmd("RESTORE") with return code 12,
+#cmd("HMA4092")). Its #cmd("ACCEPT") copies the modules into the distribution
+library, the level a later #cmd("RESTORE") returns to, and cannot be undone. Behind a successful #cmd("ACCEPT") its
 #cmd("CLEANUP") deletes the staging library, and those of the element
 libraries. A failed #cmd("ACCEPT") leaves them in place, and the job can be
 submitted again. It needs no editing.

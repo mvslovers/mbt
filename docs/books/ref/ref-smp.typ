@@ -227,7 +227,8 @@ With #cmd("accept_fmid") (the default) the job has no #cmd("ACCEPT") and no
 says what to do next. The staging libraries stay, because SMP reads the
 elements from them again at the #cmd("ACCEPT"). The comment also holds the
 #cmd("DELETE") statements of the staging libraries, as comment cards, for a
-site that takes the function out with a #cmd("RESTORE") or never accepts it.
+site that never accepts it, or that takes it out with a #cmd("RESTORE")
+(@ref-smp-accept).
 
 *Return codes.* A clean run ends with return code 0, also with
 #cmd("prereq"). The #cmd("APPLY CHECK") and the #cmd("APPLY") stay strict
@@ -259,8 +260,15 @@ installation job.
 The job ends with return code 0, with #cmd("prereq") with 4. A failed
 #cmd("ACCEPT") (return code 8 or above, for example a staging library that
 was deleted) leaves the staging libraries alone, and the job can be
-submitted again once the cause is fixed. Until the #cmd("ACCEPT") ran, a
-#cmd("RESTORE") takes the function out again.
+submitted again once the cause is fixed.
+
+Until the #cmd("ACCEPT") ran, a #cmd("RESTORE") takes the load modules out
+again. It does not take out macros: SMP4 copies the previous level of an
+element back from the distribution library, which is empty until the first
+#cmd("ACCEPT"), so the #cmd("RESTORE") of a function with a macro library
+ends with return code 12 and #cmd("HMA4092"), and flags the SYSMOD as in
+error. A #cmd("RESTORE") needs the same DD cards as the #cmd("APPLY"), among
+them the staging libraries.
 
 With #cmd("accept_fmid = false") there is no accept job: the level is never
 accepted, and the #cmd("CLEANUP") step stays in the installation job, behind
