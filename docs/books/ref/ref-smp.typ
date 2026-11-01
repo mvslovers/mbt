@@ -195,7 +195,71 @@ reads by name (#cmd("SMP...")) and those JCL gives a meaning
 
 Changing the DD name of a library that is already installed does not move
 the elements SMP has recorded: they stay under the old name. Choose the
-names before the first install.
+names before the first install. A release that has to move a library
+anyway carries the old name for its #cmd("DELETE") (@ref-smp-move).
+
+== Moving a Library to Another DD Name <ref-smp-move>
+
+#idx("predecessor")
+#idx("DELETE")
+The #cmd("++VER ... DELETE(") #var("old") #cmd(")") of a release asks SMP to
+delete the elements of the level it replaces. SMP finds them by the DD name
+recorded with each element, and resolves that name in the step of the job
+that runs the #cmd("APPLY"), not in the data set the element was written to.
+If the new level's library has another DD name than the old one, the job
+needs a card for the old name, or the delete looks in the wrong place:
+
+- The old name is not defined in the step: #cmd("APPLY CHECK") ends with
+  return code 12 and #cmd("HMA2832 ") #var("dd") #cmd(" DDCARD MISSING"), or
+  the #cmd("APPLY") passes and the #cmd("ACCEPT") fails with
+  #cmd("HMA2833") and #cmd("HMA3020 ... DELETE PROCESSING FAILURE").
+- The old name is a DD of the SMP procedures, in practice #cmd("LINKLIB"):
+  nothing fails. The procedure resolves #cmd("LINKLIB") to
+  #cmd("SYS1.LINKLIB"), #cmd("HMA2240") reports the delete as successful, and
+  it removes a module of that name from the system library. The old product
+  library keeps its modules.
+
+#cmd("[smp.predecessor]") gives the job those cards. One line for each library
+the deleted level was installed through, written as the card it becomes:
+
+```
+[smp]
+prefix     = "TUFS"
+target_dd  = "UFSDLINK"
+distlib_dd = "AUFSDLOD"
+
+[smp.predecessor]
+LINKLIB = "UFSD.LINKLIB"
+AUFSLOD = "UFSD.AUFSLOD"
+```
+
+The job then carries #cmd("//HMASMP.LINKLIB DD DISP=SHR,DSN=UFSD.LINKLIB")
+and the other card in the DD block of the #cmd("APPLYCHK"), #cmd("APPLY") and
+#cmd("ACCEPT") steps, after the cards of the new level and in the order the
+SMPAPP procedure requires: a DD of the procedure, such as #cmd("LINKLIB"),
+comes before every other card, or the procedure's own wins without a message.
+List the target library and the distribution library of the load modules, and
+the target and distribution library of each element library the old level
+shipped.
+
+#cmd("mbt package") checks the table:
+
+- the DD name is valid, as for #cmd("target_dd"), and not one SMP or JCL reads
+  by name (#cmd("SMP..."), #cmd("SYS..."), #cmd("...PRINT"), #cmd("JOBLIB"),
+  #cmd("STEPLIB"), #cmd("JOBCAT"), #cmd("STEPCAT")). A DD of the procedures
+  that is a library, #cmd("LINKLIB") for one, is allowed here: it is the case
+  the table is for.
+- the data set name is valid and written out. #cmd("@VRM@") stands for the
+  version of the level being packaged, not of its predecessor, and is refused.
+- #cmd("delete") is not empty. Without a deleted level nothing reads the cards.
+- a DD name that the new level uses as well must name the same data set. The
+  card is then written once. Another data set is refused: one DD name cannot
+  name two data sets in a step, and the delete would land in the new library.
+- a TXLIB card of an element never takes a name of the table.
+
+Only the release that moves the library carries the table. The release after
+it deletes a level that was already installed through the new DD name, and
+the table is removed again.
 
 == The Installation Job <ref-smp-job>
 

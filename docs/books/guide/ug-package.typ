@@ -310,6 +310,23 @@ afresh on every installation, by design: a shipped library belongs to the
 product and is replaced with it. Changes made to it on the system are lost,
 so change a copy, in a library of your own.
 
+#idx("predecessor")
+*A release that gives a library another DD name* needs one more thing from the
+job. SMP finds the predecessor's elements by the DD name it recorded, so the
+job must define that name for the old data set. Without it the upgrade
+fails (#cmd("HMA2832"), return code 12), or, if the old name is #cmd("LINKLIB"),
+it silently deletes from #cmd("SYS1.LINKLIB") and leaves the old library
+populated. List the old libraries in the one release that moves them:
+
+```
+[smp.predecessor]
+LINKLIB = "UFSD.LINKLIB"
+AUFSLOD = "UFSD.AUFSLOD"
+```
+
+MBT adds the cards to the installation job (_MBT Reference_, "Moving a
+Library to Another DD Name"). The release after that removes the table.
+
 #idx("APF")
 Two things an upgrade does not do:
 

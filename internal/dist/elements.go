@@ -45,6 +45,9 @@ func assignDDs(d *Distribution) {
 	for _, dsn := range d.allocated() {
 		used[d.dd(dsn)] = true
 	}
+	for _, o := range d.SMP.Predecessor {
+		used[o.DD] = true
+	}
 	for i := range d.Libraries {
 		l := &d.Libraries[i]
 		for j := range l.Elements {

@@ -402,6 +402,18 @@ func TestLoadV3SMPDDNames(t *testing.T) {
 	}
 }
 
+func TestLoadV3SMPPredecessor(t *testing.T) {
+	in := v3Base + "[smp.predecessor]\nLINKLIB = \"UFSD.LINKLIB\"\nAUFSLOD = \"UFSD.AUFSLOD\"\n"
+	p, err := LoadV3(v3Tree(t, in), FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pre := table(table(table(p.Raw, "distribution"), "smp"), "predecessor")
+	if pre["LINKLIB"] != "UFSD.LINKLIB" || pre["AUFSLOD"] != "UFSD.AUFSLOD" {
+		t.Errorf("[smp.predecessor] not carried into the descriptor: %v", pre)
+	}
+}
+
 func TestLoadV3WrongForm(t *testing.T) {
 	lib := "[distribution.library.samplib]\n"
 	cases := []struct {

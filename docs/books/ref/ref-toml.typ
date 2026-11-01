@@ -349,6 +349,10 @@ first four characters of #var("NAME").
     of the target library.],
   [#cmd("distlib_dd")], [the last qualifier of #cmd("distlib")], [the DD
     name of the distribution library.],
+  [#cmd("[smp.predecessor]")], [none], [a table of #var("DDNAME") =
+    #cmd("\"data.set.name\""): the libraries the level #cmd("delete")
+    removes was installed through. For the one release that moves a library
+    to another DD name (@ref-smp-move). Needs a non-empty #cmd("delete").],
   [#cmd("target_volume")], [#cmd("\"MVSRES\"")], [the volume of the target
     libraries: the default of #cmd("TGTVOL") in the allocation job
     (@ref-smp-volumes). One to six characters, #cmd("A")-#cmd("Z"),

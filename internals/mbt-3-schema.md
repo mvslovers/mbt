@@ -219,6 +219,7 @@ upper case, `<P4>` its first four characters.
 | `target_volume` | `MVSRES` | `distribution.smp.target_volume` (new in 3.0.0, mbt 2 reads it too) |
 | `dlib_volume` | `SMP000` | `distribution.smp.dlib_volume` (new in 3.0.0, mbt 2 reads it too) |
 | `lklib_dd`, `target_dd`, `distlib_dd` | the last qualifier of `lklib`, `target`, `distlib` | `distribution.smp.*_dd` (new in 3.0.0; mbt 2 refuses the keys) |
+| `[smp.predecessor]` | none | new; a table `DDNAME = "DSN"` of the libraries the level `delete` removes was installed through. Each becomes a `//HMASMP.<dd>` card in the APPLYCHK, APPLY and ACCEPT steps, in the SMPAPP procedure's order (a procedure DD such as `LINKLIB` first). Valid DD name that SMP/JCL does not read by name; the DSN is spelled out (`@VRM@` refused); `delete` must be non-empty; a DD the new level also uses must name the same DSN (card written once), else refused; no TXLIB card takes a name of the table. mbt 2 refuses the key. Only the release that moves a DD carries it. |
 
 The derivation gives one FMID per minor (design §6.4): a patch release is a
 PTF, which mbt does not build yet. Until it does, packaging a version with a
