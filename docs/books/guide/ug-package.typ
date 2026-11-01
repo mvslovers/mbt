@@ -310,6 +310,42 @@ afresh on every installation, by design: a shipped library belongs to the
 product and is replaced with it. Changes made to it on the system are lost,
 so change a copy, in a library of your own.
 
+#idx("predecessor")
+*A release that gives a library another DD name* needs one more thing from the
+job. SMP finds the predecessor's elements by the DD name it recorded, so the
+job must define that name for the old data set. Without it the upgrade
+fails (#cmd("HMA2832"), return code 12), or, if the old name is #cmd("LINKLIB"),
+it silently deletes from #cmd("SYS1.LINKLIB") and leaves the old library
+populated. List the old libraries in the one release that moves them. The
+new level installs into a library of its own name, the old one stays where
+it is:
+
+```
+[smp]
+target    = "ABC.ABCLINK"
+target_dd = "ABCLINK"
+
+[smp.predecessor]
+LINKLIB = "ABC.LINKLIB"
+```
+
+MBT adds the cards to the installation job (_MBT Reference_, "Moving a
+Library to Another DD Name"). The release after that removes the table.
+Keeping the data set name and changing only the DD name works as well, and
+the line for the old DD name is required there too: the delete of the
+predecessor runs before the new modules are copied, so the new level's
+modules stay and the ones it no longer has are deleted.
+
+With a library of its own name, the new library does not exist yet. The
+allocation job of the release would
+also allocate the libraries that do, and fails on them. Submit a job of your
+own instead, with one #cmd("IEFBR14") step and the #cmd("DD") statement of the
+new library taken from the allocation job, its volume written out. If you cut
+the allocation job down instead, remove the symbols on its #cmd("PROC")
+statement that no remaining #cmd("DD") uses (#cmd("TGTVOL") for target
+libraries, #cmd("DLBVOL") for distribution libraries): MVS 3.8j ends the job
+with a JCL error (#cmd("IEF452I"), #cmd("IEF657I")) otherwise.
+
 #idx("APF")
 Two things an upgrade does not do:
 

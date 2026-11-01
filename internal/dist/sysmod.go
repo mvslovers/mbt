@@ -135,12 +135,23 @@ func arrangeApplyDDs(d *Distribution, order []string) []string {
 	}
 	var over []dd
 	var add []string
-	dsns := []string{d.SMP.Target, d.SMP.LKLib, d.SMP.DistLib}
-	for _, l := range d.delivered() {
-		dsns = append(dsns, l.Target, l.DistLib)
+	type card struct{ name, dsn string }
+	var cards []card
+	for _, dsn := range d.applyLibraries() {
+		cards = append(cards, card{d.dd(dsn), dsn})
 	}
-	for _, dsn := range dsns {
-		name := d.dd(dsn)
+	// the deleted level's libraries: a card of the old name and data set, or
+	// the DELETE resolves the name in the procedure (LINKLIB is SYS1.LINKLIB)
+	for _, o := range d.SMP.Predecessor {
+		cards = append(cards, card{o.DD, o.DSN})
+	}
+	have := map[card]bool{}
+	for _, c := range cards {
+		if have[c] {
+			continue
+		}
+		have[c] = true
+		name, dsn := c.name, c.dsn
 		line := fmt.Sprintf("//%s.%s DD  DISP=SHR,DSN=%s", smpProcStep, ljust(name, 8), dsn)
 		if p, ok := pos[name]; ok {
 			over = append(over, dd{p, line})
@@ -179,9 +190,12 @@ func applyDDs(d *Distribution) ([]string, error) {
 
 // ddNames are the ddnames of the libraries the APPLY step names, sorted.
 func ddNames(d *Distribution) []string {
-	names := []string{d.dd(d.SMP.Target), d.dd(d.SMP.LKLib), d.dd(d.SMP.DistLib)}
-	for _, l := range d.delivered() {
-		names = append(names, d.dd(l.Target), d.dd(l.DistLib))
+	var names []string
+	for _, dsn := range d.applyLibraries() {
+		names = append(names, d.dd(dsn))
+	}
+	for _, o := range d.SMP.Predecessor {
+		names = append(names, o.DD)
 	}
 	sort.Strings(names)
 	return names

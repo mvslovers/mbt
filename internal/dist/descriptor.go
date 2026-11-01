@@ -252,7 +252,13 @@ type SMP struct {
 	Procedure      string
 	Prereq, Delete []string
 	AcceptFMID     bool
+	// Predecessor are the libraries the deleted level installed into, by the
+	// DD names SMP recorded for its elements, sorted by DD name.
+	Predecessor []OldLibrary
 }
+
+// OldLibrary is one library of the level a SYSMOD deletes.
+type OldLibrary struct{ DD, DSN string }
 
 // Distribution is the parsed [distribution].
 type Distribution struct {
@@ -273,6 +279,16 @@ func (d *Distribution) dd(dsn string) string {
 		return n
 	}
 	return ddnameOf(dsn)
+}
+
+// applyLibraries are the libraries the APPLY and ACCEPT steps name: the
+// SYSMOD's own, then those of the element libraries.
+func (d *Distribution) applyLibraries() []string {
+	out := []string{d.SMP.Target, d.SMP.LKLib, d.SMP.DistLib}
+	for _, l := range d.delivered() {
+		out = append(out, l.Target, l.DistLib)
+	}
+	return out
 }
 
 func (d *Distribution) allocated() []string {
@@ -325,7 +341,7 @@ var volserRE = regexp.MustCompile(`^[A-Z0-9@#$]{1,6}$`)
 
 var (
 	distKeys = []string{"extra", "library", "readme", "smp"}
-	smpKeys  = []string{"accept_fmid", "delete", "distlib", "distlib_dd", "dlib_volume", "fmid", "lklib", "lklib_dd", "prereq", "procedure", "system", "target", "target_dd", "target_volume"}
+	smpKeys  = []string{"accept_fmid", "delete", "distlib", "distlib_dd", "dlib_volume", "fmid", "lklib", "lklib_dd", "predecessor", "prereq", "procedure", "system", "target", "target_dd", "target_volume"}
 	libKeys  = []string{"dir", "distlib", "distlib_dd", "element", "stage", "target", "target_dd"}
 )
 
@@ -592,6 +608,9 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 	if err := distinctDSNs(d); err != nil {
 		return nil, err
 	}
+	if err := parsePredecessor(d, smpCfg["predecessor"]); err != nil {
+		return nil, err
+	}
 	if _, err := applyDDs(d); err != nil {
 		return nil, err
 	}
@@ -632,6 +651,78 @@ func distinctDSNs(d *Distribution) error {
 		if prev, ok := seen[x.dsn]; ok {
 			return errf("[distribution.smp] %s '%s' is already the %s", x.role, x.dsn, prev)
 		}
+	}
+	return nil
+}
+
+// readByNameDD: a DD that is not a library -- SMP's own files, the output
+// files of the procedures' steps and the catalogs and libraries JCL reads by
+// name. The library DDs of the procedures (LINKLIB, SAMPLIB, ...) are not
+// among them: they are what a predecessor installed through.
+func readByNameDD(name string) bool {
+	switch name {
+	case "JOBLIB", "STEPLIB", "JOBCAT", "STEPCAT":
+		return true
+	}
+	return strings.HasPrefix(name, "SMP") || strings.HasPrefix(name, "SYS") || strings.HasSuffix(name, "PRINT")
+}
+
+// parsePredecessor reads [smp.predecessor]: DD name = data set name, one per
+// library of the level `delete` removes. SMP records the DD name with every
+// element, so the DELETE finds the element only if the job has a card of that
+// name for the old data set.
+func parsePredecessor(d *Distribution, v any) error {
+	if v == nil {
+		return nil
+	}
+	const where = "[distribution.smp] predecessor"
+	t, ok := v.(map[string]any)
+	if !ok {
+		return errf("%s must be a table of DD name = \"data set name\"", where)
+	}
+	if len(t) == 0 {
+		return nil
+	}
+	if len(d.SMP.Delete) == 0 {
+		return errf("%s needs a non-empty delete: without a deleted level nothing reads the old libraries, and the cards would only name data sets the job has no use for", where)
+	}
+	own := map[string]string{}
+	for _, dsn := range d.applyLibraries() {
+		own[d.dd(dsn)] = dsn
+	}
+	keys := make([]string, 0, len(t))
+	for k := range t {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	seen := map[string]string{}
+	for _, k := range keys {
+		dd := strings.ToUpper(k)
+		if !ddnameRE.MatchString(dd) {
+			return errf("%s: '%s' is not a valid ddname (1-8 of A-Z 0-9 @ # $, first character not a digit)", where, k)
+		}
+		if readByNameDD(dd) {
+			return errf("%s: '%s' is a DD that SMP or JCL reads by name, not a library. The old library is addressed by the DD name SMP recorded for it (LINKLIB, for example)", where, dd)
+		}
+		str, ok := t[k].(string)
+		if !ok {
+			return errf("%s: %s must be a data set name in quotes", where, dd)
+		}
+		if strings.Contains(strings.ToUpper(str), "@VRM@") {
+			return errf("%s: %s = '%s' -- write the real name of the old data set; @VRM@ stands for this level's version, not the predecessor's", where, dd, str)
+		}
+		dsn, err := checkDSN(strings.ToUpper(str), where+" "+dd)
+		if err != nil {
+			return err
+		}
+		if prev, dup := seen[dd]; dup && prev != dsn {
+			return errf("%s: the ddname '%s' is given '%s' and '%s'", where, dd, prev, dsn)
+		}
+		seen[dd] = dsn
+		if cur, clash := own[dd]; clash && cur != dsn {
+			return errf("%s: '%s' and '%s' both yield the ddname '%s'. One ddname cannot name two data sets in one step, and the DELETE would land in the new library. Give the new level a ddname of its own (target_dd, distlib_dd, lklib_dd).", where, dsn, cur, dd)
+		}
+		d.SMP.Predecessor = append(d.SMP.Predecessor, OldLibrary{dd, dsn})
 	}
 	return nil
 }
