@@ -218,6 +218,10 @@ func (l Library) elementSpace() (primary, secondary, dir int) {
 // SMP is the SMP4 side of the descriptor.
 type SMP struct {
 	FMID, System, LKLib, Target, DistLib string
+	// TargetVolume and DlibVolume are the volumes the allocation job puts the
+	// target and the distribution libraries on (the defaults of its TGTVOL and
+	// DLBVOL symbolics).
+	TargetVolume, DlibVolume string
 	// Procedure names the SMPAPP layout of the system the package installs
 	// on (a key of smpappProcedures); empty if the descriptor does not say.
 	Procedure      string
@@ -271,9 +275,19 @@ func (d *Distribution) hasSRC() bool {
 	return false
 }
 
+// The volumes of an MVS/CE system, used when the descriptor names none. TK5 is
+// not the default: it ships with its products installed, and whoever installs
+// SMP packages there sets TGTVOL=TK5RES and DLBVOL=TK5DLB.
+const (
+	DefaultTargetVolume = "MVSRES"
+	DefaultDlibVolume   = "SMP000"
+)
+
+var volserRE = regexp.MustCompile(`^[A-Z0-9@#$]{1,6}$`)
+
 var (
 	distKeys = []string{"extra", "library", "readme", "smp"}
-	smpKeys  = []string{"accept_fmid", "delete", "distlib", "fmid", "lklib", "prereq", "procedure", "system", "target"}
+	smpKeys  = []string{"accept_fmid", "delete", "distlib", "dlib_volume", "fmid", "lklib", "prereq", "procedure", "system", "target", "target_volume"}
 	libKeys  = []string{"dir", "distlib", "element", "stage", "target"}
 )
 
@@ -398,7 +412,20 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 	if err != nil {
 		return nil, err
 	}
-	smp := SMP{FMID: fmid, System: strings.ToUpper(pyStr(sys)), Prereq: prereq, Delete: del, AcceptFMID: true}
+	smp := SMP{FMID: fmid, System: strings.ToUpper(pyStr(sys)), Prereq: prereq, Delete: del, AcceptFMID: true,
+		TargetVolume: DefaultTargetVolume, DlibVolume: DefaultDlibVolume}
+	for _, f := range []struct {
+		key string
+		dst *string
+	}{{"target_volume", &smp.TargetVolume}, {"dlib_volume", &smp.DlibVolume}} {
+		if v, ok := smpCfg[f.key]; ok {
+			vol := strings.ToUpper(pyStr(v))
+			if !volserRE.MatchString(vol) {
+				return nil, errf("[distribution.smp]: %s '%s' is not a volume serial: 1 to 6 characters, A-Z 0-9 @ # $", f.key, pyStr(v))
+			}
+			*f.dst = vol
+		}
+	}
 	for _, f := range []struct {
 		key string
 		dst *string

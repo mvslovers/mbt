@@ -64,7 +64,73 @@ The allocation job allocates the target and distribution libraries,
 #cmd("RECFM=U"), #cmd("BLKSIZE=15040"), in cylinders, and never deletes
 them. The target and distribution library of an element library are
 allocated by it as well, fixed 80, #cmd("BLKSIZE=3120"), sized for the
-first version twice over, with a directory of at least 20 blocks.
+first version twice over, with a directory of at least 20 blocks. Every one
+of them is allocated on a volume of the job's choosing (@ref-smp-volumes).
+
+== The Volumes of the Allocation Job <ref-smp-volumes>
+
+#idx("TGTVOL")
+#idx("DLBVOL")
+The allocation job is an in-stream procedure, #cmd("SMPALLOC"), called by one
+step. Its two symbolic parameters name the volumes, and each library is
+allocated with #cmd("UNIT=SYSDA,VOL=SER=&TGTVOL") or
+#cmd("UNIT=SYSDA,VOL=SER=&DLBVOL"). No library of the package is allocated
+without a volume.
+
+#table(columns: (0.9in, 1.1in, 1fr),
+  [Symbolic], [Default], [Used for],
+  [#cmd("TGTVOL")], [#cmd("MVSRES")], [every target library: the one the load
+    modules are installed into, and those of an element library.],
+  [#cmd("DLBVOL")], [#cmd("SMP000")], [every distribution library.],
+)
+
+The defaults come from #cmd("target_volume") and #cmd("dlib_volume") of
+#cmd("[smp]") (@ref-toml-smp), and are the volumes of an MVS/CE system. The
+operator changes them in the job, either on the #cmd("PROC") statement or
+on the #cmd("EXEC") statement:
+
+```
+//ALLOC   EXEC SMPALLOC,TGTVOL=TK5RES,DLBVOL=TK5DLB
+```
+
+*On TK5, set #cmd("TGTVOL=TK5RES") and #cmd("DLBVOL=TK5DLB").* TK5 ships with
+its products installed, so the defaults are those of MVS/CE.
+
+What the system does was measured on MVS/CE and on TK5, each in a container
+of its own, with a job that allocates four libraries (two target, two
+distribution):
+
+#table(columns: (1.4in, 1fr),
+  [Case], [Result],
+  [MVS/CE, defaults], [Return code 0. #cmd("IEF285I") shows
+    #cmd("VOL SER NOS= MVSRES") for the two target libraries and
+    #cmd("SMP000") for the two distribution libraries. The VTOCs of the two
+    volumes list each library once, on that volume, and not on the other.],
+  [TK5, #cmd("TGTVOL=TK5RES"), #cmd("DLBVOL=TK5DLB")], [Return code 0, the
+    same check with #cmd("TK5RES") and #cmd("TK5DLB").],
+  [A volume the system does not have (MVS/CE: #cmd("TGTVOL=NOVOL1"); TK5: the
+    defaults)], [The job does not end, and no return code comes. It is held
+    after its step has started, and the console shows
+    #cmd("IEF244I ... UNABLE TO ALLOCATE 1 UNIT(S)"),
+    #cmd("IEF489I ... 1 UNIT(S) NEEDED FOR LINKLIB") and
+    #cmd("*00 IEF238D ... REPLY DEVICE NAME OR 'CANCEL'"). Reply
+    #cmd("R 00,CANCEL"): the job ends with #cmd("IEF251I ... JOB CANCELLED"),
+    the step is not executed, and no library of the job remains (a library
+    already allocated on the other volume is deleted, #cmd("IEF285I ... DELETED")).],
+)
+
+The held job is what a wrong volume looks like, so the operator who sees an
+allocation job that does not end looks at the console first. Submit the job
+again with the volumes corrected.
+
+The libraries are not moved by this: a library that exists is not allocated
+again, and the job has no step that deletes one (see above).
+
+Free space, measured on a fresh MVS/CE container, before the job:
+#cmd("MVSRES") 276 cylinders, #cmd("SMP000") 158 cylinders and 26 tracks. The
+job takes 5 cylinders of each volume per library (secondary 2), so 10 cylinders
+of each volume for the job above. The load library of a package of the size of
+BREXX/370 3.0.0 needs 7 to 8 cylinders on each side, which fits.
 
 == The Installation Job <ref-smp-job>
 

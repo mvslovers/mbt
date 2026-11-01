@@ -215,6 +215,8 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         "FMID": dist.smp.fmid,
         "INSTALL_JOB": inst_job,
         "ALLOC_DDS": D.render_alloc_dds(dist),
+        "TGTVOL": dist.smp.target_volume,
+        "DLBVOL": dist.smp.dlib_volume,
     })
 
     receive_summary = ["//*   DELOLD    make the RECEIVE targets absent"]

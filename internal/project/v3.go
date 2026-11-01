@@ -55,7 +55,7 @@ var v3Keys = map[string][]string{
 	"deploy":       {"target", "test_target"},
 	"distribution": {"readme", "extra", "library"},
 	"library":      {"target", "element", "distlib", "stage"},
-	"smp":          {"prefix", "fmid", "delete", "system", "prereq", "accept_fmid", "procedure", "lklib", "target", "distlib"},
+	"smp":          {"prefix", "fmid", "delete", "system", "prereq", "accept_fmid", "procedure", "lklib", "target", "distlib", "target_volume", "dlib_volume"},
 	"release":      {"version_files"},
 	"tso":          {"fixtures", "size"},
 }
