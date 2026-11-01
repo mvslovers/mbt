@@ -110,14 +110,41 @@ func checkDSN(dsn, what string) (string, error) {
 			return "", errf("%s: '%s' has an invalid qualifier '%s' (1-8 of A-Z 0-9 @ # $, first character not a digit)", what, dsn, q)
 		}
 	}
+	return dsn, nil
+}
+
+// checkDerivedDD: a library without a DD name key gets its last qualifier,
+// so that must be a name SMP can use. ddKey names the key that would give it
+// another, "" if there is none.
+func checkDerivedDD(dsn, what, ddKey string) error {
+	hint := ""
+	if ddKey != "" {
+		hint = " -- or name one with " + ddKey
+	}
 	dd := ddnameOf(dsn)
 	if !ddnameRE.MatchString(dd) {
-		return "", errf("%s: '%s' yields the ddname '%s', which is not valid. SMP addresses the library by the last qualifier, so it must be a usable ddname.", what, dsn, dd)
+		return errf("%s: '%s' yields the ddname '%s', which is not valid. SMP addresses the library by the last qualifier, so it must be a usable ddname%s.", what, dsn, dd, hint)
 	}
 	if reservedDDNames[dd] {
-		return "", errf("%s: '%s' yields the ddname '%s', which the SMPAPP and SMPREC procedures already define themselves. The collision would be silent -- choose a different last qualifier.", what, dsn, dd)
+		return errf("%s: '%s' yields the ddname '%s', which the SMPAPP and SMPREC procedures already define themselves. The collision would be silent -- choose a different last qualifier%s.", what, dsn, dd, hint)
 	}
-	return dsn, nil
+	return nil
+}
+
+// isProcedureDD: a DD of the SMPAPP/SMPREC procedures of MVS/CE or TK5 (the
+// union of what was measured on both), or one SMP or JCL reads by name.
+func isProcedureDD(name string) bool {
+	if reservedDD(name) {
+		return true
+	}
+	for _, order := range smpappProcedures {
+		for _, n := range order {
+			if n == name {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // checkCardText rejects what will not survive an 80-column EBCDIC card deck:
@@ -182,8 +209,6 @@ type Library struct {
 	needsLatin1    bool
 }
 
-func (l Library) targetDD() string { return ddnameOf(l.Target) }
-
 // delivers: the library is installed by SMP, member by member.
 func (l Library) delivers() bool { return l.Element != "" }
 
@@ -235,6 +260,19 @@ type Distribution struct {
 	Libraries []Library
 	Readme    string
 	Extra     []string
+	// Warnings are what Parse accepts but the author should read.
+	Warnings []string
+	// dds are the DD names given by a *_dd key, by data set; every other
+	// data set is addressed by its last qualifier.
+	dds map[string]string
+}
+
+// dd is the DD name SMP and the jobs know the data set by.
+func (d *Distribution) dd(dsn string) string {
+	if n, ok := d.dds[dsn]; ok {
+		return n
+	}
+	return ddnameOf(dsn)
 }
 
 func (d *Distribution) allocated() []string {
@@ -287,8 +325,8 @@ var volserRE = regexp.MustCompile(`^[A-Z0-9@#$]{1,6}$`)
 
 var (
 	distKeys = []string{"extra", "library", "readme", "smp"}
-	smpKeys  = []string{"accept_fmid", "delete", "distlib", "dlib_volume", "fmid", "lklib", "prereq", "procedure", "system", "target", "target_volume"}
-	libKeys  = []string{"dir", "distlib", "element", "stage", "target"}
+	smpKeys  = []string{"accept_fmid", "delete", "distlib", "distlib_dd", "dlib_volume", "fmid", "lklib", "lklib_dd", "prereq", "procedure", "system", "target", "target_dd", "target_volume"}
+	libKeys  = []string{"dir", "distlib", "distlib_dd", "element", "stage", "target", "target_dd"}
 )
 
 func rejectUnknown(section map[string]any, known []string, where string) error {
@@ -372,6 +410,35 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 	expand := func(v any, what string) (string, error) {
 		return checkDSN(strings.ToUpper(strings.ReplaceAll(pyStr(v), "@VRM@", vrm)), what)
 	}
+	dds := map[string]string{}
+	var warnings []string
+	// ddFor settles the DD name of one library: the <key>_dd key if there is
+	// one, else the last qualifier of dsn.
+	ddFor := func(cfg map[string]any, key, dsn, where string) error {
+		what := where + " " + key
+		v, ok := cfg[key+"_dd"]
+		if !ok {
+			if err := checkDerivedDD(dsn, what, key+"_dd"); err != nil {
+				return err
+			}
+			if dd := ddnameOf(dsn); isProcedureDD(dd) {
+				warnings = append(warnings, fmt.Sprintf("%s '%s' is addressed by the DD name %s, a DD of the SMP procedures (SMPAPP on MVS/CE and TK5). SMP stores the DD name with every element it installs, so a later run of the standard procedures resolves it to the system library of that name, not to '%s'. Set %s_dd to a name of your own.", what, dsn, dd, dsn, key))
+			}
+			return nil
+		}
+		dd := strings.ToUpper(pyStr(v))
+		if !ddnameRE.MatchString(dd) {
+			return errf("%s: %s_dd '%s' is not a valid ddname (1-8 of A-Z 0-9 @ # $, first character not a digit)", where, key, pyStr(v))
+		}
+		if isProcedureDD(dd) {
+			return errf("%s: %s_dd '%s' is a DD of the SMP procedures (SMPAPP, SMPREC) or one that JCL or SMP reads by name. A library under that name would replace the system library of the same name in the step, and SMP would store the name with every element. Choose a name of your own.", where, key, dd)
+		}
+		if prev, ok := dds[dsn]; ok && prev != dd {
+			return errf("%s: '%s' is given the DD names %s and %s", where, dsn, prev, dd)
+		}
+		dds[dsn] = dd
+		return nil
+	}
 	smpAny, err := require(dist, "smp", "[distribution]")
 	if err != nil {
 		return nil, err
@@ -438,6 +505,11 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 			return nil, err
 		}
 	}
+	for _, f := range []struct{ key, dsn string }{{"lklib", smp.LKLib}, {"target", smp.Target}, {"distlib", smp.DistLib}} {
+		if err := ddFor(smpCfg, f.key, f.dsn, "[distribution.smp]"); err != nil {
+			return nil, err
+		}
+	}
 	if a, ok := smpCfg["accept_fmid"]; ok {
 		smp.AcceptFMID = pyTruthy(a)
 	}
@@ -450,7 +522,7 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 	if smp.LKLib == smp.Target {
 		return nil, errf("[distribution.smp]: lklib and target are both '%s'. The staging library the APPLY reads from must be a different dataset than the library it installs into.", smp.LKLib)
 	}
-	d := &Distribution{SMP: smp}
+	d := &Distribution{SMP: smp, dds: dds}
 	for _, l := range list(dist["library"]) {
 		lc, _ := l.(map[string]any)
 		if err := rejectUnknown(lc, libKeys, "[[distribution.library]]"); err != nil {
@@ -480,9 +552,24 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 			if lib.Stage, err = elementDSN(lc, "stage", "T", lib, expand); err != nil {
 				return nil, err
 			}
+			where := "[[distribution.library]] " + lib.Dir
+			if err := ddFor(lc, "target", lib.Target, where); err != nil {
+				return nil, err
+			}
+			if err := ddFor(lc, "distlib", lib.DistLib, where); err != nil {
+				return nil, err
+			}
+			if err := checkDerivedDD(lib.Stage, where+" stage", ""); err != nil {
+				return nil, err
+			}
 		} else {
-			if _, ok := lc["stage"]; ok {
-				return nil, errf("[[distribution.library]] %s: stage only means something with element = \"MAC\" or \"SRC\"", lib.Dir)
+			for _, k := range []string{"stage", "target_dd", "distlib_dd"} {
+				if _, ok := lc[k]; ok {
+					return nil, errf("[[distribution.library]] %s: %s only means something with element = \"MAC\" or \"SRC\"", lib.Dir, k)
+				}
+			}
+			if err := checkDerivedDD(lib.Target, "[[distribution.library]] "+lib.Dir+" target", ""); err != nil {
+				return nil, err
 			}
 		}
 		d.Libraries = append(d.Libraries, lib)
@@ -496,9 +583,9 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 	// Two of our datasets must never share a ddname: one would be unreachable.
 	seen := map[string]string{}
 	for _, dsn := range append(d.allocated(), d.received()...) {
-		dd := ddnameOf(dsn)
+		dd := d.dd(dsn)
 		if prev, ok := seen[dd]; ok && prev != dsn {
-			return nil, errf("'%s' and '%s' both yield the ddname '%s'. SMP addresses libraries by ddname, so one of them would be unreachable. Give them different last qualifiers.", dsn, prev, dd)
+			return nil, errf("'%s' and '%s' both yield the ddname '%s'. SMP addresses libraries by ddname, so one of them would be unreachable. Give them different last qualifiers, or name the ddname with target_dd, distlib_dd or lklib_dd.", dsn, prev, dd)
 		}
 		seen[dd] = dsn
 	}
@@ -508,6 +595,7 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 	if _, err := applyDDs(d); err != nil {
 		return nil, err
 	}
+	d.Warnings = warnings
 	return d, nil
 }
 

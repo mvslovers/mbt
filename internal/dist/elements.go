@@ -41,9 +41,9 @@ func reservedDD(name string) bool {
 // by the procedures, by one of our libraries, or by an element of the other
 // type with the same name; then TX000001, TX000002, ... in order.
 func assignDDs(d *Distribution) {
-	used := map[string]bool{ddnameOf(d.SMP.LKLib): true}
+	used := map[string]bool{d.dd(d.SMP.LKLib): true}
 	for _, dsn := range d.allocated() {
-		used[ddnameOf(dsn)] = true
+		used[d.dd(dsn)] = true
 	}
 	for i := range d.Libraries {
 		l := &d.Libraries[i]
@@ -130,7 +130,7 @@ func elementStatements(d *Distribution) []string {
 	for _, l := range d.delivered() {
 		for _, e := range l.Elements {
 			out = append(out, fmt.Sprintf("++%s(%s) DISTLIB(%s) SYSLIB(%s) TXLIB(%s) .",
-				l.Element, e.Name, ddnameOf(l.DistLib), ddnameOf(l.Target), e.DD))
+				l.Element, e.Name, d.dd(l.DistLib), d.dd(l.Target), e.DD))
 		}
 	}
 	return out

@@ -67,6 +67,9 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	if len(modules) == 0 {
 		return errf("[distribution] needs at least one [[module]] to ship")
 	}
+	for _, w := range d.Warnings {
+		o.Log("WARNING: " + w)
+	}
 	prefix := name + "-" + ver
 	allocJob, instJob, loadXMIT := prefix+"-alloc.jcl", prefix+"-inst.jcl", prefix+"-load.xmit"
 	out := filepath.Join(o.Root, o.DistDir)
@@ -81,14 +84,14 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	// ---- the shipped source libraries ----
 	subst := [][2]string{{"@LINKLIB@", d.SMP.Target}, {"@VRM@", vrm}, {"@VERSION@", ver}, {"@FMID@", d.SMP.FMID}}
 	for _, l := range d.Libraries {
-		subst = append(subst, [2]string{"@" + l.targetDD() + "@", l.Target})
+		subst = append(subst, [2]string{"@" + d.dd(l.Target) + "@", l.Target})
 	}
 	sd := statsDate(o.Root)
 	srcRoot := filepath.Join(stage, "src")
 	files := map[string]string{d.SMP.LKLib: loadXMIT}
 	for i := range d.Libraries {
 		l := &d.Libraries[i]
-		fname := fmt.Sprintf("%s-%s.xmit", prefix, strings.ToLower(l.targetDD()))
+		fname := fmt.Sprintf("%s-%s.xmit", prefix, strings.ToLower(d.dd(l.Target)))
 		staged, err := stageLibrary(o.Root, l, subst, srcRoot)
 		if err != nil {
 			return err
@@ -271,7 +274,7 @@ func stageLibrary(root string, l *Library, subst [][2]string, stageRoot string) 
 	if st, err := os.Stat(src); err != nil || !st.IsDir() {
 		return "", errf("[[distribution.library]] dir = '%s' is not a directory", l.Dir)
 	}
-	dest := filepath.Join(stageRoot, strings.ToLower(l.targetDD()))
+	dest := filepath.Join(stageRoot, strings.ToLower(ddnameOf(l.Target)))
 	os.RemoveAll(dest)
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return "", err

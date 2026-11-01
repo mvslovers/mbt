@@ -73,6 +73,19 @@ and the data sets the modules pass through. The #cmd("fmid") of
 #cmd("1.0.0-dev"), a prerelease: MBT gives a prerelease no identifier of
 its own (@ug-package-prerelease).
 
+#idx("DD name")
+*DD names.* The line #cmd("WARNING") in @ug-package-run is about the DD name
+of the target library. SMP addresses each library by a DD name and stores it
+with every element it installs, and MBT uses the last qualifier of the data
+set name. The default target #var("NAME")#cmd(".LINKLIB") is therefore known
+as #cmd("LINKLIB"), the name of #cmd("SYS1.LINKLIB") in the SMP procedures.
+The installation works, but a later run of the standard procedures resolves
+that name to the system library. Give each library a DD name of its own with
+#cmd("target_dd"), #cmd("distlib_dd") and #cmd("lklib_dd") in #cmd("[smp]"),
+and with #cmd("target_dd") and #cmd("distlib_dd") in a library with
+#cmd("element"). Set them before the first installation: the elements SMP has
+already recorded stay under the old name (_MBT Reference_, "DD Names").
+
 == The Installation Jobs <ug-package-jobs>
 
 #idx("installation job")

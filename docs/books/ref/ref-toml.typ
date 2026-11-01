@@ -285,6 +285,11 @@ A text library made from the directory #var("DIR") and received with TSO
   [#cmd("stage")], [#cmd("T") before the last qualifier of
     #cmd("target")], [the library the shipped members are received into
     and SMP reads them from. Only with #cmd("element").],
+  [#cmd("target_dd")], [the last qualifier of #cmd("target")], [the DD name
+    of the target library in the SYSMOD and the jobs (@ref-smp-ddnames).
+    Only with #cmd("element").],
+  [#cmd("distlib_dd")], [the last qualifier of #cmd("distlib")], [the DD
+    name of the distribution library. Only with #cmd("element").],
 )
 
 With #cmd("element") a member is a file of the directory, the member name its
@@ -338,6 +343,12 @@ first four characters of #var("NAME").
   [#cmd("target")], [#var("NAME")#cmd(".LINKLIB")], [the target library.],
   [#cmd("distlib")], [#var("NAME")#cmd(".A")#var("P4")#cmd("LOD")], [the
     distribution library.],
+  [#cmd("lklib_dd")], [the last qualifier of #cmd("lklib")], [the DD name
+    of the staging library (@ref-smp-ddnames).],
+  [#cmd("target_dd")], [the last qualifier of #cmd("target")], [the DD name
+    of the target library.],
+  [#cmd("distlib_dd")], [the last qualifier of #cmd("distlib")], [the DD
+    name of the distribution library.],
   [#cmd("target_volume")], [#cmd("\"MVSRES\"")], [the volume of the target
     libraries: the default of #cmd("TGTVOL") in the allocation job
     (@ref-smp-volumes). One to six characters, #cmd("A")-#cmd("Z"),

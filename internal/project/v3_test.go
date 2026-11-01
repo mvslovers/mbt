@@ -384,6 +384,24 @@ func TestLoadV3SMPVolumes(t *testing.T) {
 	}
 }
 
+func TestLoadV3SMPDDNames(t *testing.T) {
+	in := strings.Replace(v3Base, `prefix = "TUFS"`, "prefix = \"TUFS\"\ntarget_dd = \"UFSLINK\"\ndistlib_dd = \"AUFSLOD\"\nlklib_dd = \"UFSLOAD\"", 1)
+	in = strings.Replace(in, "[distribution.library.samplib]\n", "[distribution.library.samplib]\nelement = \"SRC\"\ntarget_dd = \"UFSSAMP\"\ndistlib_dd = \"AUFSSAMP\"\n", 1)
+	p, err := LoadV3(v3Tree(t, in), FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dist := table(p.Raw, "distribution")
+	smp := table(dist, "smp")
+	if smp["target_dd"] != "UFSLINK" || smp["distlib_dd"] != "AUFSLOD" || smp["lklib_dd"] != "UFSLOAD" {
+		t.Errorf("DD names not carried into the descriptor: %v", smp)
+	}
+	lib := dist["library"].([]map[string]any)[0]
+	if lib["target_dd"] != "UFSSAMP" || lib["distlib_dd"] != "AUFSSAMP" {
+		t.Errorf("library DD names not carried into the descriptor: %v", lib)
+	}
+}
+
 func TestLoadV3WrongForm(t *testing.T) {
 	lib := "[distribution.library.samplib]\n"
 	cases := []struct {
