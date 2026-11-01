@@ -237,9 +237,9 @@ target_dd = "ABCLINK"
 LINKLIB = "ABC.LINKLIB"
 ```
 
-The job then carries #cmd("//HMASMP.LINKLIB DD DISP=SHR,DSN=ABC.LINKLIB") in
-the DD block of the #cmd("APPLYCHK"), #cmd("APPLY") and #cmd("ACCEPT") steps,
-in the order the SMPAPP procedure requires: a DD of the procedure, such as
+The jobs then carry #cmd("//HMASMP.LINKLIB DD DISP=SHR,DSN=ABC.LINKLIB") in
+the DD block of the #cmd("APPLYCHK"), #cmd("APPLY") and #cmd("ACCEPT") steps
+(the last is in the accept job), in the order the SMPAPP procedure requires: a DD of the procedure, such as
 #cmd("LINKLIB"), comes before every other card, or the procedure's own wins
 without a message. The cards of the new level follow it. A library whose DD
 name and data set stay the same needs no line; a line for it is accepted and
@@ -337,7 +337,7 @@ installation job.
     at 4 as well, but not above.],
 )
 
-The job ends with return code 0, with #cmd("prereq") with 4. A failed
+The job ends with return code 0, or with 4 when #cmd("prereq") is set. A failed
 #cmd("ACCEPT") (return code 8 or above, for example a staging library that
 was deleted) leaves the staging libraries alone, and the job can be
 submitted again once the cause is fixed.
@@ -441,8 +441,8 @@ configuration in a `project.toml` and sorted by `dir` in an `mbt.toml`.
 *The staging library and the TXLIB cards.* The library travels as a TRANSMIT
 file of its own and is received into the staging library, by default
 #var("NAME")#cmd(".T")#var("DIR"). The installation job and the accept job
-have one DD card per element, in the #cmd("RECEIVE"), #cmd("APPLY CHECK"), #cmd("APPLY") and
-#cmd("ACCEPT") steps, each pointing to the member of the same name:
+have one DD card per element, in the #cmd("RECEIVE"), #cmd("APPLY CHECK"),
+#cmd("APPLY") and #cmd("ACCEPT") steps, each pointing to the member of the same name:
 
 ```
 //DAYSBETW DD  DISP=SHR,DSN=ABC.TRXLIB(DAYSBETW)

@@ -11,6 +11,10 @@ _CC/370 User's Guide_.
   ((i, x)) => if calc.even(i) { par(justify: false, strong(x)) } else { x }))
 
 #g(
+  [accept job], [The job #var("name")#cmd("-")#var("version")#cmd("-accept.jcl")
+    of an SMP package. Its #cmd("ACCEPT") makes the installed level the one a
+    #cmd("RESTORE") returns to, and its #cmd("CLEANUP") deletes the staging
+    libraries. The user submits it after trying the product.],
   [APF], [The authorized program facility of MVS. A program runs authorized
     only if its _load module_ has authorization code 1 and every library of
     an authorized #cmd("STEPLIB") concatenation is listed as APF-authorized,
