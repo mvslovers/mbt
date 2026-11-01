@@ -329,7 +329,8 @@ first four characters of #var("NAME").
     derived one for #var("x")#cmd(".0.0")\; #cmd("[]") for a first level.
     It must not name the release's own FMID.],
   [#cmd("system")], [#cmd("\"Z038\"")], [the SREL of the #cmd("++VER").],
-  [#cmd("prereq")], [#cmd("[]")], [SYSMODs that must be installed.],
+  [#cmd("prereq")], [#cmd("[]")], [SYSMODs that must be applied before this one (@ref-smp-prereq).
+    The #cmd("ACCEPT") step then carries #cmd("BYPASS(REQ)").],
   [#cmd("accept_fmid")], [#cmd("true")], [accept the FMID in the
     installation job.],
   [#cmd("procedure")], [none], [#cmd("\"mvsce\"") or #cmd("\"tk5\""): the

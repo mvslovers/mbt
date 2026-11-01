@@ -228,21 +228,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
     if dist.smp.accept_fmid:
         accept_summary = ("//*   ACCEPT    make this level the base a RESTORE "
                           "returns to")
-        accept_cond = D.accept_cond(dist)
-        accept_step = (
-            "//*\n"
-            "//* ---- ACCEPT -------------------------------------------------------\n"
-            "//* Accepting the FMID once fills the distribution library, so a\n"
-            "//* later RESTORE has a previous level to go back to. Without it\n"
-            "//* a RESTORE would DELETE the module instead of reverting it.\n"
-            "//* Service (PTFs) is deliberately never accepted.\n"
-            "//*\n"
-            f"//ACCEPT  EXEC SMPAPP,COND={accept_cond}\n"
-            f"{D.render_apply_dds(dist)}\n"
-            "//SMPCNTL  DD  *\n"
-            f" ACCEPT S({dist.smp.fmid}) DIS(WRITE) .\n"
-            "/*"
-        )
+        accept_step = D.render_accept_step(dist)
         last_smp_step = "ACCEPT.HMASMP"
     else:
         accept_summary = ("//*   (no ACCEPT -- this level never becomes the "

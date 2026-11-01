@@ -384,6 +384,30 @@ class ReceiveTest(unittest.TestCase):
         D.check_card_text(self.jcl, "receive steps")
 
 
+class AcceptStepTest(unittest.TestCase):
+    """A prerequisite that cannot be accepted must not fail the ACCEPT."""
+
+    def test_without_prereq_there_is_no_bypass(self):
+        jcl = D.render_accept_step(D.parse(_cfg(), "V1R1M1"))
+        self.assertNotIn("BYPASS", jcl)
+        self.assertIn(" ACCEPT S(TUFS110) DIS(WRITE) .\n", jcl)
+
+    def test_prereq_bypasses_req_in_the_accept_only(self):
+        for ids in (["MS00100"], ["MS00100", "ZP60017"]):
+            jcl = D.render_accept_step(D.parse(_cfg(prereq=ids), "V1R1M1"))
+            self.assertIn(" ACCEPT S(TUFS110) BYPASS(REQ) DIS(WRITE) .\n", jcl)
+            self.assertIn(f"names {', '.join(ids)} as a prerequisite", jcl)
+            self.assertIn("COND=((0,NE,APPLYCHK.HMASMP),(0,NE,APPLY.HMASMP))", jcl)
+            D.check_card_text(jcl, "accept step")
+
+    def test_cleanup_runs_after_the_bypassed_accept(self):
+        dist = D.parse(_cfg(prereq=["MS00100"]), "V1R1M1")
+        self.assertIn("//         COND=((0,NE,APPLYCHK.HMASMP),(4,LT,ACCEPT.HMASMP))",
+                      D.render_cleanup_step(dist, "ACCEPT.HMASMP"))
+        self.assertIn("COND=(0,NE,APPLY.HMASMP)",
+                      D.render_cleanup_step(dist, "APPLY.HMASMP"))
+
+
 class CleanupTest(unittest.TestCase):
     """The staging library is scratched once SMP has taken what it needs."""
 

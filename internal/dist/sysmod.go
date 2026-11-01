@@ -305,15 +305,45 @@ func acceptCond(d *Distribution) string {
 	return "(0,NE,APPLY.HMASMP)"
 }
 
+func applyCheckCond(d *Distribution) string {
+	if d.hasSRC() {
+		return "(4,LT,APPLYCHK.HMASMP)"
+	}
+	return "(0,NE,APPLYCHK.HMASMP)"
+}
+
+// acceptStepCond: with prereq the ACCEPT bypasses REQ, so it must not run
+// behind a failed APPLY CHECK (see renderAcceptStep).
+func acceptStepCond(d *Distribution) string {
+	if len(d.SMP.Prereq) > 0 {
+		return "(" + applyCheckCond(d) + "," + acceptCond(d) + ")"
+	}
+	return acceptCond(d)
+}
+
+// cleanupExec: a compound COND does not fit a card behind PGM=IDCAMS.
+func cleanupExec(cond string) string {
+	line := "//CLEANUP EXEC PGM=IDCAMS,COND=" + cond
+	if len(line) <= 71 {
+		return line
+	}
+	return "//CLEANUP EXEC PGM=IDCAMS,\n//         COND=" + cond
+}
+
 func renderCleanupStep(d *Distribution, after string) (string, error) {
 	for _, a := range d.allocated() {
 		if a == d.SMP.LKLib {
 			return "", errf("refusing to generate a cleanup step for %s: it is one of the libraries SMP installs into", d.SMP.LKLib)
 		}
 	}
-	cond := "0,NE"
+	cond := fmt.Sprintf("(0,NE,%s)", after)
 	if d.hasSRC() {
-		cond = "4,LT"
+		cond = fmt.Sprintf("(4,LT,%s)", after)
+	}
+	// BYPASS(REQ) makes the ACCEPT end RC 4 by design; behind a failed APPLY
+	// CHECK the ACCEPT is skipped and its COND would not stop the CLEANUP.
+	if after == "ACCEPT.HMASMP" && len(d.SMP.Prereq) > 0 {
+		cond = "(" + applyCheckCond(d) + ",(4,LT," + after + "))"
 	}
 	dels := []string{fmt.Sprintf("  DELETE %s NONVSAM SCRATCH PURGE", d.SMP.LKLib)}
 	for _, l := range d.delivered() {
@@ -325,7 +355,7 @@ func renderCleanupStep(d *Distribution, after string) (string, error) {
 		"//* Only reached when everything above worked. Comment the step out",
 		"//* if you would rather keep the shipped modules on the system.",
 		"//*",
-		fmt.Sprintf("//CLEANUP EXEC PGM=IDCAMS,COND=(%s,%s)", cond, after),
+		cleanupExec(cond),
 		"//SYSPRINT DD  SYSOUT=*",
 		"//SYSIN    DD  *",
 	}

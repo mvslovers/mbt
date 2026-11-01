@@ -332,6 +332,15 @@ say "this level or a later one". Leave #cmd("[smp] prereq") empty, its
 default, and say in the README which versions of other products the
 release needs.
 
+*A usermod the product cannot run without* is the exception. Name it in
+#cmd("[smp] prereq") and the #cmd("APPLY") refuses to install without it. SMP
+checks the requisite again at #cmd("ACCEPT"), and a usermod that is applied
+but can never be accepted would fail that step on every system. So with
+#cmd("prereq") the generated #cmd("ACCEPT") bypasses the requisite check, for
+the product's own SYSMOD only, and ends with return code 4 and
+#cmd("--- ") #var("id") #cmd(" REQ BYPASSED"). That is expected
+(_MBT Reference_, "A Prerequisite That Cannot Be Accepted").
+
 == Checking an Installation <ug-package-check>
 
 #idx("SMP", "checking")

@@ -216,10 +216,46 @@ names before the first install.
   [#cmd("APPLY")], [#cmd("APPLY"), only after a clean check.],
   [#cmd("ACCEPT")], [#cmd("ACCEPT"), unless #cmd("accept_fmid = false").
     With #cmd("delete"), it also runs after an #cmd("APPLY") that ended with
-    4.],
+    4. With #cmd("prereq"), the command is #cmd("ACCEPT S(")#var("fmid")#cmd(") BYPASS(REQ)")
+    (@ref-smp-prereq).],
   [#cmd("CLEANUP")], [IDCAMS: deletes the staging library, if
-    #cmd("ACCEPT") (or, without it, #cmd("APPLY")) ended with 0.],
+    #cmd("ACCEPT") (or, without it, #cmd("APPLY")) ended with 0. With
+    #cmd("prereq"), the #cmd("ACCEPT") ends with 4 by design, and the step runs
+    at 4 as well.],
 )
+
+== A Prerequisite That Cannot Be Accepted <ref-smp-prereq>
+
+#idx("SMP", "prereq")
+#idx("BYPASS(REQ)")
+With #cmd("[smp] prereq"), the SYSMOD carries the identifiers in
+#cmd("++VER(...) REQ(...)"), and the #cmd("APPLY CHECK") and the
+#cmd("APPLY") refuse to go on while one of them is not applied: they end with
+return code 12 and #cmd("HMA3590     --- ") followed by the identifier and
+#cmd("REQ"). SMP checks a requisite against the target zone at #cmd("APPLY")
+and against the distribution zone at #cmd("ACCEPT"). A prerequisite that is
+applied but cannot be accepted, such as a usermod whose own requisite is not
+accepted either, would let the #cmd("ACCEPT") end with 12 on every system.
+
+So when #cmd("prereq") is not empty, the generated #cmd("ACCEPT") is
+
+```
+ ACCEPT S(TABC120) BYPASS(REQ) DIS(WRITE) .
+```
+
+for the product's own SYSMOD alone, and the comment of the step in the job
+says why. One #cmd("BYPASS(REQ)") covers every identifier of the list. The
+#cmd("APPLY CHECK") and the #cmd("APPLY") stay strict, and the requisite is
+still written as #cmd("REQ"). The #cmd("ACCEPT") ends with return code 4 and
+#cmd("HMA3590     --- ") #var("id") #cmd(" REQ BYPASSED") for each prerequisite:
+that is expected. Without #cmd("prereq"), the step has no #cmd("BYPASS").
+
+A step whose #cmd("COND") names a step that was skipped runs anyway. After a
+failed #cmd("APPLY CHECK") the #cmd("APPLY") is skipped, and an #cmd("ACCEPT")
+that bypassed #cmd("REQ") would accept a SYSMOD whose prerequisite is not
+there. So with #cmd("prereq") the #cmd("COND") of the #cmd("ACCEPT") names the
+#cmd("APPLYCHK") step as well, and so does that of the #cmd("CLEANUP"): after
+a failed check neither runs.
 
 == The SYSMOD <ref-smp-sysmod>
 

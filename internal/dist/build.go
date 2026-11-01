@@ -156,7 +156,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		"//* product owns those patterns, the site owns the copies it makes of\n" +
 		"//* them. See the README for which member goes where."
 	applyWhat := "copy the load modules into the target library"
-	applyChkCond := "(0,NE,APPLYCHK.HMASMP)"
+	applyChkCond := applyCheckCond(d)
 	applyChkRC := "RC=0"
 	if len(d.delivered()) > 0 {
 		cleanupNote = "//*   CLEANUP   scratch the staging libraries, now spent"
@@ -164,24 +164,12 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		applyWhat = "copy load modules and elements into target libraries"
 	}
 	if d.hasSRC() {
-		applyChkCond = "(4,LT,APPLYCHK.HMASMP)"
 		applyChkRC = "RC<=4"
 	}
 	var acceptSummary, acceptStep, last string
 	if d.SMP.AcceptFMID {
 		acceptSummary = "//*   ACCEPT    make this level the base a RESTORE returns to"
-		acceptStep = "//*\n" +
-			"//* ---- ACCEPT -------------------------------------------------------\n" +
-			"//* Accepting the FMID once fills the distribution library, so a\n" +
-			"//* later RESTORE has a previous level to go back to. Without it\n" +
-			"//* a RESTORE would DELETE the module instead of reverting it.\n" +
-			"//* Service (PTFs) is deliberately never accepted.\n" +
-			"//*\n" +
-			fmt.Sprintf("//ACCEPT  EXEC SMPAPP,COND=%s\n", acceptCond(d)) +
-			renderApplyDDs(d) + "\n" +
-			"//SMPCNTL  DD  *\n" +
-			fmt.Sprintf(" ACCEPT S(%s) DIS(WRITE) .\n", d.SMP.FMID) +
-			"/*"
+		acceptStep = renderAcceptStep(d)
 		last = "ACCEPT.HMASMP"
 	} else {
 		acceptSummary = "//*   (no ACCEPT -- this level never becomes the restore base)"
@@ -399,4 +387,40 @@ func writeTarGz(path string, items []archiveItem, mtime time.Time) error {
 		return err
 	}
 	return f.Close()
+}
+
+// renderAcceptStep renders the ACCEPT step of the install job. With a
+// prerequisite (prereq) the ACCEPT carries BYPASS(REQ): APPLY checks a
+// requisite against the CDS, ACCEPT against the ACDS, and a prerequisite that
+// is applied but can never be accepted (a usermod whose own requisite is not
+// accepted) would make ACCEPT end RC 12 for good. BYPASS(REQ) applies to this
+// one ACCEPT S(<FMID>) only; APPLY CHECK and APPLY keep checking.
+//
+// A step whose COND names a skipped step runs anyway, so after a failed APPLY
+// CHECK (APPLY skipped) the ACCEPT would run, and with BYPASS(REQ) accept a
+// SYSMOD whose prerequisite is missing, where it used to fail at RC 12
+// (measured). Its COND therefore names the APPLY CHECK as well.
+func renderAcceptStep(d *Distribution) string {
+	bypass, why := "", ""
+	if len(d.SMP.Prereq) > 0 {
+		bypass = " BYPASS(REQ)"
+		why = "//* BYPASS(REQ): this SYSMOD names " + strings.Join(d.SMP.Prereq, ", ") + " as a prerequisite.\n" +
+			"//* APPLY checked it against the CDS and stays strict. ACCEPT checks\n" +
+			"//* against the ACDS, and a prerequisite that is applied but cannot be\n" +
+			"//* accepted (a usermod whose own requisite is not accepted) would fail\n" +
+			"//* this step for good. RC 04 with \"--- <id> REQ BYPASSED\" is expected.\n" +
+			"//*\n"
+	}
+	return "//*\n" +
+		"//* ---- ACCEPT -------------------------------------------------------\n" +
+		"//* Accepting the FMID once fills the distribution library, so a\n" +
+		"//* later RESTORE has a previous level to go back to. Without it\n" +
+		"//* a RESTORE would DELETE the module instead of reverting it.\n" +
+		"//* Service (PTFs) is deliberately never accepted.\n" +
+		"//*\n" + why +
+		fmt.Sprintf("//ACCEPT  EXEC SMPAPP,COND=%s\n", acceptStepCond(d)) +
+		renderApplyDDs(d) + "\n" +
+		"//SMPCNTL  DD  *\n" +
+		fmt.Sprintf(" ACCEPT S(%s)%s DIS(WRITE) .\n", d.SMP.FMID, bypass) +
+		"/*"
 }

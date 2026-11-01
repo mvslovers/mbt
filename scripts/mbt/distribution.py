@@ -832,6 +832,55 @@ def accept_cond(dist: Distribution) -> str:
     return "(4,LT,APPLY.HMASMP)" if dist.smp.delete else "(0,NE,APPLY.HMASMP)"
 
 
+def accept_step_cond(dist: Distribution) -> str:
+    """accept_cond, and with prereq also the APPLY CHECK.
+
+    A step whose COND names a skipped step runs anyway, so after a failed
+    APPLY CHECK (APPLY skipped) the ACCEPT would run, and with BYPASS(REQ)
+    accept a SYSMOD whose prerequisite is missing (measured).
+    """
+    if dist.smp.prereq:
+        return f"((0,NE,APPLYCHK.HMASMP),{accept_cond(dist)})"
+    return accept_cond(dist)
+
+
+def render_accept_step(dist: Distribution) -> str:
+    """The ACCEPT step of the install job.
+
+    With a prerequisite (prereq) the ACCEPT carries BYPASS(REQ).  APPLY checks
+    a requisite against the CDS, ACCEPT against the ACDS, and a prerequisite
+    that is applied but can never be accepted (a usermod whose own requisite is
+    not accepted) would make ACCEPT end RC 12 for good.  BYPASS(REQ) covers
+    this one ACCEPT S(<FMID>) only; APPLY CHECK and APPLY keep checking.
+    """
+    bypass, why = "", ""
+    if dist.smp.prereq:
+        bypass = " BYPASS(REQ)"
+        why = (
+            f"//* BYPASS(REQ): this SYSMOD names {', '.join(dist.smp.prereq)} as a prerequisite.\n"
+            "//* APPLY checked it against the CDS and stays strict. ACCEPT checks\n"
+            "//* against the ACDS, and a prerequisite that is applied but cannot be\n"
+            "//* accepted (a usermod whose own requisite is not accepted) would fail\n"
+            "//* this step for good. RC 04 with \"--- <id> REQ BYPASSED\" is expected.\n"
+            "//*\n"
+        )
+    return (
+        "//*\n"
+        "//* ---- ACCEPT -------------------------------------------------------\n"
+        "//* Accepting the FMID once fills the distribution library, so a\n"
+        "//* later RESTORE has a previous level to go back to. Without it\n"
+        "//* a RESTORE would DELETE the module instead of reverting it.\n"
+        "//* Service (PTFs) is deliberately never accepted.\n"
+        "//*\n"
+        f"{why}"
+        f"//ACCEPT  EXEC SMPAPP,COND={accept_step_cond(dist)}\n"
+        f"{render_apply_dds(dist)}\n"
+        "//SMPCNTL  DD  *\n"
+        f" ACCEPT S({dist.smp.fmid}){bypass} DIS(WRITE) .\n"
+        "/*"
+    )
+
+
 def render_cleanup_step(dist: Distribution, after_step: str) -> str:
     """Scratch the staging library once SMP has taken what it needs from it.
 
@@ -854,13 +903,21 @@ def render_cleanup_step(dist: Distribution, after_step: str) -> str:
             f"refusing to generate a cleanup step for {dist.smp.lklib}: "
             f"it is one of the libraries SMP installs into"
         )
+    cond = f"(0,NE,{after_step})"
+    if after_step == "ACCEPT.HMASMP" and dist.smp.prereq:
+        # BYPASS(REQ) ends the ACCEPT at RC 4 by design; behind a failed
+        # APPLY CHECK the ACCEPT is skipped and would not stop the CLEANUP
+        cond = f"((0,NE,APPLYCHK.HMASMP),(4,LT,{after_step}))"
+    exec_card = f"//CLEANUP EXEC PGM=IDCAMS,COND={cond}"
+    if len(exec_card) > 71:     # a compound COND does not fit behind PGM=IDCAMS
+        exec_card = f"//CLEANUP EXEC PGM=IDCAMS,\n//         COND={cond}"
     return "\n".join([
         "//*",
         "//* ---- remove the staging library -----------------------------------",
         "//* Only reached when everything above worked. Comment the step out",
         "//* if you would rather keep the shipped modules on the system.",
         "//*",
-        f"//CLEANUP EXEC PGM=IDCAMS,COND=(0,NE,{after_step})",
+        exec_card,
         "//SYSPRINT DD  SYSOUT=*",
         "//SYSIN    DD  *",
         f"  DELETE {dist.smp.lklib} NONVSAM SCRATCH PURGE",
