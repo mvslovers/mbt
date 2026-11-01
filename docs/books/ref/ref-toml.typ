@@ -329,10 +329,13 @@ first four characters of #var("NAME").
     derived one for #var("x")#cmd(".0.0")\; #cmd("[]") for a first level.
     It must not name the release's own FMID.],
   [#cmd("system")], [#cmd("\"Z038\"")], [the SREL of the #cmd("++VER").],
-  [#cmd("prereq")], [#cmd("[]")], [SYSMODs that must be applied before this one (@ref-smp-prereq).
-    The #cmd("ACCEPT") step then carries #cmd("BYPASS(REQ)").],
-  [#cmd("accept_fmid")], [#cmd("true")], [accept the FMID in the
-    installation job.],
+  [#cmd("prereq")], [#cmd("[]")], [SYSMODs that must be applied before this one.
+    The #cmd("ACCEPT") of the accept job then carries #cmd("BYPASS(REQ)")
+    (@ref-smp-prereq).],
+  [#cmd("accept_fmid")], [#cmd("true")], [write the accept job, with the
+    #cmd("ACCEPT") of the FMID and the #cmd("CLEANUP"). The installation job
+    ends after the #cmd("APPLY") (@ref-smp-accept). With #cmd("false") there
+    is no accept job, and the #cmd("CLEANUP") stays behind the #cmd("APPLY").],
   [#cmd("procedure")], [none], [#cmd("\"mvsce\"") or #cmd("\"tk5\""): the
     system the package installs on. The two #cmd("SMPAPP") procedures list
     different DDs (MVS/CE has #cmd("ASAMPLIB"), TK5 has not), and the install

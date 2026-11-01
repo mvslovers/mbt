@@ -295,39 +295,106 @@ func renderReceiveSteps(plan []recv) string {
 	return strings.Join(lines, "\n")
 }
 
-// acceptCond: relaxed to RC 4 only when a DELETE is in play (an upgrade's
-// APPLY ends RC 04 on HMA2461, measured) or a ++SRC is (HMA4441: SMP cannot
-// assemble a source it has no assembly step for, and says so at RC 04).
-func acceptCond(d *Distribution) string {
-	if len(d.SMP.Delete) > 0 || d.hasSRC() {
-		return "(4,LT,APPLY.HMASMP)"
-	}
-	return "(0,NE,APPLY.HMASMP)"
-}
-
-func applyCheckCond(d *Distribution) string {
-	if d.hasSRC() {
-		return "(4,LT,APPLYCHK.HMASMP)"
-	}
-	return "(0,NE,APPLYCHK.HMASMP)"
-}
-
-// acceptStepCond: with prereq the ACCEPT bypasses REQ, so it must not run
-// behind a failed APPLY CHECK (see renderAcceptStep).
-func acceptStepCond(d *Distribution) string {
+// renderAcceptStep: the ACCEPT of the accept job. With a prerequisite
+// (prereq) it carries BYPASS(REQ): APPLY checks a requisite against the CDS,
+// ACCEPT against the ACDS, and a prerequisite that is applied but can never
+// be accepted (a usermod whose own requisite is not accepted) would make the
+// ACCEPT end RC 12 for good. It covers this one ACCEPT S(<FMID>) only; APPLY
+// CHECK and APPLY, in the install job, keep checking.
+func renderAcceptStep(d *Distribution) string {
+	bypass := ""
 	if len(d.SMP.Prereq) > 0 {
-		return "(" + applyCheckCond(d) + "," + acceptCond(d) + ")"
+		bypass = " BYPASS(REQ)"
 	}
-	return acceptCond(d)
+	return "//*\n" +
+		"//* ---- ACCEPT -------------------------------------------------------\n" +
+		"//* Accepting the FMID once fills the distribution library, so a\n" +
+		"//* later RESTORE has a previous level to go back to. Without it\n" +
+		"//* a RESTORE would DELETE the module instead of reverting it.\n" +
+		"//* Service (PTFs) is deliberately never accepted.\n" +
+		"//*\n" +
+		"//ACCEPT  EXEC SMPAPP\n" +
+		renderApplyDDs(d) + "\n" +
+		"//SMPCNTL  DD  *\n" +
+		fmt.Sprintf(" ACCEPT S(%s)%s DIS(WRITE) .\n", d.SMP.FMID, bypass) +
+		"/*"
 }
 
-// cleanupExec: a compound COND does not fit a card behind PGM=IDCAMS.
-func cleanupExec(cond string) string {
-	line := "//CLEANUP EXEC PGM=IDCAMS,COND=" + cond
-	if len(line) <= 71 {
-		return line
+// bypassNote: the part of the accept job's header that says why the ACCEPT
+// bypasses REQ and what the expected end is; empty without prereq. It
+// follows a "//*" card, hence the leading newline.
+func bypassNote(d *Distribution) string {
+	if len(d.SMP.Prereq) == 0 {
+		return ""
 	}
-	return "//CLEANUP EXEC PGM=IDCAMS,\n//         COND=" + cond
+	return "\n//* BYPASS(REQ) ON THE ACCEPT\n" +
+		"//*   This SYSMOD names a prerequisite (++VER ... REQ). APPLY checked\n" +
+		"//*   it against the CDS and still does. ACCEPT checks a requisite\n" +
+		"//*   again, against the ACDS, and a prerequisite that is applied but\n" +
+		"//*   cannot be accepted (a usermod whose own requisite is not\n" +
+		"//*   accepted) would fail this step for good. So the ACCEPT bypasses\n" +
+		"//*   REQ, for this one SYSMOD only.\n" +
+		"//*   The expected end of this job is RC 04, with the message\n" +
+		"//*     HMA3590     --- <id> REQ BYPASSED\n" +
+		"//*   for each prerequisite."
+}
+
+// renderAcceptJob: the job that accepts the FMID and then scratches the
+// staging libraries SMP read it from.
+func renderAcceptJob(d *Distribution, jobcard, name, ver, instJob string) (string, error) {
+	cleanup, err := renderCleanupStep(d, "ACCEPT.HMASMP")
+	if err != nil {
+		return "", err
+	}
+	what := stagingWord(d)
+	return render("smpaccept.jcl.tpl", map[string]string{
+		"JOBCARD": jobcard, "PRODUCT": name, "VERSION": ver, "FMID": d.SMP.FMID,
+		"INSTALL_JOB": instJob, "STAGING": what, "BYPASS_NOTE": bypassNote(d),
+		"ACCEPT_STEP": renderAcceptStep(d), "CLEANUP_STEP": cleanup,
+	})
+}
+
+func stagingWord(d *Distribution) string {
+	if len(d.delivered()) > 0 {
+		return "libraries"
+	}
+	return "library"
+}
+
+// stagingDeletes: the DELETE statements that remove the staging libraries.
+func stagingDeletes(d *Distribution) []string {
+	dels := []string{fmt.Sprintf("DELETE %s NONVSAM SCRATCH PURGE", d.SMP.LKLib)}
+	for _, l := range d.delivered() {
+		dels = append(dels, fmt.Sprintf("DELETE %s NONVSAM SCRATCH PURGE", l.Stage))
+	}
+	return dels
+}
+
+// renderInstallEnd: the end of the install job when the ACCEPT is a job of
+// its own. It says what to do next and how to remove the staging libraries
+// for someone who never accepts.
+func renderInstallEnd(d *Distribution, acceptJob string) string {
+	w, stay := stagingWord(d), "stays"
+	if w == "libraries" {
+		stay = "stay"
+	}
+	lines := []string{
+		"//*",
+		"//* ---- WHAT NEXT ----------------------------------------------------",
+		"//* The function is APPLIED, not accepted: a RESTORE can still take it",
+		"//* out again. Try the product. When you want to keep this level,",
+		"//* submit",
+		"//*     " + acceptJob,
+		"//* ACCEPT is the point without a way back, so the decision is yours.",
+		"//* That job scratches the staging " + w + ", which " + stay + " until then.",
+		"//*",
+		"//* If you RESTORE it, or never ACCEPT it, scratch the staging",
+		"//* " + w + " yourself, with IDCAMS:",
+	}
+	for _, dl := range stagingDeletes(d) {
+		lines = append(lines, "//*     "+dl)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func renderCleanupStep(d *Distribution, after string) (string, error) {
@@ -336,18 +403,11 @@ func renderCleanupStep(d *Distribution, after string) (string, error) {
 			return "", errf("refusing to generate a cleanup step for %s: it is one of the libraries SMP installs into", d.SMP.LKLib)
 		}
 	}
-	cond := fmt.Sprintf("(0,NE,%s)", after)
-	if d.hasSRC() {
-		cond = fmt.Sprintf("(4,LT,%s)", after)
-	}
-	// BYPASS(REQ) makes the ACCEPT end RC 4 by design; behind a failed APPLY
-	// CHECK the ACCEPT is skipped and its COND would not stop the CLEANUP.
-	if after == "ACCEPT.HMASMP" && len(d.SMP.Prereq) > 0 {
-		cond = "(" + applyCheckCond(d) + ",(4,LT," + after + "))"
-	}
-	dels := []string{fmt.Sprintf("  DELETE %s NONVSAM SCRATCH PURGE", d.SMP.LKLib)}
-	for _, l := range d.delivered() {
-		dels = append(dels, fmt.Sprintf("  DELETE %s NONVSAM SCRATCH PURGE", l.Stage))
+	cond := "0,NE"
+	// RC 4 is how a step ends with a ++SRC (HMA4441) and, on the ACCEPT with
+	// prereq, by design (REQ BYPASSED).
+	if d.hasSRC() || (after == "ACCEPT.HMASMP" && len(d.SMP.Prereq) > 0) {
+		cond = "4,LT"
 	}
 	lines := []string{
 		"//*",
@@ -355,11 +415,13 @@ func renderCleanupStep(d *Distribution, after string) (string, error) {
 		"//* Only reached when everything above worked. Comment the step out",
 		"//* if you would rather keep the shipped modules on the system.",
 		"//*",
-		cleanupExec(cond),
+		fmt.Sprintf("//CLEANUP EXEC PGM=IDCAMS,COND=(%s,%s)", cond, after),
 		"//SYSPRINT DD  SYSOUT=*",
 		"//SYSIN    DD  *",
 	}
-	lines = append(lines, dels...)
+	for _, dl := range stagingDeletes(d) {
+		lines = append(lines, "  "+dl)
+	}
 	lines = append(lines, "/*", "//")
 	return strings.Join(lines, "\n"), nil
 }

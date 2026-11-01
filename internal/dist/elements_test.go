@@ -189,14 +189,14 @@ func TestElementAlloc(t *testing.T) {
 	}
 }
 
-func TestElementCleanupAndCond(t *testing.T) {
+func TestElementCleanup(t *testing.T) {
 	d := parseElem(t, map[string]any{"dir": "m", "target": "ABC.MACS", "element": "MAC"})
-	if acceptCond(d) != "(0,NE,APPLY.HMASMP)" {
-		t.Errorf("MAC applies at RC 0: %s", acceptCond(d))
-	}
 	c, err := renderCleanupStep(d, "ACCEPT.HMASMP")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(c, "COND=(0,NE,ACCEPT.HMASMP)") {
+		t.Errorf("a clean ACCEPT ends at RC 0:\n%s", c)
 	}
 	if !strings.Contains(c, "  DELETE ABC.LKLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.TMACS NONVSAM SCRATCH PURGE\n") {
 		t.Errorf("stage not deleted:\n%s", c)
@@ -205,8 +205,12 @@ func TestElementCleanupAndCond(t *testing.T) {
 		t.Errorf("target or distribution library deleted:\n%s", c)
 	}
 	d = parseElem(t, map[string]any{"dir": "s", "target": "ABC.SRCS", "element": "SRC"})
-	if acceptCond(d) != "(4,LT,APPLY.HMASMP)" {
-		t.Errorf("++SRC leaves the APPLY at RC 4 (HMA4441): %s", acceptCond(d))
+	c, err = renderCleanupStep(d, "ACCEPT.HMASMP")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(c, "COND=(4,LT,ACCEPT.HMASMP)") {
+		t.Errorf("++SRC leaves the steps at RC 4 (HMA4441):\n%s", c)
 	}
 }
 
@@ -445,15 +449,34 @@ func TestBuildEndToEnd(t *testing.T) {
 		"DATASET('ABC.TRXLIB')",
 		"//ALPHA    DD  DISP=SHR,DSN=ABC.TRXLIB(ALPHA)\n//BETA ",
 		"//APPLY   EXEC SMPAPP,COND=(4,LT,APPLYCHK.HMASMP)",
-		"//ACCEPT  EXEC SMPAPP,COND=(4,LT,APPLY.HMASMP)",
-		"  DELETE ABC.TSAMPLES NONVSAM SCRATCH PURGE",
+		"//*     DELETE ABC.TSAMPLES NONVSAM SCRATCH PURGE",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("install job lacks %q", want)
 		}
 	}
-	if n := strings.Count(text, "DSN=ABC.TRXLIB(ALPHA)"); n != 4 {
-		t.Errorf("ALPHA is read from its staging member in RECEIVE, APPLY CHECK, APPLY and ACCEPT, found %d cards", n)
+	for _, not := range []string{"//ACCEPT ", "//CLEANUP "} {
+		if strings.Contains(text, not) {
+			t.Errorf("install job has %q: the ACCEPT and the CLEANUP are the accept job's", not)
+		}
+	}
+	if n := strings.Count(text, "DSN=ABC.TRXLIB(ALPHA)"); n != 3 {
+		t.Errorf("ALPHA is read from its staging member in RECEIVE, APPLY CHECK and APPLY, found %d cards", n)
+	}
+	acc, err := os.ReadFile(filepath.Join(root, "build", "dist-stage", "abc-1.0.0-accept.jcl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"//ACCEPT  EXEC SMPAPP\n",
+		"//HMASMP.ALPHA    DD  DISP=SHR,DSN=ABC.TRXLIB(ALPHA)\n",
+		" ACCEPT S(TABC100) DIS(WRITE) .\n",
+		"//CLEANUP EXEC PGM=IDCAMS,COND=(4,LT,ACCEPT.HMASMP)\n",
+		"  DELETE ABC.LKLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.TRXLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.TSAMPLES NONVSAM SCRATCH PURGE\n",
+	} {
+		if !strings.Contains(string(acc), want) {
+			t.Errorf("accept job lacks %q:\n%s", want, acc)
+		}
 	}
 	if !strings.Contains(string(alloc), "RECFM=FB,LRECL=80,BLKSIZE=3120") {
 		t.Errorf("alloc job:\n%s", alloc)

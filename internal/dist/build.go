@@ -71,7 +71,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		o.Log("WARNING: " + w)
 	}
 	prefix := name + "-" + ver
-	allocJob, instJob, loadXMIT := prefix+"-alloc.jcl", prefix+"-inst.jcl", prefix+"-load.xmit"
+	allocJob, instJob, acceptJob, loadXMIT := prefix+"-alloc.jcl", prefix+"-inst.jcl", prefix+"-accept.jcl", prefix+"-load.xmit"
 	out := filepath.Join(o.Root, o.DistDir)
 	stage := filepath.Join(o.Root, o.BuildDir, "dist-stage")
 	if err := os.MkdirAll(stage, 0o755); err != nil {
@@ -124,7 +124,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	}
 	assignDDs(d)
 
-	// ---- the SYSMOD and the two jobs ----
+	// ---- the SYSMOD and the jobs ----
 	names := make([]string, 0, len(modules))
 	aliases := map[string][]string{}
 	for _, m := range modules {
@@ -156,7 +156,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		"//* product owns those patterns, the site owns the copies it makes of\n" +
 		"//* them. See the README for which member goes where."
 	applyWhat := "copy the load modules into the target library"
-	applyChkCond := applyCheckCond(d)
+	applyChkCond := "(0,NE,APPLYCHK.HMASMP)"
 	applyChkRC := "RC=0"
 	if len(d.delivered()) > 0 {
 		cleanupNote = "//*   CLEANUP   scratch the staging libraries, now spent"
@@ -164,21 +164,33 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		applyWhat = "copy load modules and elements into target libraries"
 	}
 	if d.hasSRC() {
+		applyChkCond = "(4,LT,APPLYCHK.HMASMP)"
 		applyChkRC = "RC<=4"
 	}
-	var acceptSummary, acceptStep, last string
+	// With accept_fmid the install job ends after the APPLY: ACCEPT is the
+	// point without a way back, so it is a job of its own that the user
+	// submits (acceptJCL), and it takes the CLEANUP with it, since SMP reads
+	// the staging libraries again at the ACCEPT.
+	var acceptSummary, acceptStep, cleanup, acceptJCL string
 	if d.SMP.AcceptFMID {
-		acceptSummary = "//*   ACCEPT    make this level the base a RESTORE returns to"
-		acceptStep = renderAcceptStep(d)
-		last = "ACCEPT.HMASMP"
+		acceptSummary = "//*   (ACCEPT and CLEANUP are a job of their own, see the end)"
+		acceptStep = renderInstallEnd(d, acceptJob)
+		cleanup = "//"
+		jcX, err := jobcard(jobName(name, "ACC"), upperCut(name, 12)+" ACCEPT")
+		if err != nil {
+			return err
+		}
+		acceptJCL, err = renderAcceptJob(d, jcX, name, ver, instJob)
+		if err != nil {
+			return err
+		}
 	} else {
-		acceptSummary = "//*   (no ACCEPT -- this level never becomes the restore base)"
+		acceptSummary = "//*   (no ACCEPT -- this level never becomes the restore base)\n" + cleanupNote
 		acceptStep = "//*"
-		last = "APPLY.HMASMP"
-	}
-	cleanup, err := renderCleanupStep(d, last)
-	if err != nil {
-		return err
+		cleanup, err = renderCleanupStep(d, "APPLY.HMASMP")
+		if err != nil {
+			return err
+		}
 	}
 	jcI, err := jobcard(jobName(name, "INS"), upperCut(name, 12)+" INSTALL")
 	if err != nil {
@@ -192,7 +204,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		"LAST_RECV": plan[len(plan)-1].step, "APPLY_DDS": renderApplyDDs(d),
 		"RECV_DDS": renderRecvDDs(d), "SMP_SCOPE": loadsOnly, "APPLY_WHAT": applyWhat,
 		"CHECK_COND": applyChkCond, "CHECK_RC": applyChkRC,
-		"ACCEPT_SUMMARY": acceptSummary + "\n" + cleanupNote, "ACCEPT_STEP": acceptStep,
+		"ACCEPT_SUMMARY": acceptSummary, "ACCEPT_STEP": acceptStep,
 		"CLEANUP_STEP": cleanup,
 	})
 	if err != nil {
@@ -207,9 +219,21 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	if err := checkCardText(instJCL, instJob); err != nil {
 		return err
 	}
+	if acceptJCL != "" {
+		if err := checkCardText(acceptJCL, acceptJob); err != nil {
+			return err
+		}
+		if err := os.WriteFile(filepath.Join(stage, acceptJob), []byte(acceptJCL), 0o644); err != nil {
+			return err
+		}
+	}
 	os.WriteFile(filepath.Join(stage, allocJob), []byte(allocJCL), 0o644)
 	os.WriteFile(filepath.Join(stage, instJob), []byte(instJCL), 0o644)
-	o.Log(fmt.Sprintf("Generated %s and %s (FMID %s) in %s/", allocJob, instJob, d.SMP.FMID, filepath.Join(o.BuildDir, "dist-stage")))
+	generated := allocJob + " and " + instJob
+	if acceptJCL != "" {
+		generated = allocJob + ", " + instJob + " and " + acceptJob
+	}
+	o.Log(fmt.Sprintf("Generated %s (FMID %s) in %s/", generated, d.SMP.FMID, filepath.Join(o.BuildDir, "dist-stage")))
 
 	// ---- archive ----
 	type item struct{ arc, src string }
@@ -228,6 +252,9 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		}
 	}
 	payload = append(payload, item{allocJob, filepath.Join(stage, allocJob)}, item{instJob, filepath.Join(stage, instJob)})
+	if acceptJCL != "" {
+		payload = append(payload, item{acceptJob, filepath.Join(stage, acceptJob)})
+	}
 	for _, e := range d.Extra {
 		p := filepath.Join(o.Root, e)
 		if st, err := os.Stat(p); err != nil || st.IsDir() {
@@ -387,40 +414,4 @@ func writeTarGz(path string, items []archiveItem, mtime time.Time) error {
 		return err
 	}
 	return f.Close()
-}
-
-// renderAcceptStep renders the ACCEPT step of the install job. With a
-// prerequisite (prereq) the ACCEPT carries BYPASS(REQ): APPLY checks a
-// requisite against the CDS, ACCEPT against the ACDS, and a prerequisite that
-// is applied but can never be accepted (a usermod whose own requisite is not
-// accepted) would make ACCEPT end RC 12 for good. BYPASS(REQ) applies to this
-// one ACCEPT S(<FMID>) only; APPLY CHECK and APPLY keep checking.
-//
-// A step whose COND names a skipped step runs anyway, so after a failed APPLY
-// CHECK (APPLY skipped) the ACCEPT would run, and with BYPASS(REQ) accept a
-// SYSMOD whose prerequisite is missing, where it used to fail at RC 12
-// (measured). Its COND therefore names the APPLY CHECK as well.
-func renderAcceptStep(d *Distribution) string {
-	bypass, why := "", ""
-	if len(d.SMP.Prereq) > 0 {
-		bypass = " BYPASS(REQ)"
-		why = "//* BYPASS(REQ): this SYSMOD names a prerequisite (see ++VER REQ).\n" +
-			"//* APPLY checked it against the CDS and stays strict. ACCEPT checks\n" +
-			"//* against the ACDS, and a prerequisite that is applied but cannot be\n" +
-			"//* accepted (a usermod whose own requisite is not accepted) would fail\n" +
-			"//* this step for good. RC 04 with \"--- <id> REQ BYPASSED\" is expected.\n" +
-			"//*\n"
-	}
-	return "//*\n" +
-		"//* ---- ACCEPT -------------------------------------------------------\n" +
-		"//* Accepting the FMID once fills the distribution library, so a\n" +
-		"//* later RESTORE has a previous level to go back to. Without it\n" +
-		"//* a RESTORE would DELETE the module instead of reverting it.\n" +
-		"//* Service (PTFs) is deliberately never accepted.\n" +
-		"//*\n" + why +
-		fmt.Sprintf("//ACCEPT  EXEC SMPAPP,COND=%s\n", acceptStepCond(d)) +
-		renderApplyDDs(d) + "\n" +
-		"//SMPCNTL  DD  *\n" +
-		fmt.Sprintf(" ACCEPT S(%s)%s DIS(WRITE) .\n", d.SMP.FMID, bypass) +
-		"/*"
 }

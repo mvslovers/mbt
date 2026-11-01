@@ -89,9 +89,11 @@ already recorded stay under the old name (_MBT Reference_, "DD Names").
 == The Installation Jobs <ug-package-jobs>
 
 #idx("installation job")
-The package holds two jobs. The operator uploads the TRANSMIT files to MVS
+The package holds three jobs. The operator uploads the TRANSMIT files to MVS
 in binary, as files of 80-byte records, runs the allocation job once, puts
 the names of the uploaded files into the installation job, and submits it.
+The installation job ends after the #cmd("APPLY"). The operator tries the
+product, and submits the accept job when it is to stay.
 
 *The allocation job*, #var("name")#cmd("-")#var("version")#cmd("-alloc.jcl"),
 allocates the target library and the distribution library, by default
@@ -113,7 +115,7 @@ or #cmd("CANCEL"). Reply #cmd("CANCEL"), correct the volume, and submit the
 job again (_MBT Reference_, "The Volumes of the Allocation Job").
 
 *The installation job*, #var("name")#cmd("-")#var("version")#cmd("-inst.jcl"),
-does the rest. The SMP steps run in order, and each is skipped when the
+installs the product. The SMP steps run in order, and each is skipped when the
 step it depends on failed:
 
 #tab(caption: [The steps of the installation job])[
@@ -132,13 +134,26 @@ step it depends on failed:
       anything.],
     [#cmd("APPLY")], [copies the modules into the target library, and
       the elements of an element library into theirs.],
-    [#cmd("ACCEPT")], [copies them into the distribution library, the level
-      a later #cmd("RESTORE") returns to. Left out with
-      #cmd("[smp] accept_fmid = false").],
-    [#cmd("CLEANUP")], [deletes the staging library, and those of the
-      element libraries.],
   )
 ] <ug-package-steps>
+
+The job ends there, with return code 0 on a clean run. It leaves the staging
+libraries in place, and its closing comment says how to go on. With
+#cmd("[smp] accept_fmid = false") it also holds a #cmd("CLEANUP") step that
+deletes the staging libraries, and there is no accept job.
+
+*The accept job*, #var("name")#cmd("-")#var("version")#cmd("-accept.jcl"),
+is the decision to keep the level. Until it has run, a #cmd("RESTORE") can
+take the function out of the system again. Its #cmd("ACCEPT") copies the
+modules into the distribution library, the level a later #cmd("RESTORE")
+returns to, and cannot be undone. Behind a successful #cmd("ACCEPT") its
+#cmd("CLEANUP") deletes the staging library, and those of the element
+libraries. A failed #cmd("ACCEPT") leaves them in place, and the job can be
+submitted again. It needs no editing.
+
+Someone who never accepts keeps the staging libraries. The closing comment of
+the installation job has the #cmd("DELETE") statements for them, to run with
+IDCAMS.
 
 #idx("SYSMOD")
 The SYSMOD is a #cmd("++FUNCTION") with one #cmd("++MOD") per load module:
@@ -159,7 +174,7 @@ A library of members that SMP should know, such as REXX functions and
 their sources, goes into the package as #cmd("[distribution.library.")#var("dir")#cmd("]")
 with #cmd("element = \"MAC\"") (or #cmd("\"SRC\"") for sources). Every
 file of the directory becomes a #cmd("++MAC") (or #cmd("++SRC")) of the
-SYSMOD, and the installation job reads each from the staging library of
+SYSMOD, and the jobs read each from the staging library of
 its library through a #cmd("TXLIB") card of its own, in four steps. It
 then has about as many DD cards per step as the library has members\: 235
 for libraries of 114 and 121 members ran on MVS/CE and TK5.
@@ -298,8 +313,8 @@ installation in one run of the job. SMP deletes the predecessor's modules
 from the target library, copies the new ones in, and records the new FMID
 as their owner. The #cmd("APPLY") then ends with return code 4, with the
 message #cmd("HMA2461") that the deleted SYSMOD has no backup: that is
-expected, and the job goes on to the #cmd("ACCEPT"), which does the same in
-the distribution library.
+expected, and the job goes on. The #cmd("ACCEPT") of the accept job does the
+same in the distribution library.
 
 The predecessor's identifier stays in the SMP inventory as a deleted
 SYSMOD: #cmd("LIST") shows it with #cmd("DELBY") naming the release that
@@ -333,12 +348,13 @@ default, and say in the README which versions of other products the
 release needs.
 
 *A usermod the product cannot run without* is the exception. Name it in
-#cmd("[smp] prereq") and the #cmd("APPLY") refuses to install without it. SMP
-checks the requisite again at #cmd("ACCEPT"), and a usermod that is applied
-but can never be accepted would fail that step on every system. So with
-#cmd("prereq") the generated #cmd("ACCEPT") bypasses the requisite check, for
-the product's own SYSMOD only, and ends with return code 4 and
-#cmd("--- ") #var("id") #cmd(" REQ BYPASSED"). That is expected
+#cmd("[smp] prereq") and the #cmd("APPLY CHECK") and the #cmd("APPLY") refuse
+to install without it. SMP checks the requisite again at #cmd("ACCEPT"), and a
+usermod that is applied but can never be accepted would fail that step on
+every system. So with #cmd("prereq") the #cmd("ACCEPT") of the accept job
+bypasses the requisite check, for the product's own SYSMOD only. The accept
+job ends with return code 4 and #cmd("--- ") #var("id") #cmd(" REQ BYPASSED")
+for each prerequisite: that is expected, and the header of the job says so
 (_MBT Reference_, "A Prerequisite That Cannot Be Accepted").
 
 == Checking an Installation <ug-package-check>

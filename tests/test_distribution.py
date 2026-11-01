@@ -295,17 +295,6 @@ class AssembleTest(unittest.TestCase):
         with self.assertRaises(D.DistributionError):
             D.parse(cfg, "V1R1M0")
 
-    def test_accept_gate_is_strict_without_a_delete(self):
-        self.assertEqual(D.accept_cond(D.parse(_cfg(), "V1R1M1")),
-                         "(0,NE,APPLY.HMASMP)")
-
-    def test_accept_gate_tolerates_the_rc4_a_delete_causes(self):
-        # HMA2461 SYSMOD <old> NOT FOUND ON SMPSCDS LIBRARY makes the APPLY
-        # end RC 04.  A strict gate skips the ACCEPT in silence, and the
-        # deleted id then survives in the ACDS.
-        dist = D.parse(_cfg(delete=["TUFS122"]), "V1R2M3")
-        self.assertEqual(D.accept_cond(dist), "(4,LT,APPLY.HMASMP)")
-
     def test_long_module_list_wraps_inside_the_limit(self):
         many = [f"MOD{i:05d}" for i in range(40)]
         mcs = D.assemble_mcs(self.dist, many, "ufsd", "1.1.1")
@@ -384,29 +373,49 @@ class ReceiveTest(unittest.TestCase):
         D.check_card_text(self.jcl, "receive steps")
 
 
-class AcceptStepTest(unittest.TestCase):
-    """A prerequisite that cannot be accepted must not fail the ACCEPT."""
+class AcceptJobTest(unittest.TestCase):
+    """ACCEPT is a job of its own; with prereq it bypasses REQ, in the ACCEPT
+    only, and the CLEANUP behind it accepts the RC 4 that causes."""
+
+    def _step(self, **kw):
+        return D.render_accept_step(D.parse(_cfg(**kw), "V1R1M1"))
 
     def test_without_prereq_there_is_no_bypass(self):
-        jcl = D.render_accept_step(D.parse(_cfg(), "V1R1M1"))
+        jcl = self._step()
         self.assertNotIn("BYPASS", jcl)
+        self.assertIn("//ACCEPT  EXEC SMPAPP\n", jcl)
         self.assertIn(" ACCEPT S(TUFS110) DIS(WRITE) .\n", jcl)
+        self.assertEqual(D.bypass_note(D.parse(_cfg(), "V1R1M1")), "")
 
-    def test_prereq_bypasses_req_in_the_accept_only(self):
+    def test_prereq_bypasses_req_once_for_every_id(self):
         for ids in (["MS00100"], ["MS00100", "ZP60017"],
                     ["MS00100", "ZP60017", "TNIP800", "ZP60099"]):
-            jcl = D.render_accept_step(D.parse(_cfg(prereq=ids), "V1R1M1"))
+            dist = D.parse(_cfg(prereq=ids), "V1R1M1")
+            jcl = D.render_accept_step(dist)
+            self.assertEqual(jcl.count("BYPASS(REQ)"), 1)
             self.assertIn(" ACCEPT S(TUFS110) BYPASS(REQ) DIS(WRITE) .\n", jcl)
-            self.assertIn("//* BYPASS(REQ): this SYSMOD names a prerequisite (see ++VER REQ).\n", jcl)
-            self.assertIn("COND=((0,NE,APPLYCHK.HMASMP),(0,NE,APPLY.HMASMP))", jcl)
-            D.check_card_text(jcl, "accept step")
+            note = D.bypass_note(dist)
+            self.assertIn("HMA3590     --- <id> REQ BYPASSED", note)
+            self.assertIn("RC 04", note)
+            D.check_card_text(jcl + note, "accept job")
 
-    def test_cleanup_runs_after_the_bypassed_accept(self):
-        dist = D.parse(_cfg(prereq=["MS00100"]), "V1R1M1")
-        self.assertIn("//         COND=((0,NE,APPLYCHK.HMASMP),(4,LT,ACCEPT.HMASMP))",
-                      D.render_cleanup_step(dist, "ACCEPT.HMASMP"))
+    def test_cleanup_condition(self):
+        plain = D.parse(_cfg(), "V1R1M1")
+        bypass = D.parse(_cfg(prereq=["MS00100"]), "V1R1M1")
+        self.assertIn("COND=(0,NE,ACCEPT.HMASMP)",
+                      D.render_cleanup_step(plain, "ACCEPT.HMASMP"))
+        self.assertIn("COND=(4,LT,ACCEPT.HMASMP)",
+                      D.render_cleanup_step(bypass, "ACCEPT.HMASMP"))
+        # behind the APPLY (accept_fmid = false) prereq changes nothing
         self.assertIn("COND=(0,NE,APPLY.HMASMP)",
-                      D.render_cleanup_step(dist, "APPLY.HMASMP"))
+                      D.render_cleanup_step(bypass, "APPLY.HMASMP"))
+
+    def test_install_end_says_how_to_scratch_the_staging_library(self):
+        dist = D.parse(_cfg(), "V1R1M1")
+        end = D.render_install_end(dist, "p-1.1.1-accept.jcl")
+        self.assertIn("p-1.1.1-accept.jcl", end)
+        self.assertIn(f"//*     DELETE {dist.smp.lklib} NONVSAM SCRATCH PURGE", end)
+        D.check_card_text(end, "install end")
 
 
 class CleanupTest(unittest.TestCase):
