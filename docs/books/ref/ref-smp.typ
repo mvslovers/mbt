@@ -57,8 +57,9 @@ may share one, and none may be #cmd("SMPTLIB"). Data set names are at most
 not from subdirectories or files whose name begins with a period. Each file
 is a member and needs a valid member name\; an empty directory is an
 error. In their text, #cmd("@LINKLIB@"), #cmd("@VRM@"), #cmd("@VERSION@"),
-#cmd("@FMID@") and #cmd("@")#var("qualifier")#cmd("@") (the last qualifier
-of each library's target) are replaced by the values of the release.
+#cmd("@FMID@") and #cmd("@")#var("dd")#cmd("@") (the DD name of each
+library's target, @ref-smp-ddnames) are replaced by the values of the
+release.
 
 The allocation job allocates the target and distribution libraries,
 #cmd("RECFM=U"), #cmd("BLKSIZE=15040"), in cylinders, and never deletes
@@ -136,12 +137,17 @@ BREXX/370 3.0.0 needs 7 to 8 cylinders on each side, which fits.
 
 == DD Names <ref-smp-ddnames>
 
+#idx("DD name")
+#idx("target_dd")
+#idx("distlib_dd")
+#idx("lklib_dd")
 SMP addresses a library by DD name, and stores that name with every element
 it installs. Left alone, mbt uses the last qualifier of the data set name,
 and for #var("NAME")#cmd(".LINKLIB") or #var("NAME")#cmd(".SAMPLIB") that
 is #cmd("LINKLIB") or #cmd("SAMPLIB"): the DD names of #cmd("SYS1.LINKLIB")
-and #cmd("SYS1.SAMPLIB") in the SMP procedures. The install job overrides
-the procedure's DD with the product's library, so the install works\; but
+and #cmd("SYS1.SAMPLIB") in the SMP procedures. The installation job
+overrides the procedure's DD with the product's library, so the installation
+works\; but
 the element is recorded under #cmd("LINKLIB"), and a later SYSMOD or
 restore run with the standard procedure resolves that name to the system
 library and writes there.
@@ -163,10 +169,12 @@ The name is 1 to 8 characters, #cmd("A")-#cmd("Z"), #cmd("0")-#cmd("9"),
 is made upper case. It is used wherever the last qualifier was: the
 #cmd("DISTLIB"), #cmd("SYSLIB") and #cmd("LKLIB") operands of the
 #cmd("++MOD"), #cmd("++MAC") and #cmd("++SRC") statements, the
-#cmd("COPYLOAD") step of the JCLIN, the DD cards of the RECEIVE, APPLY and
-ACCEPT steps, the allocation job, and the name of the TRANSMIT file of an
-element library (#var("q") in @ref-smp-contents). A library without a key
-keeps its last qualifier.
+#cmd("COPYLOAD") step of the JCLIN, the DD cards of the APPLY CHECK, APPLY
+and ACCEPT steps, the #cmd("INDSN") of each #cmd("RECEIVE") (its data set
+name ends in the DD name), the allocation job, the name of the TRANSMIT file
+of an element library (#var("q") in @ref-smp-contents), and the
+#cmd("@")#var("dd")#cmd("@") placeholder of the text in a library. A library
+without a key keeps its last qualifier.
 
 #cmd("mbt package") checks the names against the DDs of the SMPAPP
 procedures of MVS/CE and TK5 (measured with HMASMP level 04.48), the DDs SMP
@@ -177,11 +185,13 @@ reads by name (#cmd("SMP...")) and those JCL gives a meaning
 - a name given with a key that is one of them is an error. The library would
   replace the system library of that name in the step, and SMP would store
   the name with every element.
-- a last qualifier that is one of them, because no key was given, is a
-  warning (#cmd("[mbt] WARNING:")) and the package is built as before. The
-  default distribution library of an element library does this as well when
-  its target is #cmd("MACLIB") or #cmd("SAMPLIB"): #cmd("AMACLIB") and
-  #cmd("ASAMPLIB") are distribution libraries of MVS/CE.
+- the last qualifier of a load library or an element library, when no key
+  was given, that is one of them is a warning (#cmd("[mbt] WARNING:")) and
+  the package is built as before. This is the case for the default target
+  library #var("NAME")#cmd(".LINKLIB"). The default distribution library of an
+  element library does it as well when its target is, for example,
+  #cmd("MACLIB") or #cmd("SAMPLIB"): #cmd("AMACLIB") and #cmd("ASAMPLIB") are
+  distribution libraries of MVS/CE. #cmd("SMPTLIB") is an error either way.
 
 Changing the DD name of a library that is already installed does not move
 the elements SMP has recorded: they stay under the old name. Choose the
@@ -238,8 +248,8 @@ that requires #cmd("TXYZ100") and replaces #cmd("TABC110"):
 #cmd("REQ") and #cmd("DELETE") appear only when #cmd("prereq") and
 #cmd("delete") are not empty, the identifiers separated by commas. The
 first comment card names the product and the version. #cmd("LKLIB"),
-#cmd("DISTLIB"), #cmd("INDD") and #cmd("OUTDD") are DD names, the last
-qualifiers of the data sets. The modules follow in name order. A
+#cmd("DISTLIB"), #cmd("INDD") and #cmd("OUTDD") are the DD names of the data
+sets (@ref-smp-ddnames). The modules follow in name order. A
 #cmd("TALIAS") card that would reach beyond column 71 is an error.
 
 The #cmd("++JCLIN") is a copy, so SMP copies each module as it was linked
