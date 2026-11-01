@@ -4,10 +4,9 @@ $JOBCARD
 //*
 //* SUBMIT THIS JOB WHEN YOU HAVE TRIED THE PRODUCT
 //*   Run $INSTALL_JOB first: it ends after the APPLY.
-//*   ACCEPT is the point without a way back, so the decision is
-//*   yours and the install job does not make it for you. Until then
-//*   a RESTORE takes the load modules out again, but SMP4 fails it
-//*   for macros (HMA4092): the distribution library is still empty.
+//*   Until the ACCEPT a RESTORE can still take the function out
+//*   again. ACCEPT is the point without a way back, so the decision
+//*   is yours and the install job does not make it for you.
 //*
 //* WHAT THIS JOB DOES
 //*   ACCEPT    make this level the base a RESTORE returns to
