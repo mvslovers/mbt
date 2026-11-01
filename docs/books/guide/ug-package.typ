@@ -327,6 +327,11 @@ AUFSLOD = "UFSD.AUFSLOD"
 MBT adds the cards to the installation job (_MBT Reference_, "Moving a
 Library to Another DD Name"). The release after that removes the table.
 
+The new library does not exist yet, and the allocation job of the release
+would also try to allocate the libraries that do. Allocate only the new one,
+with its #cmd("DD") statement from that job, before you submit the
+installation job.
+
 #idx("APF")
 Two things an upgrade does not do:
 
