@@ -89,7 +89,8 @@ already recorded stay under the old name (_MBT Reference_, "DD Names").
 == The Installation Jobs <ug-package-jobs>
 
 #idx("installation job")
-The package holds three jobs. The operator uploads the TRANSMIT files to MVS
+The package holds three jobs, two with #cmd("[smp] accept_fmid = false").
+The operator uploads the TRANSMIT files to MVS
 in binary, as files of 80-byte records, runs the allocation job once, puts
 the names of the uploaded files into the installation job, and submits it.
 The installation job ends after the #cmd("APPLY"). The operator tries the
@@ -139,18 +140,21 @@ step it depends on failed:
 
 The job ends there, with return code 0 on a clean run. It leaves the staging
 libraries in place, and its closing comment says how to go on. With
-#cmd("[smp] accept_fmid = false") it also holds a #cmd("CLEANUP") step that
-deletes the staging libraries, and there is no accept job.
+#cmd("[smp] accept_fmid = false") there is no accept job: the job holds a
+#cmd("CLEANUP") step behind the #cmd("APPLY") that deletes the staging
+libraries, and the level is never accepted.
 
 *The accept job*, #var("name")#cmd("-")#var("version")#cmd("-accept.jcl"),
 is the decision to keep the level. Until it has run, a #cmd("RESTORE") can
-take the load modules out of the system again (not the macros of a package
-with a macro library: SMP4 ends that #cmd("RESTORE") with return code 12,
-#cmd("HMA4092")). Its #cmd("ACCEPT") copies the modules into the distribution
-library, the level a later #cmd("RESTORE") returns to, and cannot be undone. Behind a successful #cmd("ACCEPT") its
-#cmd("CLEANUP") deletes the staging library, and those of the element
-libraries. A failed #cmd("ACCEPT") leaves them in place, and the job can be
-submitted again. It needs no editing.
+take the load modules out of the system again. It cannot take out the macros
+of a package with a macro library: SMP4 ends that #cmd("RESTORE") with return
+code 12 and #cmd("HMA4092").
+
+The #cmd("ACCEPT") of the job copies the modules into the distribution
+library, the level a later #cmd("RESTORE") returns to, and cannot be undone.
+Behind a successful #cmd("ACCEPT") the #cmd("CLEANUP") deletes the staging
+library, and those of the element libraries. A failed #cmd("ACCEPT") leaves
+them in place, and the job can be submitted again. It needs no editing.
 
 Someone who never accepts keeps the staging libraries. The closing comment of
 the installation job has the #cmd("DELETE") statements for them, to run with
@@ -310,7 +314,7 @@ shows both, with #cmd("delete = []") because the build replaces nothing.
 
 #idx("SMP", "DELETE")
 A release whose SYSMOD names its predecessor in #cmd("delete") upgrades an
-installation in one run of the job. SMP deletes the predecessor's modules
+installation in one run of the installation job. SMP deletes the predecessor's modules
 from the target library, copies the new ones in, and records the new FMID
 as their owner. The #cmd("APPLY") then ends with return code 4, with the
 message #cmd("HMA2461") that the deleted SYSMOD has no backup: that is
@@ -345,8 +349,8 @@ target_dd = "ABCLINK"
 LINKLIB = "ABC.LINKLIB"
 ```
 
-MBT adds the cards to the installation job (_MBT Reference_, "Moving a
-Library to Another DD Name"). The release after that removes the table.
+MBT adds the cards to the installation job and to the accept job (_MBT
+Reference_, "Moving a Library to Another DD Name"). The release after that removes the table.
 Keeping the data set name and changing only the DD name works as well, and
 the line for the old DD name is required there too: the delete of the
 predecessor runs before the new modules are copied, so the new level's
