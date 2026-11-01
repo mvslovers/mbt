@@ -87,6 +87,18 @@ It has no step that deletes them, on purpose: after an installation the
 distribution library holds what SMP accepted, and scratching it would leave
 SMP reporting a level that is no longer there.
 
+The job puts every library on a volume you name. Its two symbolic parameters,
+#cmd("TGTVOL") for the target libraries and #cmd("DLBVOL") for the
+distribution libraries, are set on the #cmd("PROC") statement at the top of
+the job, and default to the volumes of an MVS/CE system, #cmd("MVSRES") and
+#cmd("SMP000"). *On TK5, set #cmd("TGTVOL=TK5RES") and
+#cmd("DLBVOL=TK5DLB").* The defaults can be changed for every package of a
+project with #cmd("target_volume") and #cmd("dlib_volume") in
+#cmd("[smp]"). A volume the system does not have does not make the job fail:
+it waits, and the console shows #cmd("IEF238D") and asks for a device name
+or #cmd("CANCEL"). Reply #cmd("CANCEL"), correct the volume, and submit the
+job again (_MBT Reference_, "The Volumes of the Allocation Job").
+
 *The installation job*, #var("name")#cmd("-")#var("version")#cmd("-inst.jcl"),
 does the rest. The SMP steps run in order, and each is skipped when the
 step it depends on failed:

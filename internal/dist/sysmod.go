@@ -211,17 +211,43 @@ func allocDCB(d *Distribution, dsn string) (space, dcb string) {
 	return "SPACE=(CYL,(5,2,20))", "DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)"
 }
 
-// renderAllocDDs: NEW,CATLG,DELETE in cylinders, no DELETE step anywhere.
+// volSymbol: the symbolic of the allocation job's PROC that names the volume
+// of an allocated library, DLBVOL for a distribution library and TGTVOL for a
+// target library.
+func volSymbol(d *Distribution, dsn string) string {
+	if dsn == d.SMP.DistLib {
+		return "&DLBVOL"
+	}
+	for _, l := range d.delivered() {
+		if dsn == l.DistLib {
+			return "&DLBVOL"
+		}
+	}
+	return "&TGTVOL"
+}
+
+// renderAllocDDs: NEW,CATLG,DELETE in cylinders, no DELETE step anywhere. Every
+// library is on a volume of its own symbolic, never wherever SYSDA picks.
 func renderAllocDDs(d *Distribution) string {
 	var lines []string
 	for _, dsn := range d.allocated() {
 		space, dcb := allocDCB(d, dsn)
 		lines = append(lines,
 			fmt.Sprintf("//%s DD  DSN=%s,DISP=(NEW,CATLG,DELETE),", ljust(ddnameOf(dsn), 8), dsn),
-			"//            UNIT=SYSDA,"+space+",",
+			"//            UNIT=SYSDA,VOL=SER="+volSymbol(d, dsn)+","+space+",",
 			"//            "+dcb)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// renderAllocJob: the allocation job, its PROC defaulting TGTVOL and DLBVOL to
+// the volumes of the descriptor.
+func renderAllocJob(d *Distribution, jobcard, name, ver, instJob string) (string, error) {
+	return render("smpalloc.jcl.tpl", map[string]string{
+		"JOBCARD": jobcard, "PRODUCT": name, "VERSION": ver, "FMID": d.SMP.FMID,
+		"INSTALL_JOB": instJob, "ALLOC_DDS": renderAllocDDs(d),
+		"TGTVOL": d.SMP.TargetVolume, "DLBVOL": d.SMP.DlibVolume,
+	})
 }
 
 type recv struct{ step, dsn, placeholder, file string }

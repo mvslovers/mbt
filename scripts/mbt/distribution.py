@@ -273,6 +273,15 @@ class Library:
         return ddname_of(self.target)
 
 
+#: The volumes of an MVS/CE system, used when the descriptor names none.  TK5
+#: is not the default: it ships with its products installed, and whoever
+#: installs an SMP package there sets TGTVOL=TK5RES and DLBVOL=TK5DLB.
+DEFAULT_TARGET_VOLUME = "MVSRES"
+DEFAULT_DLIB_VOLUME = "SMP000"
+
+_VOLSER_RE = re.compile(r"^[A-Z0-9@#$]{1,6}$")
+
+
 @dataclass(frozen=True)
 class Smp:
     """The SMP4 side of the descriptor."""
@@ -286,6 +295,8 @@ class Smp:
     delete: tuple[str, ...] = ()
     accept_fmid: bool = True
     procedure: str | None = None   # key into SMPAPP_PROCEDURES, if pinned
+    target_volume: str = DEFAULT_TARGET_VOLUME  # default of TGTVOL
+    dlib_volume: str = DEFAULT_DLIB_VOLUME      # default of DLBVOL
 
     @property
     def lklib_dd(self) -> str:
@@ -335,7 +346,7 @@ class Distribution:
 
 _DIST_KEYS = {"readme", "extra", "smp", "library"}
 _SMP_KEYS = {"fmid", "system", "lklib", "target", "distlib", "prereq",
-             "delete", "accept_fmid", "procedure"}
+             "delete", "accept_fmid", "procedure", "target_volume", "dlib_volume"}
 _LIB_KEYS = {"dir", "target", "distlib"}
 
 
@@ -419,6 +430,17 @@ def parse(cfg: dict, vrm: str) -> Distribution | None:
             f"{', '.join(sorted(SMPAPP_PROCEDURES))}"
         )
 
+    volumes = {}
+    for key, default in (("target_volume", DEFAULT_TARGET_VOLUME),
+                         ("dlib_volume", DEFAULT_DLIB_VOLUME)):
+        vol = str(smp_cfg.get(key, default)).upper()
+        if not _VOLSER_RE.match(vol):
+            raise DistributionError(
+                f"[distribution.smp]: {key} '{smp_cfg.get(key)}' is not a "
+                f"volume serial: 1 to 6 characters, A-Z 0-9 @ # $"
+            )
+        volumes[key] = vol
+
     smp = Smp(
         fmid=fmid,
         system=str(_require(smp_cfg, "system", "[distribution.smp]")).upper(),
@@ -432,6 +454,8 @@ def parse(cfg: dict, vrm: str) -> Distribution | None:
         delete=delete,
         accept_fmid=bool(smp_cfg.get("accept_fmid", True)),
         procedure=procedure,
+        target_volume=volumes["target_volume"],
+        dlib_volume=volumes["dlib_volume"],
     )
 
     # The staging library is where the APPLY reads the module *from*; the
@@ -688,7 +712,7 @@ def render_apply_dds(dist: Distribution) -> str:
     return "\n".join(next(iter(blocks.values())))
 
 
-def render_alloc_dds(dist: Distribution, volume: str | None = None) -> str:
+def render_alloc_dds(dist: Distribution) -> str:
     """DD block for the IEFBR14 allocation step.
 
     DISP=(NEW,CATLG,DELETE) and no IDCAMS DELETE anywhere: once the FMID has
@@ -696,14 +720,16 @@ def render_alloc_dds(dist: Distribution, volume: str | None = None) -> str:
     re-run that deleted it would leave the CDS saying "accepted" with an empty
     library behind it.  Space is in cylinders -- a track primary hits the
     16-extent limit long before the volume is full, and the resulting SB37
-    reads like a full volume.
+    reads like a full volume.  Every library names its volume through a
+    symbolic of the job's PROC: &TGTVOL for the target, &DLBVOL for the
+    distribution library.
     """
-    vol = f",VOL=SER={volume}" if volume else ""
     lines = []
     for dsn in dist.allocated_datasets():
         dd = ddname_of(dsn)
+        sym = "&DLBVOL" if dsn == dist.smp.distlib else "&TGTVOL"
         lines.append(f"//{dd:<8} DD  DSN={dsn},DISP=(NEW,CATLG,DELETE),")
-        lines.append(f"//            UNIT=SYSDA{vol},SPACE=(CYL,(5,2,20)),")
+        lines.append(f"//            UNIT=SYSDA,VOL=SER={sym},SPACE=(CYL,(5,2,20)),")
         lines.append(f"//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)")
     return "\n".join(lines)
 

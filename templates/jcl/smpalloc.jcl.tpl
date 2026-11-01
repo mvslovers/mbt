@@ -17,8 +17,25 @@ $JOBCARD
 //* 16-extent limit long before the volume is full, and the SB37 that
 //* follows reads like a full volume.
 //*
-//* Edit UNIT / VOL=SER below if SYSDA is not what you want.
+//* Every library is allocated on a volume you name, never on whatever
+//* SYSDA happens to pick:
+//*
+//*   TGTVOL  volume of the target libraries (the ones SMP installs
+//*           into)                                      default $TGTVOL
+//*   DLBVOL  volume of the distribution libraries (the ones ACCEPT
+//*           fills)                                     default $DLBVOL
+//*
+//* The defaults are the volumes of an MVS/CE system. On TK5 write
+//* TGTVOL=TK5RES and DLBVOL=TK5DLB, either on the PROC statement or on
+//* the EXEC ALLOC statement below.
+//*
+//* A volume that is not mounted does not fail the job, it holds it:
+//* the console shows IEF238D ... REPLY DEVICE NAME OR 'CANCEL' and the
+//* job waits. Reply CANCEL, correct the volume, submit the job again.
 //*********************************************************************
+//SMPALLOC PROC TGTVOL=$TGTVOL,DLBVOL=$DLBVOL
 //ALLOC   EXEC PGM=IEFBR14
 $ALLOC_DDS
+//        PEND
+//ALLOC   EXEC SMPALLOC
 //

@@ -371,6 +371,19 @@ func TestLoadV3ElementLibrary(t *testing.T) {
 
 // A table written in the wrong form is an error that names the key and the
 // form to write, never a table that is quietly left out (mbt#312).
+func TestLoadV3SMPVolumes(t *testing.T) {
+	in := strings.Replace(v3Base, `prefix = "TUFS"`, "prefix = \"TUFS\"\ntarget_volume = \"TK5RES\"\ndlib_volume = \"TK5DLB\"", 1)
+	p, err := LoadV3(v3Tree(t, in), FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	smp := table(p.Raw, "distribution")
+	smp = table(smp, "smp")
+	if smp["target_volume"] != "TK5RES" || smp["dlib_volume"] != "TK5DLB" {
+		t.Errorf("volumes not carried into the descriptor: %v", smp)
+	}
+}
+
 func TestLoadV3WrongForm(t *testing.T) {
 	lib := "[distribution.library.samplib]\n"
 	cases := []struct {
@@ -451,6 +464,7 @@ func TestLoadV3UnknownKeyEverywhere(t *testing.T) {
 		{"distribution", `readme = "README.md"`, "readme = \"README.md\"\nreadmee = \"x\"", "'readmee' in [distribution]"},
 		{"library", "[distribution.library.samplib]\n", "[distribution.library.samplib]\nelements = \"MAC\"\n", "'elements' in [distribution.library.samplib]"},
 		{"smp", `prefix = "TUFS"`, "prefix = \"TUFS\"\nprefx = \"x\"", "'prefx' in [smp]"},
+		{"smp volume", `prefix = "TUFS"`, "prefix = \"TUFS\"\ntarget_volum = \"MVSRES\"", "'target_volum' in [smp]"},
 	}
 	for _, c := range cases {
 		in := strings.Replace(v3Base, c.from, c.to, 1)

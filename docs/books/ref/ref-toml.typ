@@ -338,7 +338,19 @@ first four characters of #var("NAME").
   [#cmd("target")], [#var("NAME")#cmd(".LINKLIB")], [the target library.],
   [#cmd("distlib")], [#var("NAME")#cmd(".A")#var("P4")#cmd("LOD")], [the
     distribution library.],
+  [#cmd("target_volume")], [#cmd("\"MVSRES\"")], [the volume of the target
+    libraries: the default of #cmd("TGTVOL") in the allocation job
+    (@ref-smp-volumes). One to six characters, #cmd("A")-#cmd("Z"),
+    #cmd("0")-#cmd("9"), #cmd("@"), #cmd("#") and #cmd("$"); lower case is
+    made upper case.],
+  [#cmd("dlib_volume")], [#cmd("\"SMP000\"")], [the volume of the
+    distribution libraries: the default of #cmd("DLBVOL"). The same
+    characters.],
 )
+
+The defaults are the volumes of an MVS/CE system. TK5 is deliberately not the
+default: on TK5, set #cmd("TGTVOL=TK5RES") and #cmd("DLBVOL=TK5DLB") in the
+allocation job.
 
 For a release version, #cmd("mbt package") refuses a version whose patch
 number is not 0 without

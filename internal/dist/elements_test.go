@@ -170,9 +170,9 @@ func TestElementAlloc(t *testing.T) {
 	d.Libraries[0].records = 1000
 	got := renderAllocDDs(d)
 	for _, want := range []string{
-		"//RXLIB    DD  DSN=ABC.RXLIB,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=FB,LRECL=80,BLKSIZE=3120)",
-		"//ARXLIB   DD  DSN=ABC.ARXLIB,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=FB,LRECL=80,BLKSIZE=3120)",
-		"//LINKLIB  DD  DSN=ABC.LINKLIB,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)",
+		"//RXLIB    DD  DSN=ABC.RXLIB,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,VOL=SER=&TGTVOL,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=FB,LRECL=80,BLKSIZE=3120)",
+		"//ARXLIB   DD  DSN=ABC.ARXLIB,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,VOL=SER=&DLBVOL,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=FB,LRECL=80,BLKSIZE=3120)",
+		"//LINKLIB  DD  DSN=ABC.LINKLIB,DISP=(NEW,CATLG,DELETE),\n//            UNIT=SYSDA,VOL=SER=&TGTVOL,SPACE=(CYL,(5,2,20)),\n//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("alloc lacks:\n%s\nin:\n%s", want, got)
@@ -614,6 +614,77 @@ func TestProcedureOrdersHaveNoDuplicates(t *testing.T) {
 				t.Errorf("%s: %s twice", name, n)
 			}
 			seen[n] = true
+		}
+	}
+}
+
+func allocJob(t *testing.T, d *Distribution) string {
+	t.Helper()
+	jc, err := jobcard(jobName("abc", "ALC"), "ABC ALLOC")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := renderAllocJob(d, jc, "abc", "1.0.0", "ABC-install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return job
+}
+
+func TestAllocVolumesDefault(t *testing.T) {
+	d := parseElem(t, map[string]any{"dir": "rxlib", "target": "ABC.RXLIB", "element": "MAC"})
+	job := allocJob(t, d)
+	if !strings.Contains(job, "//SMPALLOC PROC TGTVOL=MVSRES,DLBVOL=SMP000\n//ALLOC   EXEC PGM=IEFBR14\n") ||
+		!strings.Contains(job, "\n//        PEND\n//ALLOC   EXEC SMPALLOC\n//\n") {
+		t.Errorf("no in-stream PROC with the MVS/CE volumes:\n%s", job)
+	}
+	if !strings.Contains(job, "TGTVOL=TK5RES and DLBVOL=TK5DLB") {
+		t.Errorf("the job does not say what TK5 needs:\n%s", job)
+	}
+	var dds int
+	for _, l := range strings.Split(job, "\n") {
+		if strings.Contains(l, "UNIT=SYSDA") {
+			dds++
+			if !strings.Contains(l, "VOL=SER=&TGTVOL,") && !strings.Contains(l, "VOL=SER=&DLBVOL,") {
+				t.Errorf("library without a volume: %s", l)
+			}
+		}
+		if len(l) > maxCardCol {
+			t.Errorf("%d columns: %s", len(l), l)
+		}
+	}
+	if dds != 4 {
+		t.Errorf("%d libraries allocated, want 4:\n%s", dds, job)
+	}
+}
+
+func TestAllocVolumesOverride(t *testing.T) {
+	cfg := elemCfg(map[string]any{"dir": "rxlib", "target": "ABC.RXLIB", "element": "MAC"})
+	smp := cfg["distribution"].(map[string]any)["smp"].(map[string]any)
+	smp["target_volume"] = "tk5res"
+	smp["dlib_volume"] = "TK5DLB"
+	d, err := Parse(cfg, "V1R0M0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job := allocJob(t, d); !strings.Contains(job, "//SMPALLOC PROC TGTVOL=TK5RES,DLBVOL=TK5DLB\n") {
+		t.Errorf("override not in the PROC:\n%s", job)
+	}
+	for _, bad := range []string{"", "TOOLONG1", "TK 5", "tk5.res", "TK5-RES"} {
+		smp["target_volume"] = bad
+		if _, err := Parse(cfg, "V1R0M0"); err == nil || !strings.Contains(err.Error(), "target_volume") {
+			t.Errorf("volume %q accepted: %v", bad, err)
+		}
+	}
+}
+
+func TestAllocVolumeSymbolsPerKind(t *testing.T) {
+	d := parseElem(t, map[string]any{"dir": "rxlib", "target": "ABC.RXLIB", "element": "MAC"})
+	for dsn, want := range map[string]string{
+		"ABC.LINKLIB": "&TGTVOL", "ABC.RXLIB": "&TGTVOL", "ABC.AABCLOD": "&DLBVOL", "ABC.ARXLIB": "&DLBVOL",
+	} {
+		if got := volSymbol(d, dsn); got != want {
+			t.Errorf("%s: %s, want %s", dsn, got, want)
 		}
 	}
 }

@@ -535,6 +535,31 @@ class AllocDDTest(unittest.TestCase):
     def test_fits_on_a_card(self):
         D.check_card_text(self.jcl, "alloc DDs")
 
+    def test_every_library_names_its_volume(self):
+        self.assertEqual(self.jcl.count("UNIT=SYSDA,VOL=SER=&TGTVOL,"), 1)
+        self.assertEqual(self.jcl.count("UNIT=SYSDA,VOL=SER=&DLBVOL,"), 1)
+        self.assertEqual(self.jcl.count("UNIT=SYSDA"), 2)
+
+    def test_volume_defaults_are_the_mvsce_ones(self):
+        smp = D.parse(_cfg(), "V1R1M1").smp
+        self.assertEqual((smp.target_volume, smp.dlib_volume),
+                         ("MVSRES", "SMP000"))
+
+    def test_volume_override_is_uppercased(self):
+        cfg = _cfg()
+        cfg["distribution"]["smp"]["target_volume"] = "tk5res"
+        cfg["distribution"]["smp"]["dlib_volume"] = "TK5DLB"
+        smp = D.parse(cfg, "V1R1M1").smp
+        self.assertEqual((smp.target_volume, smp.dlib_volume),
+                         ("TK5RES", "TK5DLB"))
+
+    def test_bad_volume_serial_is_refused(self):
+        for bad in ("", "TOOLONG1", "TK 5", "tk5.res"):
+            cfg = _cfg()
+            cfg["distribution"]["smp"]["dlib_volume"] = bad
+            with self.assertRaises(D.DistributionError):
+                D.parse(cfg, "V1R1M1")
+
 
 if __name__ == "__main__":
     unittest.main()

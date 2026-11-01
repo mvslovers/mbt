@@ -139,10 +139,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	if err != nil {
 		return err
 	}
-	allocJCL, err := render("smpalloc.jcl.tpl", map[string]string{
-		"JOBCARD": jcA, "PRODUCT": name, "VERSION": ver, "FMID": d.SMP.FMID,
-		"INSTALL_JOB": instJob, "ALLOC_DDS": renderAllocDDs(d),
-	})
+	allocJCL, err := renderAllocJob(d, jcA, name, ver, instJob)
 	if err != nil {
 		return err
 	}

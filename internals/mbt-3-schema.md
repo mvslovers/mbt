@@ -215,6 +215,8 @@ upper case, `<P4>` its first four characters.
 | `lklib` | `<NAME>.<P4>LOAD` | `distribution.smp.lklib` |
 | `target` | `<NAME>.LINKLIB` | same |
 | `distlib` | `<NAME>.A<P4>LOD` | same |
+| `target_volume` | `MVSRES` | `distribution.smp.target_volume` (new in 3.0.0, mbt 2 reads it too) |
+| `dlib_volume` | `SMP000` | `distribution.smp.dlib_volume` (new in 3.0.0, mbt 2 reads it too) |
 
 The derivation gives one FMID per minor (design §6.4): a patch release is a
 PTF, which mbt does not build yet. Until it does, packaging a version with a
