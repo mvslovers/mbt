@@ -93,8 +93,9 @@ on the #cmd("EXEC") statement:
 //ALLOC   EXEC SMPALLOC,TGTVOL=TK5RES,DLBVOL=TK5DLB
 ```
 
-*On TK5, set #cmd("TGTVOL=TK5RES") and #cmd("DLBVOL=TK5DLB").* TK5 ships with
-its products installed, so the defaults are those of MVS/CE.
+*On TK5, set #cmd("TGTVOL=TK5RES") and #cmd("DLBVOL=TK5DLB").* The defaults
+are those of MVS/CE, and a job that keeps them on TK5 is held (see the last
+row of the table below).
 
 What the system does was measured on MVS/CE and on TK5, each in a container
 of its own, with a job that allocates four libraries (two target, two
@@ -110,7 +111,7 @@ distribution):
     same check with #cmd("TK5RES") and #cmd("TK5DLB").],
   [A volume the system does not have (MVS/CE: #cmd("TGTVOL=NOVOL1"); TK5: the
     defaults)], [The job does not end, and no return code comes. It is held
-    after its step has started, and the console shows
+    while the system allocates the data sets of the step, and the console shows
     #cmd("IEF244I ... UNABLE TO ALLOCATE 1 UNIT(S)"),
     #cmd("IEF489I ... 1 UNIT(S) NEEDED FOR LINKLIB") and
     #cmd("*00 IEF238D ... REPLY DEVICE NAME OR 'CANCEL'"). Reply
@@ -123,13 +124,14 @@ The held job is what a wrong volume looks like, so the operator who sees an
 allocation job that does not end looks at the console first. Submit the job
 again with the volumes corrected.
 
-The libraries are not moved by this: a library that exists is not allocated
-again, and the job has no step that deletes one (see above).
+The job has no step that deletes a library (see above), so it does not
+move one that exists to another volume.
 
 Free space, measured on a fresh MVS/CE container, before the job:
-#cmd("MVSRES") 276 cylinders, #cmd("SMP000") 158 cylinders and 26 tracks. The
-job takes 5 cylinders of each volume per library (secondary 2), so 10 cylinders
-of each volume for the job above. The load library of a package of the size of
+#cmd("MVSRES") 276 cylinders, #cmd("SMP000") 158 cylinders and 26 tracks. A
+target or distribution library of the load modules takes 5 cylinders as its
+primary space (secondary 2), so the job above takes 10 cylinders of each
+volume. The load library of a package of the size of
 BREXX/370 3.0.0 needs 7 to 8 cylinders on each side, which fits.
 
 == The Installation Job <ref-smp-job>

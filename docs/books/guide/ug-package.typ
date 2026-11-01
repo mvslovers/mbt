@@ -95,9 +95,9 @@ the job, and default to the volumes of an MVS/CE system, #cmd("MVSRES") and
 #cmd("DLBVOL=TK5DLB").* The defaults can be changed for every package of a
 project with #cmd("target_volume") and #cmd("dlib_volume") in
 #cmd("[smp]"). A volume the system does not have does not make the job fail:
-it waits, and the console asks #cmd("IEF238D ... REPLY DEVICE NAME OR
-'CANCEL'"). Reply #cmd("CANCEL"), correct the volume, and submit the job
-again (_MBT Reference_, "The Volumes of the Allocation Job").
+it waits, and the console shows #cmd("IEF238D") and asks for a device name
+or #cmd("CANCEL"). Reply #cmd("CANCEL"), correct the volume, and submit the
+job again (_MBT Reference_, "The Volumes of the Allocation Job").
 
 *The installation job*, #var("name")#cmd("-")#var("version")#cmd("-inst.jcl"),
 does the rest. The SMP steps run in order, and each is skipped when the

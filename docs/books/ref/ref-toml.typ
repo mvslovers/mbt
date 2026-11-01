@@ -349,8 +349,8 @@ first four characters of #var("NAME").
 )
 
 The defaults are the volumes of an MVS/CE system. TK5 is deliberately not the
-default: its products come installed, and a package is installed there with
-#cmd("TGTVOL=TK5RES") and #cmd("DLBVOL=TK5DLB") set in the allocation job.
+default: on TK5, set #cmd("TGTVOL=TK5RES") and #cmd("DLBVOL=TK5DLB") in the
+allocation job.
 
 For a release version, #cmd("mbt package") refuses a version whose patch
 number is not 0 without
