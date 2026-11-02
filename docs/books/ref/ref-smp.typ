@@ -143,8 +143,9 @@ BREXX/370 3.0.0 needs 7 to 8 cylinders on each side, which fits.
 === The Volume and the APF List <ref-smp-apf>
 
 #idx("APF")#idx("IEAAPF00")
-An entry in #cmd("SYS1.PARMLIB(IEAAPF00)") of MVS 3.8j is #cmd("dsname volser"): it names a data set together with its volume, and authorizes it
-there. A library of the same name on another volume is not authorized. The
+An entry in #cmd("SYS1.PARMLIB(IEAAPF00)") of MVS 3.8j is
+#cmd("dsname volser"): it names a data set together with its volume, and
+authorizes it there. A library of the same name on another volume is not authorized. The
 allocation job does not read the list, does not compare the volume with it
 and does not say if they differ: the volume of a library is whatever
 #cmd("TGTVOL") (or the volume written into its #cmd("DD")) says. Where the
