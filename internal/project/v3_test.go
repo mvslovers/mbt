@@ -571,6 +571,7 @@ func TestErrorsAreStable(t *testing.T) {
 		{"module entries", head + "[module]\nZ = 1\nM = 2\nA = 3\n", "'A'"},
 		{"parm keys", strings.Replace(v3Base, `parm = { batch = "0", tso = "1" }`, `parm = { zz = "1", mm = "2", aa = "3" }`, 1), "has 'aa'"},
 		{"tso fixtures", v3Base + "[tso.T]\nfixtures = { \"b d\" = [\"f\"], \"c d\" = [\"f\"], \"a d\" = [\"f\"] }\n", `"a d"`},
+		{"tso names", v3Base + "[tso.zzzzzzzzzzzzzz]\n[tso.mmmmmmmmmmmmmm]\n[tso.aaaaaaaaaaaaaa]\n", "[tso.aaaaaaaaaaaaaa]"},
 	}
 	for _, c := range cases {
 		root := v3Tree(t, c.toml)

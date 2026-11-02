@@ -346,7 +346,8 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 	// test, ahead of the target's [tn3270] size
 	if ts := table(in, "tso"); ts != nil {
 		tso := map[string]any{}
-		for n, v := range ts {
+		for _, n := range sortedKeys(ts) {
+			v := ts[n]
 			e, ok := v.(map[string]any)
 			if !ok {
 				return nil, "", configErr("mbt.toml: [tso.%s] must be a table", quoteKey(n))
@@ -436,7 +437,6 @@ func keyedTables(in map[string]any, kind string) ([]string, map[string]map[strin
 		names = append(names, n)
 		entries[n] = e
 	}
-	sort.Strings(names)
 	return names, entries, nil
 }
 

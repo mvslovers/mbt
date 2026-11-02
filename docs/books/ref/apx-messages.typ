@@ -82,8 +82,12 @@ the way out.
     [#cmd("test NAME: parm is N chars; M is the most the batch EXEC card holds (JCL ends at column 71)")],
       [#cmd("mbt test --mvs") (exit 2, before anything is uploaded): the
       #cmd("parm") does not fit the batch step even on a continuation card
-      (49 characters) or, in the form "... the TSO CALL holds (TSO reads
-      columns 1-72)", the TSO step (69). Shorten it.],
+      (49 characters). Shorten it.],
+    [#cmd("test NAME: parm is N chars; M is the most the TSO CALL holds (TSO reads columns 1-72)")],
+      [#cmd("mbt test --mvs") (exit 2, before anything is uploaded): the
+      TSO argument does not fit the CALL command (69 characters). Shorten
+      it, or give the batch step its own value with
+      #cmd("{ batch = ..., tso = ... }").],
     [#cmd("mbt.toml: test.NAME.parm is ... -- write a string, or a table [test.NAME.parm] with batch and tso")],
       [write #cmd("parm") as one string, or as a table with the keys
       #cmd("batch") and #cmd("tso").],
