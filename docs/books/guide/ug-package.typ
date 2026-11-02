@@ -446,7 +446,8 @@ work round them as described here. The listings come from a run on MVS/CE.
 *The allocation job runs once* (mbt\#96). #idx("allocation job", "second run")
 It allocates every library new, on the volumes named by #cmd("TGTVOL") and
 #cmd("DLBVOL"). Submitted a second time with the same volumes, it ends with a
-JCL error, and nothing is allocated:
+JCL error, and nothing is allocated. The name in the message is the DD name of
+the library, here the #cmd("target_dd") of the project, #cmd("AQATLOD"):
 
 #fig(caption: [The allocation job, submitted again])[
   #screen(raw(read("../ex/ug-package/alloc-again.txt")))
@@ -509,7 +510,8 @@ that was never applied:
   #screen(raw(read("../ex/ug-package/accept-unapplied.txt")))
 ] <ug-package-accept-unapplied>
 
-#fig(caption: [The SYSMOD in the distribution zone afterwards])[
+#fig(caption: [The SYSMOD in the distribution zone afterwards
+  (#cmd("LIST ACDS SYSMOD(TQBT100)"), without the dates)])[
   #screen(raw(read("../ex/ug-package/accept-acds.txt")))
 ] <ug-package-accept-acds>
 
