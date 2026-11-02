@@ -67,6 +67,8 @@ Unchanged: `"owner/repo" = "<semver range>"`.
 | `include` | `[]` | the `"-I", "<dir>"` pairs of `build.cflags`, in order |
 | `cflags` | `[]` | the rest of `build.cflags`, in order |
 | `asflags` | `[]` | `build.asflags` |
+| `cobflags` | `[]` | new in mbt.toml (mbt 2 has no COBOL build): options for `cobc370`, for every `.cbl`/`.cob` source (`-I` copybook directories, `-s`). The `include/` of every dependency follows, so `COPY` finds a copybook a dependency ships (mbt#255) |
+| `pliflags` | `[]` | new in mbt.toml: options for `pl1c370`, for every PL/I source. The `include/` of every dependency follows, so `%INCLUDE` finds a member a dependency ships (mbt#270) |
 | `max_rc` | `4` | `build.max_rc`: the highest `as370` return code that still passes, 0..16 (mbt#286); v2's `[mvs.asm] max_rc` applied to the MVS assemble and is not read |
 
 **`include/` is on the include path by convention** when the project has
@@ -99,8 +101,8 @@ among themselves, the rest in order.
 
 ## `[lib]` and `[internal]`
 
-Unchanged from v2: `[lib] name, sources, headers`; `[internal] sources,
-exclude`.
+Unchanged from v2: `[lib]` takes `name`, `sources`, `headers`; `[internal]`
+takes `sources`, `exclude`.
 
 ## `[module.<NAME>]`
 
@@ -161,6 +163,19 @@ file; exclude it or give it an entry.
 An entry `[test.<NAME>]` without `sources` needs a discovered file of that
 name.
 
+## `[tso.<NAME>]`
+
+The data sets and the screen size of the interactive test
+`test/tso/<name>.lua` (`mbt test --tso`). `<NAME>` is the file's name in any
+case (one to eight characters, a letter first); the key is the upper-cased
+name, and a table twice under names that differ only in case is refused. New
+in mbt.toml; checked in `internal/project/v3.go`.
+
+| key | default | meaning |
+|---|---|---|
+| `fixtures` | — | `{ <KEY> = ["file", …] }`: a data set per `KEY` (its last qualifier, 1-8 characters, a letter first), a non-empty list of files each, loaded as the fixtures of `[test.<NAME>]` are |
+| `size` | the target's `[tn3270] size`, else `80x24` | a string `COLSxROWS` for this test's terminal, validated by `tn3270.ParseSize`: `80x24`, `80x32`, `80x43`, `132x27`, or an oversize screen of at least 80x24 and at most 16383 positions. Wins over the target's `size` |
+
 ## `[deploy]`
 
 | key | default | from v2 |
@@ -218,6 +233,7 @@ upper case, `<P4>` its first four characters.
 | `distlib` | `<NAME>.A<P4>LOD` | same |
 | `target_volume` | `MVSRES` | `distribution.smp.target_volume` (new in 3.0.0, mbt 2 reads it too) |
 | `dlib_volume` | `SMP000` | `distribution.smp.dlib_volume` (new in 3.0.0, mbt 2 reads it too) |
+| `procedure` | — | `distribution.smp.procedure` (mbt 2 reads it too): `"mvsce"` or `"tk5"`, the system the package installs on, which names the SMPAPP procedure whose DD order the `APPLY` overrides follow. Without it the block is arranged for both and used if they agree, else the package is refused with this key named |
 | `lklib_dd`, `target_dd`, `distlib_dd` | the last qualifier of `lklib`, `target`, `distlib` | `distribution.smp.*_dd` (new in 3.0.0; mbt 2 refuses the keys) |
 | `[smp.predecessor]` | none | new; a table `DDNAME = "DSN"` of the libraries the level `delete` removes was installed through. Each becomes a `//HMASMP.<dd>` card in the APPLYCHK, APPLY and ACCEPT steps, in the SMPAPP procedure's order (a procedure DD such as `LINKLIB` first). Valid DD name that SMP/JCL does not read by name; the DSN is spelled out (`@VRM@` refused); `delete` must be non-empty; a DD the new level also uses must name the same DSN (card written once), else refused; no TXLIB card takes a name of the table. The same DSN under another DD is supported and emitted as two cards (measured, MVS-1423): the DELETE of the predecessor runs before the COPY of the new modules; the old-DD card is required. mbt 2 refuses the key. Only the release that moves a DD carries it. |
 
