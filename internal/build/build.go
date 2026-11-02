@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -196,8 +197,8 @@ type step struct {
 	argv   []string
 	label  string
 	kind   string // cobc, cc, as, ar, ld
-	// depfile: the .d the tool writes, whose prerequisites are inputs too
-	// (cc370's headers, cobc370's copybooks)
+	// depfile: the .d whose prerequisites are inputs too (cc370's headers,
+	// cobc370's copybooks; for as370, the one mbt writes from its -v output)
 	depfile string
 }
 
@@ -417,24 +418,24 @@ func (b *Builder) compileStep(src, obj string) step {
 		asm := cobolAsm(b.O.BuildDir, src)
 		argv := append([]string{b.T.AS}, b.asflags()...)
 		argv = append(argv, "-o", obj, asm)
-		return step{out: obj, inputs: []string{asm}, argv: argv, label: "[as370] " + asm, kind: "as"}
+		return step{out: obj, inputs: []string{asm}, argv: argv, label: "[as370] " + asm, kind: "as", depfile: objDep(obj)}
 	}
 	if project.IsPLI(src) {
 		// as370 on what pl1c370 wrote; the object keeps the .pli's stem
 		asm := pliAsm(b.O.BuildDir, src)
 		argv := append([]string{b.T.AS}, b.asflags()...)
 		argv = append(argv, "-o", obj, asm)
-		return step{out: obj, inputs: []string{asm}, argv: argv, label: "[as370] " + asm, kind: "as"}
+		return step{out: obj, inputs: []string{asm}, argv: argv, label: "[as370] " + asm, kind: "as", depfile: objDep(obj)}
 	}
 	if ext == ".asm" || ext == ".s" {
 		argv := append([]string{b.T.AS}, b.asflags()...)
 		argv = append(argv, "-o", obj, src)
-		return step{out: obj, inputs: []string{src}, argv: argv, label: "[as370] " + src, kind: "as"}
+		return step{out: obj, inputs: []string{src}, argv: argv, label: "[as370] " + src, kind: "as", depfile: objDep(obj)}
 	}
 	argv := append([]string{b.T.CC}, b.cflags()...)
 	argv = append(argv, "-MMD", "-MP", "-c", src, "-o", obj)
 	return step{out: obj, inputs: []string{src}, argv: argv, label: "[cc370] " + src, kind: "cc",
-		depfile: strings.TrimSuffix(obj, ".o") + ".d"}
+		depfile: objDep(obj)}
 }
 
 // translateStep runs cobc370 on a COBOL source: assembler into
@@ -597,7 +598,13 @@ func (b *Builder) exec(s step) error {
 	if s.kind == "ar" {
 		os.Remove(b.abs(s.out)) // `ar rc` would keep members of an older build
 	}
-	cmd := exec.Command(s.argv[0], s.argv[1:]...)
+	args := s.argv[1:]
+	if s.kind == "as" {
+		// -v lists the macro search path and every member read; it is not
+		// part of the command line the step's signature is made of
+		args = append([]string{"-v"}, args...)
+	}
+	cmd := exec.Command(s.argv[0], args...)
 	cmd.Dir = b.P.Root
 	var out, diag bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
@@ -623,6 +630,17 @@ func (b *Builder) exec(s step) error {
 	if s.kind == "as" {
 		failed = rc > b.P.MaxRC
 		warned = rc > 0 && !failed
+	}
+	if s.kind == "as" {
+		files, dirs, rest := parseAsVerbose(diag.Bytes())
+		diag.Reset()
+		diag.Write(rest)
+		if !failed {
+			deps := append(append([]string{}, s.inputs...), files...)
+			if err := writeAsDepfile(b.abs(s.depfile), s.out, append(deps, dirs...)); err != nil {
+				return &Error{1, fmt.Sprintf("%s: cannot write %s: %v", s.label, s.depfile, err)}
+			}
+		}
 	}
 	b.mu.Lock()
 	b.logs.Write(out.Bytes())
@@ -700,13 +718,18 @@ func (b *Builder) cmdFile(out string) string {
 func signature(argv []string) string { return strings.Join(argv, "\x00") }
 
 // stale: the output is missing, its command line changed, or an input --
-// including every header the compiler recorded in the .d -- is newer.
+// including every header the compiler recorded in the .d, and for as370 every
+// macro and COPY member it read and every directory it searched -- is newer.
 func (b *Builder) stale(s step) bool {
 	st, err := os.Stat(b.abs(s.out))
 	if err != nil {
 		return true
 	}
 	if prev, err := os.ReadFile(b.cmdFile(s.out)); err != nil || string(prev) != signature(s.argv) {
+		return true
+	}
+	if s.kind == "as" && !exists(b.abs(s.depfile)) {
+		// a deck from before mbt tracked macros: once more, to record them
 		return true
 	}
 	inputs := s.inputs
@@ -776,6 +799,64 @@ func readDepfile(p string) []string {
 		deps = append(deps, strings.ReplaceAll(w, "\x00", " "))
 	}
 	return deps
+}
+
+// objDep is the .d beside an object, as cc370 writes it and mbt writes for as370.
+func objDep(obj string) string { return strings.TrimSuffix(obj, ".o") + ".d" }
+
+var (
+	asPathLine = regexp.MustCompile(`^as370: macro path \d+: (.+?)( \(absent\))?$`)
+	asMacroRe  = regexp.MustCompile(`^as370: macro (\S+) from (.+)$`)
+	asDoneZero = regexp.MustCompile(`^ Assembler Done +0 Statements Flagged`)
+)
+
+// parseAsVerbose splits the stderr of `as370 -v` into the members it read,
+// the existing directories on its macro search path, and everything else,
+// which is what the user would have seen without -v: -v also prints the
+// source's name and a summary line when nothing was flagged.
+func parseAsVerbose(diag []byte) (files, dirs []string, rest []byte) {
+	var keep bytes.Buffer
+	for _, line := range strings.SplitAfter(string(diag), "\n") {
+		l := strings.TrimRight(line, "\r\n")
+		if m := asPathLine.FindStringSubmatch(l); m != nil {
+			if m[2] == "" {
+				dirs = append(dirs, m[1])
+			}
+		} else if m := asMacroRe.FindStringSubmatch(l); m != nil {
+			files = append(files, m[2])
+		} else if strings.HasPrefix(l, "as370: assembling ") || asDoneZero.MatchString(l) {
+		} else {
+			keep.WriteString(line)
+		}
+	}
+	return files, dirs, keep.Bytes()
+}
+
+// writeAsDepfile writes what as370 depended on, in cc370's -MMD -MP form: the
+// object's rule, then an empty rule per prerequisite so that a removed member
+// does not wedge make.  The directories of the macro search path are
+// prerequisites too: a directory's date moves when a member is added to it,
+// removed or renamed, and a new member can hide the one that was read.
+func writeAsDepfile(p, obj string, deps []string) error {
+	esc := strings.NewReplacer(" ", `\ `, "$", "$$")
+	var uniq []string
+	seen := map[string]bool{}
+	for _, d := range deps {
+		if !seen[d] {
+			seen[d] = true
+			uniq = append(uniq, esc.Replace(d))
+		}
+	}
+	var sb strings.Builder
+	sb.WriteString(esc.Replace(obj) + ": " + strings.Join(uniq, " \\\n  ") + "\n")
+	for _, d := range uniq {
+		sb.WriteString("\n" + d + ":\n")
+	}
+	if err := os.WriteFile(p, []byte(sb.String()), 0o644); err != nil {
+		return err
+	}
+	escapeDepfile(p)
+	return nil
 }
 
 // -- dep_startup (#62) ----------------------------------------------------
