@@ -695,7 +695,7 @@ func TestAllocVolumesOverride(t *testing.T) {
 	}
 	for _, bad := range []string{"", "TOOLONG1", "TK 5", "tk5.res", "TK5-RES"} {
 		smp["target_volume"] = bad
-		if _, err := Parse(cfg, "V1R0M0"); err == nil || !strings.Contains(err.Error(), "target_volume") {
+		if _, err := Parse(cfg, "V1R0M0"); err == nil || !strings.Contains(err.Error(), "[smp]: target_volume") {
 			t.Errorf("volume %q accepted: %v", bad, err)
 		}
 	}
