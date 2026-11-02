@@ -504,7 +504,7 @@ func Parse(raw map[string]any, vrm string) (*Distribution, error) {
 		if v, ok := smpCfg[f.key]; ok {
 			vol := strings.ToUpper(pyStr(v))
 			if !volserRE.MatchString(vol) {
-				return nil, errf("[distribution.smp]: %s '%s' is not a volume serial: 1 to 6 characters, A-Z 0-9 @ # $", f.key, pyStr(v))
+				return nil, errf("[smp]: %s '%s' is not a volume serial: 1 to 6 characters, A-Z 0-9 @ # $", f.key, pyStr(v))
 			}
 			*f.dst = vol
 		}

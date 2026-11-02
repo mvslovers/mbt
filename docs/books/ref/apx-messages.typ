@@ -56,6 +56,31 @@ the way out.
     [#cmd("mbt.toml: [[...]] is the v2 spelling -- write one table per entry, [....NAME]")],
       [write one table per entry, for a library
       #cmd("[distribution.library.DIR]") (@ref-toml-distlib).],
+    [#cmd("mbt.toml: [[...]] is an array of tables -- write one table, [...]")],
+      [the table is written with double brackets; use single brackets, as
+      the message shows.],
+    [#cmd("mbt.toml: ... is a string, not a table -- write [...]")], [the key
+      is a value where MBT expects a table (the type may also be an integer,
+      a float, a boolean or an array): write it as a table, as the message
+      shows.],
+    [#cmd("mbt.toml: [...] holds one table per entry, [....NAME]; '...' is ...")],
+      [an entry of #cmd("[module]") or #cmd("[test]") is a value, not a
+      table: write #cmd("[module.NAME]") or #cmd("[test.NAME]").],
+    [#cmd("mbt.toml: [distribution.library] holds one table per directory, [distribution.library.DIR]; '...' is ...")],
+      [a directory under #cmd("[distribution.library]") is a value, not a
+      table: write #cmd("[distribution.library.DIR]")
+      (@ref-toml-distlib).],
+    [#cmd("mbt.toml: [tso.NAME] must be a table")], [an entry of
+      #cmd("[tso]") is a value, not a table: write #cmd("[tso.NAME]").],
+    [#cmd("mbt.toml: [tso.NAME] fixtures must be a table: { KEY = [\"file\", ...] }")],
+      [write #cmd("fixtures") as an inline table that maps each key to a
+      list of files.],
+    [#cmd("mbt.toml: [dependencies] \"...\" is ..., not a version range -- write \"...\" = \"^1\"")],
+      [give the dependency as a version range string
+      (@ref-toml-deps).],
+    [#cmd("mbt.toml: test.NAME.parm is ... -- write a string, or a table [test.NAME.parm] with batch and tso")],
+      [write #cmd("parm") as one string, or as a table with the keys
+      #cmd("batch") and #cmd("tso").],
     [#cmd("mbt.toml: [smp] fmid is explicit, so delete must be too: ...")],
       [name the FMID this release replaces, or write #cmd("delete = []")
       for a product's first level.],

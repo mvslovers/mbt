@@ -74,6 +74,31 @@ when one of its inputs changed or a header it includes did, and also when
 its command changed, for example because a flag in #cmd("mbt.toml") did. A
 build in which nothing changed does nothing.
 
+#idx("dependencies, assembler")
+What counts as an input depends on the source:
+
+#deflist(width: 1.7in,
+  [a C source], [the source, and every header #cmd("cc370") read while
+    compiling it.],
+  [an assembler source], [the source, every macro and #cmd("COPY") member
+    #cmd("as370") read while assembling it, nested macros included, and
+    every directory on the macro search path: those of #cmd("-I") in
+    #cmd("asflags"), then the macros of CC/370, LIBC/370 and MACLIB/370. A
+    directory counts through its date, which moves when a member is added
+    to it, removed or renamed. A new member that hides another one of the
+    same name, from a directory searched earlier, rebuilds the object for
+    that reason. So does saving a file in such a directory, the sources
+    themselves included when the project puts them there, for every
+    assembler source that searches it.],
+  [a COBOL or PL/I source], [the same as for C and for assembler: what the
+    translator read (copybooks, includes) and, for the assembler it wrote,
+    what #cmd("as370") read.],
+)
+
+MBT records the members in #cmd("build/")#var("name")#cmd(".d") beside the
+object, in the form #cmd("cc370") writes for headers. An object built
+before MBT recorded them has no such file and is assembled once more.
+
 === What to Build <ug-build-what>
 
 #deflist(width: 1.7in,
@@ -119,7 +144,8 @@ An option in #cmd("cflags") comes after MBT's and wins where the two
 disagree: #cmd("-std=gnu89") above compiles C89 again, #cmd("-O0") turns the
 optimization off. #cmd("asflags") are passed to #cmd("as370"), which by
 itself finds the macros of CC/370 and LIBC/370\; give it the directories of
-the project's own macros.
+the project's own macros. Changing a member in one of them assembles again
+every source that read it (@ug-build).
 
 === The Build Stamp <ug-build-stamp>
 

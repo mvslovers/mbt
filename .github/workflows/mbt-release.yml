@@ -10,6 +10,8 @@
 #
 # A tag with a '-' (v3.0.0-dev) is a prerelease and may be re-pushed: the
 # release of that tag is deleted and created again, as for every project.
+# A tag without a '-' is created as Latest (from v3.0.0 on, mbt 3 is the
+# current line) and its notes say where mbt 2 users find v2.x.
 # The v2 tags (v2.x) are not built here -- mbt 2 is the submodule.
 
 name: mbt release
@@ -84,9 +86,18 @@ jobs:
             --jq ".[] | select(.tag_name==\"$TAG\") | .id" | while read -r id; do
             [ -n "$id" ] && gh api -X DELETE "repos/${{ github.repository }}/releases/$id"
           done
-          PRE=""
-          case "$TAG" in *-*) PRE="--prerelease" ;; esac
-          # --latest=false: v2.x stays "Latest" for the submodule's users
-          # until mbt 3 is the default
-          gh release create "$TAG" $PRE --latest=false --title "$TAG" \
-            --generate-notes "$RUNNER_TEMP"/dist/*
+          PRE=""; LATEST="--latest=false"; NOTES=()
+          case "$TAG" in
+            *-*) PRE="--prerelease" ;;
+            *)
+              # a tag without '-' is a release of the current line: Latest
+              LATEST="--latest"
+              cat > "$RUNNER_TEMP/notes.md" <<EOF
+          **Using mbt 2?** It is not part of this release line. mbt 2, the git submodule with a \`project.toml\` and a two-line \`Makefile\`, stays on the \`v2.*\` tags; its newest release at the time of $TAG is [v2.2.0](https://github.com/${{ github.repository }}/releases/tag/v2.2.0) (\`git -C mbt checkout v2.2.0\`). \`docs/MIGRATION.md\` describes the move to mbt 3.
+
+          EOF
+              NOTES=(--notes-file "$RUNNER_TEMP/notes.md")
+              ;;
+          esac
+          gh release create "$TAG" $PRE "$LATEST" --title "$TAG" \
+            "${NOTES[@]}" --generate-notes "$RUNNER_TEMP"/dist/*

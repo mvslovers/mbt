@@ -25,7 +25,7 @@ func TestPLISteps(t *testing.T) {
 	}
 	as := b.compileStep("src/Hello.PLI", "build/Hello.o")
 	if as.kind != "as" || !reflect.DeepEqual(as.inputs, []string{"build/pli/Hello.asm"}) ||
-		!reflect.DeepEqual(as.argv, []string{"as370", "-I", "maclib", "-o", "build/Hello.o", "build/pli/Hello.asm"}) || as.depfile != "" {
+		!reflect.DeepEqual(as.argv, []string{"as370", "-I", "maclib", "-o", "build/Hello.o", "build/pli/Hello.asm"}) || as.depfile != "build/Hello.d" {
 		t.Errorf("assemble %+v", as)
 	}
 	// .pl1 is the same language, translated the same way.
