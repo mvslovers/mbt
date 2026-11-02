@@ -340,8 +340,8 @@ The job ends with return code 0, with #cmd("prereq") with 4. A failed
 #cmd("ACCEPT") (return code 8 or above, for example a staging library that
 was deleted) leaves the staging libraries alone, and the job can be
 submitted again once the cause is fixed. Until the #cmd("ACCEPT") ran, a
-#cmd("RESTORE") takes the function out again. It needs the same DD cards as
-the #cmd("APPLY"), among them the staging libraries.
+#cmd("RESTORE") takes the function out again. A #cmd("RESTORE") run with the
+same DD cards as the #cmd("APPLY") ends with return code 0.
 
 With #cmd("accept_fmid = false") there is no accept job: the level is never
 accepted, and the #cmd("CLEANUP") step stays in the installation job, behind
@@ -378,8 +378,8 @@ The installation job does not submit the accept job, but the accept job does
 not check what the installation job did either. Submitted after an
 #cmd("APPLY CHECK") that failed on a missing prerequisite, it would take the
 #cmd("ACCEPT") with that requisite bypassed and delete the staging libraries.
-Submit it only after the installation job ended with return code 0, as the
-header of the job says.
+Submit it only after the installation job ended with return code 0 (4 with a
+library of #cmd("SRC") elements), as the header of the job says.
 
 == The SYSMOD <ref-smp-sysmod>
 
