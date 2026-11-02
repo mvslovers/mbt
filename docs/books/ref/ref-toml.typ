@@ -14,12 +14,14 @@ checked the same way. So is a table in a form other than the one shown
 here: #cmd("[[distribution.library]]") where
 #cmd("[distribution.library.DIR]") is meant, #cmd("[[build]]") or
 #cmd("[[smp]]") for a table of its own, a key that is a string where a table
-belongs, a #cmd("[dependencies]") entry that is no version range. The
+belongs, a #cmd("[dependencies]") entry that is not a string. The
 message names the key and the form to write. Every command that reads
 #cmd("mbt.toml") stops with it, #cmd("mbt build") and #cmd("mbt deps")
 included; nothing is left out of a package without a word. The reserved
-tables of @ref-toml-reserved are errors too. The types of the other
-values are not checked: give them as shown. A directory that holds both
+tables of @ref-toml-reserved are errors too. The types of most other
+values are not checked: give them as shown. A few keys are checked where they
+are used, for example #cmd("schema"), #cmd("version"), #cmd("max_rc"),
+#cmd("size") and the fixtures. A directory that holds both
 #cmd("mbt.toml") and an MBT 2 #cmd("project.toml") is an error, and so are
 the MBT 2 forms #cmd("[[module]]") and #cmd("[[test]]").
 
@@ -56,8 +58,9 @@ the MBT 2 forms #cmd("[[module]]") and #cmd("[[test]]").
     compares it with the installed one, and warns.],
   [#cmd("libc370")], [none], [the LIBC/370 a release is built with, a
     version or a Git reference. A version is also the oldest LIBC/370 a
-    build accepts. Since the C start-up must be in #cmd("libc.a"), name
-    2.3.0 or later.],
+    build accepts. A LIBC/370 before 2.3.0 has no C start-up in
+    #cmd("libc.a"): MBT warns and links #cmd("crt0.o") and #cmd("crt1.o")
+    instead. With 2.3.0 or later, CC/370 1.2.0 or later is needed.],
 )
 
 == [dependencies] <ref-toml-deps>
@@ -85,7 +88,8 @@ range that names one.
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
   [#cmd("include")], [#cmd("[]")], [directories for #cmd("-I"), after
-    #cmd("include/"), which is on the path when the project has one.],
+    #cmd("include/"), which is on the path when the project has one, unless
+    the list names it.],
   [#cmd("cflags")], [#cmd("[]")], [options for #cmd("cc370"), after
     MBT's #cmd("-O1 -std=gnu99 -Wall -Wextra -Werror").],
   [#cmd("asflags")], [#cmd("[]")], [options for #cmd("as370").],
@@ -99,6 +103,8 @@ range that names one.
     COBOL source: #cmd("-I") for copybook directories, #cmd("-s"). The
     #cmd("include/") of every dependency follows, so #cmd("COPY") finds the
     copybooks a dependency ships.],
+  [#cmd("pliflags")], [#cmd("[]")], [options for #cmd("pl1c370"), for every
+    PL/I source. The #cmd("include/") of every dependency follows.],
 )
 
 A source ending in #cmd(".cbl") or #cmd(".cob") is COBOL. #cmd("cobc370")
@@ -113,12 +119,25 @@ defines #cmd("main()") at the start of a line; then the default
 #cmd("rent = true"): #cmd("cobc370")'s code keeps WORKING-STORAGE in the
 module.
 
+A source ending in #cmd(".pli") or #cmd(".pl1") is PL/I. #cmd("pl1c370")
+translates it into #cmd("build/pli/")#var("stem")#cmd(".asm") with
+#cmd("-MD"), so a changed #cmd("%INCLUDE") member translates it again, and
+#cmd("as370") assembles that into #cmd("build/")#var("stem")#cmd(".o").
+#cmd("pl1c370") is found in #cmd("MBT_PL1C370"), else beside #cmd("cc370") in
+the #cmd("bin") directory of the sysroot, else on #cmd("PATH"). If it is
+nowhere, the build stops with a configuration error.
+
 The compile line is MBT's options, the #cmd("-I") options, #cmd("cflags"),
 then #cmd("-I") for the dependencies, MBT's headers and #cmd(".mbt").
+Two sources with the same file name stem in one project are an error, as both
+would compile to the same object module.
 
 === [build.host] <ref-toml-host>
 
-For #cmd("mbt test") on the workstation only:
+For #cmd("mbt test") on the workstation only. The host compile line is
+#cmd("-std=gnu99 -Wall -Wextra -Werror"), the options of #cmd("[build] cflags"),
+the #cmd("-I") options for the dependencies, #cmd("include/") and
+#cmd(".mbt"), then #cmd("[build.host] cflags").
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
@@ -164,7 +183,8 @@ must be unique across all modules and aliases\; a test has none.
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("sources")], [required], [the module's own sources.],
+  [#cmd("sources")], [required], [the module's own sources. Not checked: a
+    module without any fails at the link.],
   [#cmd("exclude")], [#cmd("[]")], [files the patterns match that are left
     out.],
   [#cmd("rent")], [required], [reentrant.],
@@ -173,9 +193,12 @@ must be unique across all modules and aliases\; a test has none.
   [#cmd("entry")], [#cmd("\"@@CRT0\"")], [the entry point.],
   [#cmd("startup")], [a C program], [#cmd("false"): no C run time\;
     #cmd("\"crtm\""): a C module run by another C program\; it needs
-    #cmd("crtm.o"), which newer LIBC/370 releases no longer ship.],
+    #cmd("crtm.o"), which newer LIBC/370 releases no longer ship. Any other
+    value, including #cmd("\"crt0\"") and #cmd("\"crt1\""), is an error.],
   [#cmd("dep_startup")], [none], [#cmd("true"): #cmd("@@START") comes from
-    a dependency\; #cmd("false"): from LIBC/370.],
+    a dependency\; #cmd("false"): from LIBC/370. If a dependency defines
+    #cmd("@@START"), every module that has a C start-up must set this key,
+    else the build stops with return code 2.],
   [#cmd("ac")], [#cmd("0")], [the authorization code.],
   [#cmd("aliases")], [#cmd("[]")], [further names of the module.],
 )
@@ -185,6 +208,8 @@ must be unique across all modules and aliases\; a test has none.
 Every #cmd("test/**/*.c") and #cmd("test/**/*.asm") is a test, named after
 its file in upper case, with that file as its only source, unless it is in
 #cmd("[tests] exclude") or the #cmd("sources") of a
+#cmd("[test.")#var("NAME")#cmd("]"). A file name that is no member name is an
+error that names the file: exclude it or give it a
 #cmd("[test.")#var("NAME")#cmd("]").
 
 === [tests] <ref-toml-tests-defaults>
@@ -194,8 +219,9 @@ its file in upper case, with that file as its only source, unless it is in
   [#cmd("rent"), #cmd("reus")], [required once there is a test], [for
     every test without its own.],
   [#cmd("refr")], [#cmd("false")], [as for a module.],
-  [#cmd("exclude")], [#cmd("[]")], [files under #cmd("test/") that are not
-    tests.],
+  [#cmd("exclude")], [#cmd("[]")], [paths under #cmd("test/") that are not
+    tests, each written in full: #cmd("\"test/helper.c\""). No pattern.
+    Hidden files and directories are never tests.],
 )
 
 === [test.NAME] <ref-toml-test>
@@ -205,15 +231,20 @@ its file in upper case, with that file as its only source, unless it is in
   [#cmd("sources")], [the found file], [the test's sources.],
   [#cmd("host")], [#cmd("true")], [#cmd("false"): not on the workstation.],
   [#cmd("mvs")], [#cmd("true")], [#cmd("false"): not on MVS.],
-  [#cmd("parm")], [none], [the program argument: a string for both runs,
-    or #cmd("{ batch = ..., tso = ... }"). Without it the test gets none\;
+  [#cmd("parm")], [none], [the program argument: a string for both MVS
+    steps of #cmd("mbt test --mvs") (batch and TSO), or
+    #cmd("{ batch = ..., tso = ... }"). A host test gets none. Without it the
+    test gets none\;
     one that then skips its work passes with no assertions.],
   [#cmd("fixtures")], [none], [#cmd("{ ")#var("DD")#cmd(" = [")#var("files")#cmd("] }"):
     members loaded into a data set per DD, #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".FIX.")#var("TEST")#cmd(".")#var("DD"),
     FB 80. A member is the file's name without its extension, in upper
     case\; its lines are the records, columns 73 to 80 included, nothing is
     numbered. A line longer than 80 columns is an error (return code 2).
-    Lines starting #cmd("//") or #cmd("/*"), JCL included, arrive as data.],
+    Lines starting #cmd("//") or #cmd("/*"), JCL included, arrive as data. A
+    member name is cut to eight characters\; of two files with the same member
+    name, the first counts. A file that has lines starting with each of
+    #cmd("$A") to #cmd("$Z") is an error.],
 )
 
 The keys of a load module, #cmd("exclude"), #cmd("entry"),
@@ -227,7 +258,8 @@ list.
 
 The data sets the interactive test #cmd("test/tso/")#var("name")#cmd(".lua")
 needs (@ref-tso-fixtures), and its screen size. #var("NAME") is the file's
-name, in any case\; a table that names no such file is an error.
+name in any case, one to eight characters, a letter first\; a table that
+names no such file is an error when #cmd("mbt test --tso") runs.
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
@@ -247,13 +279,15 @@ name, in any case\; a table that names no such file is an error.
   [#cmd("target")], [#var("NAME")#cmd(".DEV.LINKLIB")], [the development
     library.],
   [#cmd("test_target")], [#var("HLQ")#cmd(".")#var("NAME")#cmd(".")#var("VRM")#cmd(".TESTLIB")],
-    [the test library. The name is cut to eight characters.],
+    [the test library. The name is made upper case, characters other than
+    #cmd("A")-#cmd("Z"), #cmd("0")-#cmd("9"), #cmd("@"), #cmd("#") and
+    #cmd("$") are dropped, and it is cut to eight characters.],
 )
 
 #cmd("target") is derived only for a project with load modules. A default
-#cmd("target") that would not be a valid data set name, because the
-project name is longer than eight characters, is refused, with the key to
-set. The same holds for the defaults of #cmd("[smp]") and
+#cmd("target") that would not be a valid data set name (a qualifier of
+more than eight characters, a character a data set name does not allow, or a
+digit first) is refused, with the key to set. The same holds for the defaults of #cmd("[smp]") and
 #cmd("[distribution.library]").
 
 == [distribution] <ref-toml-distribution>
@@ -281,15 +315,17 @@ A text library made from the directory #var("DIR") and received with TSO
     (@ref-smp-elements).],
   [#cmd("distlib")], [#cmd("A") before the last qualifier of
     #cmd("target")], [the distribution library SMP keeps the elements in.
-    Only with #cmd("element").],
+    Only with #cmd("element")\; without it the key is ignored.],
   [#cmd("stage")], [#cmd("T") before the last qualifier of
     #cmd("target")], [the library the shipped members are received into
-    and SMP reads them from. Only with #cmd("element").],
+    and SMP reads them from. Only with #cmd("element")\; without it the key is
+    an error.],
   [#cmd("target_dd")], [the last qualifier of #cmd("target")], [the DD name
     of the target library in the SYSMOD and the jobs (@ref-smp-ddnames).
-    Only with #cmd("element").],
+    Only with #cmd("element")\; without it the key is an error.],
   [#cmd("distlib_dd")], [the last qualifier of #cmd("distlib")], [the DD
-    name of the distribution library. Only with #cmd("element").],
+    name of the distribution library. Only with #cmd("element")\; without it the
+    key is an error.],
 )
 
 With #cmd("element") a member is a file of the directory, the member name its
@@ -305,9 +341,11 @@ when it is valid UTF-8, else as Latin-1.
 
 An element name is one for the whole SYSMOD: the same member name in two
 libraries of the same #cmd("element") type is an error, the same name as
-#cmd("MAC") in one library and #cmd("SRC") in another is not. Names, targets,
-#cmd("distlib") and #cmd("stage") must differ from each other and from the
-libraries of the load modules.
+#cmd("MAC") in one library and #cmd("SRC") in another is not. The
+#cmd("target"), #cmd("distlib") and #cmd("stage") of the libraries with
+#cmd("element") must differ from each other and from #cmd("lklib"),
+#cmd("target") and #cmd("distlib") of #cmd("[smp]"). A library without
+#cmd("element") is not compared.
 
 == [smp] <ref-toml-smp>
 
@@ -318,7 +356,9 @@ first four characters of #var("NAME").
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
   [#cmd("prefix")], [required unless #cmd("fmid")], [#cmd("T") and three
-    letters, by convention\; not checked.],
+    letters, by convention. Not checked itself, but
+    #var("prefix") + major + minor + #cmd("0") must be a valid FMID of seven
+    characters.],
   [#cmd("fmid")], [#var("prefix") + major + minor + #cmd("0")], [the FMID,
     seven characters, a letter and six letters or digits. Required for a
     version whose patch number is not 0, and for a prerelease
@@ -327,10 +367,11 @@ first four characters of #var("NAME").
     (minor − 1) + #cmd("0")\; with an explicit one: none], [the FMIDs this
     release replaces. Required with an explicit #cmd("fmid"), and with a
     derived one for #var("x")#cmd(".0.0")\; #cmd("[]") for a first level.
-    It must not name the release's own FMID.],
+    It must not name the release's own FMID. Each id has seven characters, a
+    letter first.],
   [#cmd("system")], [#cmd("\"Z038\"")], [the SREL of the #cmd("++VER").],
   [#cmd("prereq")], [#cmd("[]")], [SYSMODs that must be applied before this one.
-    The #cmd("ACCEPT") of the accept job then carries #cmd("BYPASS(REQ)")
+    Each id has seven characters, a letter first. The #cmd("ACCEPT") of the accept job then carries #cmd("BYPASS(REQ)")
     (@ref-smp-prereq).],
   [#cmd("accept_fmid")], [#cmd("true")], [write the accept job, with the
     #cmd("ACCEPT") of the FMID and the #cmd("CLEANUP"). The installation job
@@ -356,7 +397,9 @@ first four characters of #var("NAME").
   [#cmd("[smp.predecessor]")], [none], [a table of #var("DDNAME") =
     #cmd("\"data.set.name\""): the libraries the level #cmd("delete")
     removes was installed through. For the one release that moves a library
-    to another DD name (@ref-smp-move). Needs a non-empty #cmd("delete").],
+    to another DD name (@ref-smp-move). Each name is a DD name\; each value is a
+    full data set name (no #cmd("@VRM@")). A DD that the new level also uses
+    must name the same data set. Needs a non-empty #cmd("delete").],
   [#cmd("target_volume")], [#cmd("\"MVSRES\"")], [the volume of the target
     libraries: the default of #cmd("TGTVOL") in the allocation job
     (@ref-smp-volumes). One to six characters, #cmd("A")-#cmd("Z"),
@@ -366,6 +409,9 @@ first four characters of #var("NAME").
     distribution libraries: the default of #cmd("DLBVOL"). The same
     characters.],
 )
+
+A DD name is one to eight characters. A name that SMP or the procedures use
+for their own files is refused.
 
 The defaults are the volumes of an MVS/CE system. TK5 is deliberately not the
 default: on TK5, set #cmd("TGTVOL=TK5RES") and #cmd("DLBVOL=TK5DLB") in the
@@ -385,8 +431,13 @@ repository's tags, which a shallow clone does not have.
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],
   [#cmd("version_files")], [#cmd("[]")], [further files in which
-    #cmd("mbt release") replaces the version.],
+    #cmd("mbt release") replaces the version. A missing file, or one
+    without the version, is an error.],
 )
+
+When #cmd("[distribution]") is present, #cmd("mbt release") also refuses a
+patch release without an explicit #cmd("fmid"), and a next version with a
+component above 9 (give #cmd("--next")).
 
 == [tools] <ref-toml-tools>
 

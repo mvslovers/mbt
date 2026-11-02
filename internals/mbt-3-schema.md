@@ -53,7 +53,7 @@ line, because the TOML decoder reports positions for syntax errors only.
 | key | default | from v2 |
 |---|---|---|
 | `cc370` | `main` in CI | `toolchain.cc370`: the cc370 release (or git ref) a release is built with |
-| `libc370` | `main` in CI | `toolchain.libc370`; schema 3 needs `>= 2.3.0` (the CRT in `libc.a`). Also the floor a local build checks the installed sysroot against |
+| `libc370` | `main` in CI | `toolchain.libc370`; a libc370 before 2.3.0 has no CRT in `libc.a`, which mbt only warns about (it links `crt0.o`/`crt1.o` instead). Also the floor a local build checks the installed sysroot against |
 | `mbt` | — | new; read by the launcher (design §5), ignored by the core |
 
 ## `[dependencies]`

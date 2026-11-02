@@ -14,7 +14,7 @@ error.
   [Key], [Default], [Meaning],
   [#cmd("default")], [#cmd("false")], [the target used without a name. At
     most one.],
-  [#cmd("hlq")], [the mvsMF user], [the high-level qualifier of the data
+  [#cmd("hlq")], [the mvsMF user in upper case], [the high-level qualifier of the data
     sets MBT allocates.],
   [#cmd("volume")], [none], [the volume for the libraries MBT allocates
     and receives. Without it, the system chooses.],
@@ -49,7 +49,7 @@ Required.
 Further mvsMF users, for Lua only: #cmd("ctx.mvs.session") and
 #cmd("ctx.mvs.request") with #cmd("auth = \"basic\"") act as one of them by
 its alias (@ref-lua-ctx). The alias is lower case letters, digits,
-#cmd("-") and #cmd("_"). MBT itself (deploy, tests) always uses the user
+#cmd("-") and #cmd("_"), and starts with a letter or digit. MBT itself (deploy, tests) always uses the user
 of #cmd("[target.NAME.mvsmf]"), and Lua never sees a password.
 
 #table(columns: (1.2in, 1.3in, 1fr),
@@ -99,11 +99,11 @@ For #cmd("mbt test --tso").
 
 #table(columns: (1.2in, 1.3in, 1fr),
   [Key], [Default], [Meaning],
-  [#cmd("host")], [required], [the host that runs Hercules. Only
-    #cmd("mbt target ping") uses the SSH access, as a probe.],
-  [#cmd("user")], [none], [the user.],
-  [#cmd("identity")], [none], [a key file. No passwords: keys or an
-    agent.],
+  [#cmd("host")], [required], [the host that runs Hercules.
+    #cmd("mbt target ping") tries a TCP connection to this host and port\;
+    MBT starts no SSH session.],
+  [#cmd("user")], [none], [the user, which Lua sees in #cmd("ctx.target").],
+  [#cmd("identity")], [none], [a key file. MBT does not use it.],
   [#cmd("port")], [#cmd("22")], [the port.],
 )
 
@@ -124,8 +124,9 @@ For #cmd("mbt test --tso").
 #idx("password", "sources")
 #table(columns: (2.4in, 1fr),
   [Value], [The password is],
-  [#cmd("\"")#var("text")#cmd("\"")], [#var("text"). Refused while group or
-    others have any permission on the file (#cmd("chmod 600")).],
+  [#cmd("\"")#var("text")#cmd("\"")], [#var("text"). The file must not give group or
+    others any permission (#cmd("chmod 600")) if any password in it is plain
+    text. MBT checks this when it reads the file.],
   [#cmd("{ env = \"")#var("VAR")#cmd("\" }")], [the value of the
     environment variable #var("VAR").],
   [#cmd("{ keychain = \"")#var("name")#cmd("\" }")], [the entry with the
@@ -136,13 +137,15 @@ For #cmd("mbt test --tso").
     #var("prog") writes, started without a shell.],
 )
 
-A table names exactly one source, and #cmd("cmd") a non-empty list. A
-source that yields an empty password, or an unset variable, is an error
-that names it. The password is read only when MBT logs on, so a dry run
+A table names exactly one source, and #cmd("cmd") a non-empty list. An
+#cmd("env"), #cmd("keychain") or #cmd("cmd") source that yields an empty
+password, or an unset variable, is an error that names it. The password is read only when MBT logs on, so a dry run
 never asks for it.
 
 A key not listed in this chapter is an error, reported by its table. The
-types of the values are not checked: give them as shown.
+types of #cmd("tls"), #cmd("size"), #cmd("users"), #cmd("password") and
+#cmd("order") are checked. For the other keys a value of the wrong type
+counts as not given: give them as shown.
 
 == Selecting a Target <ref-targets-select>
 
@@ -150,13 +153,15 @@ types of the values are not checked: give them as shown.
 A command that needs MVS takes the first of:
 
 + #cmd("--target") #var("name"), else the variable #cmd("MBT_TARGET"):
-  the target of that name, an error listing the defined ones if there is
-  none. The name #cmd("env") selects the target from the environment.
+  the target of that name. If there is none, an error lists the defined
+  ones, or says that the file defines none. The name #cmd("env") selects the
+  target from the environment\; a target called #cmd("env") in the file is
+  never chosen by name.
 + The target from the environment (@ref-env-target), when
   #cmd("MBT_TARGET_MVSMF_URL") is set.
 + The target with #cmd("default = true").
 + The only target in the file.
 
-Two or more targets and none the default is an error. Only when the file
-is missing or defines no target does MBT use the MBT 2 settings,
+Two or more targets and none the default is an error. Only when no name is
+given and the file is missing or defines no target does MBT use the MBT 2 settings,
 #cmd("MBT_MVS_*") and #cmd(".env"), with a warning.

@@ -484,3 +484,90 @@ lists what is applied, #cmd("ACDS") what is accepted\; check both.
 #cmd("mbt dist") writes the installation package again from the load
 modules already in #cmd("dist/"), without building. It is for a change to
 the package itself, such as a new README or another data set name.
+
+== Known Limitations of the Jobs <ug-package-limits>
+
+#idx("known limitations")
+Three behaviours of the jobs are planned to change in MBT 3.0.1. Until then,
+work round them as described here. The listings come from a run on MVS/CE.
+
+*The allocation job runs once* (mbt\#96). #idx("allocation job", "second run")
+It allocates every library new, on the volumes named by #cmd("TGTVOL") and
+#cmd("DLBVOL"). Submitted a second time with the same volumes, it ends with a
+JCL error, and nothing is allocated. The name in the message is the DD name of
+the library, here the #cmd("target_dd") of the project, #cmd("AQATLOD"):
+
+#fig(caption: [The allocation job, submitted again])[
+  #screen(raw(read("../ex/ug-package/alloc-again.txt")))
+] <ug-package-alloc-again>
+
+Submitted a second time with other volumes, for example after the defaults
+were changed, it ends with return code 0. The libraries of the first run stay
+cataloged. The new ones are allocated and not cataloged, because the catalog
+already has the name (#cmd("NOT CATLGD 2")), and they stay on the other
+volume:
+
+#fig(caption: [The allocation job, submitted again with another volume])[
+  #screen(raw(read("../ex/ug-package/alloc-othervol.txt")))
+] <ug-package-alloc-othervol>
+
+#note[*A defect* (mbt\#96): the job ends with return code 0 although it
+left libraries nobody will use. Read the #cmd("IEF287I") lines of every run
+after the first, and run the job once. Before a second run, find the volume of
+each library with #cmd("LISTCAT LEVEL(")#var("NAME")#cmd(") VOLUME") and keep
+that volume. A library the second run left behind is scratched by naming the
+volume it is on, which is not the volume #cmd("LISTCAT") shows:
+
+```
+//DEL      EXEC PGM=IEFBR14
+//D1       DD  DSN=QATST.LINKLIB,DISP=(OLD,DELETE),
+//             UNIT=SYSDA,VOL=SER=PUB000
+```
+
+The cataloged library stays.]
+
+*The installation job runs once* (mbt\#99). #idx("installation job", "second run")
+The #cmd("APPLY") runs only if the #cmd("APPLYCHK") before it ended with 0.
+When the SYSMOD is already received, the #cmd("RECV") ends with 8, the
+#cmd("APPLYCHK") does not run, and the #cmd("APPLY") runs without the check:
+a step that did not run does not hold the next one back. This happens when an
+earlier run stopped after the #cmd("RECV"), or when the job is submitted twice:
+
+#fig(caption: [The installation job, submitted a second time])[
+  #screen(raw(read("../ex/ug-package/inst-again.txt")))
+] <ug-package-inst-again>
+
+#note[*A defect* (mbt\#99): the job ends with return code 8 and has applied
+without the dry run. If an earlier run stopped with the SYSMOD received and
+not applied, take it out first with an SMP step that has the DD cards of the
+#cmd("APPLY") and the statement #cmd("REJECT S(")#var("fmid")#cmd(") .")\;
+the job then runs through with return code 0. A SYSMOD that is applied and not
+accepted can be taken out with #cmd("RESTORE S(")#var("fmid")#cmd(") .") in
+the same way. Do not submit the job again to "repeat" a run that ended
+before the #cmd("APPLY") without one of these.]
+
+*The accept job does not look at the installation job* (mbt\#335).
+#idx("accept job", "limitation")
+It runs #cmd("ACCEPT") and #cmd("CLEANUP") whatever the installation job did.
+With #cmd("[smp] prereq"), an installation job that ended with 12 at the
+#cmd("APPLYCHK") for a missing prerequisite leaves the SYSMOD received. The
+accept job then ends with 4, as it does on a good run, and accepts the SYSMOD
+that was never applied:
+
+#fig(caption: [An accept job after an installation job that ended with 12])[
+  #screen(raw(read("../ex/ug-package/accept-unapplied.txt")))
+] <ug-package-accept-unapplied>
+
+#fig(caption: [The SYSMOD in the distribution zone afterwards
+  (#cmd("LIST ACDS SYSMOD(TQBT100)"), without the dates)])[
+  #screen(raw(read("../ex/ug-package/accept-acds.txt")))
+] <ug-package-accept-acds>
+
+The status has #cmd("ACC") and no #cmd("APP"), the target library holds no
+module, and the #cmd("CLEANUP") has deleted the staging libraries.
+
+#note[*A defect* (mbt\#335): submit the accept job only after an installation
+job that ended with return code 0 (4 with a library of #cmd("SRC") elements),
+and read the #cmd("APPLYCHK") line first. After a #cmd("RESTORE") the accept
+job stops by itself: the #cmd("ACCEPT") ends with 12 and the
+#cmd("CLEANUP") does not run.]

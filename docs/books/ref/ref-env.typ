@@ -11,11 +11,15 @@ on a workstation with a #cmd("targets.toml").
 #table(columns: (1.9in, 1fr),
   [Variable], [Meaning],
   [#cmd("MBT_HOME")], [the directory used instead of #cmd("~/.mbt") for
-    #cmd("targets.toml"), #cmd("versions/") and #cmd("init.lua"). The
+    #cmd("targets.toml") (also where #cmd("mbt target import") writes it),
+    #cmd("versions/"), #cmd("init.lua") and #cmd("lua/"). The
     download caches and MBT 2's #cmd("config.toml") stay in
     #cmd("~/.mbt").],
   [#cmd("MBT_NO_SWITCH")], [#cmd("1"): run the started #cmd("mbt") even
     when the project pins another version.],
+  [#cmd("MBT_VERSION_SWITCHED")], [set by MBT for the pinned #cmd("mbt") it
+    starts, to that version. Any value stops MBT from switching again. Do
+    not set it yourself\; use #cmd("MBT_NO_SWITCH").],
   [#cmd("GITHUB_TOKEN")], [a token for the GitHub API, which lifts the
     limit of 60 requests an hour. For dependencies,
     #cmd("MBT_GITHUB_TOKEN") is read when #cmd("GITHUB_TOKEN") is not
@@ -31,12 +35,17 @@ on a workstation with a #cmd("targets.toml").
   [Variable], [Meaning],
   [#cmd("MBT_CC"), #cmd("MBT_AS"), #cmd("MBT_LD"), #cmd("MBT_AR")], [the
     commands used instead of #cmd("cc370"), #cmd("as370"), #cmd("ld370")
-    and #cmd("ar370") by #cmd("build"), #cmd("package"), #cmd("deploy")
-    and #cmd("module-data"). #cmd("mbt doctor") checks the standard
-    names.],
+    and #cmd("ar370") by #cmd("build"), #cmd("test --mvs"),
+    #cmd("package"), #cmd("deploy"), #cmd("module-data") and #cmd("doctor").
+    #cmd("mbt doctor") also looks for #cmd("cc370"), #cmd("as370"),
+    #cmd("ld370"), #cmd("ar370") and #cmd("xmit370") by these names on
+    #cmd("PATH").],
   [#cmd("MBT_COBC370")], [the #cmd("cobc370") for COBOL sources, a path or
     a name on #cmd("PATH"). Ahead of a #cmd("[tools]") entry and of
     #cmd("PATH").],
+  [#cmd("MBT_PL1C370")], [the #cmd("pl1c370") for PL/I sources, a path or
+    a name on #cmd("PATH"). Ahead of the #cmd("bin") directory that holds
+    #cmd("cc370") and of #cmd("PATH").],
   [#cmd("CC")], [the C compiler of the workstation for #cmd("mbt test"),
     unless #cmd("[build.host] cc") names one. Default #cmd("cc").],
   [#cmd("ASMDATE"), #cmd("ASMTIME")], [read by #cmd("as370"): the date and
@@ -51,6 +60,10 @@ builds byte-identical (_MBT User's Guide_, "Migrating from MBT 2").
 == The Target <ref-env-target>
 
 #idx("MBT_TARGET")
+MBT reads and checks #cmd("targets.toml") first, also when the environment
+target is used\; a broken file stops MBT even when
+#cmd("MBT_TARGET_MVSMF_URL") is set.
+
 #table(columns: (2.5in, 1fr),
   [Variable], [Meaning],
   [#cmd("MBT_TARGET")], [the name of the target, as #cmd("--target").],
@@ -59,7 +72,8 @@ builds byte-identical (_MBT User's Guide_, "Migrating from MBT 2").
     default of #cmd("targets.toml") unless #cmd("--target") or
     #cmd("MBT_TARGET") names another.],
   [#cmd("MBT_TARGET_MVSMF_USER"), #cmd("MBT_TARGET_MVSMF_PASSWORD")], [its
-    user and password.],
+    user and password. The password variable must be set and not empty
+    when MBT logs on.],
   [#cmd("MBT_TARGET_MVSMF_AUTH")], [#cmd("basic") for a logon without a
     session, as #cmd("auth") in #cmd("[target.NAME.mvsmf]")
     (@ref-targets-mvsmf).],
@@ -103,4 +117,12 @@ warning: #cmd("MBT_MVS_HOST"), #cmd("MBT_MVS_PORT"),
 #cmd("MBT_MVS_DEPS_VOLUME"), #cmd("MBT_JES_JOBCLASS") and
 #cmd("MBT_JES_MSGCLASS"), from the environment, a #cmd(".env") file of the
 project, or #cmd("~/.mbt/config.toml"). #cmd("MBT_MVS_DEPS_HLQ") and
-#cmd("MBT_BUILD_ID") are no longer read. #cmd("mbt target import") turns them into a target.
+#cmd("MBT_BUILD_ID") are no longer read. #cmd("mbt target import") turns them
+into a target.
+
+The order is the environment, the #cmd(".env"), #cmd("~/.mbt/config.toml")
+(tables #cmd("[mvs]") and #cmd("[jes]"), keys #cmd("host"), #cmd("port"),
+#cmd("user"), #cmd("pass"), #cmd("hlq"), #cmd("deps_volume"),
+#cmd("jobclass"), #cmd("msgclass")), then the defaults: host
+#cmd("localhost"), port #cmd("1080"), user and #cmd("hlq") #cmd("IBMUSER"),
+classes #cmd("A") and #cmd("H"). No volume.
