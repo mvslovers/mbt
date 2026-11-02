@@ -50,18 +50,17 @@ SHA-256 checksums:
   )
 ] <ug-install-assets>
 
-Until MBT 3.0.0 is released, the release to install is the prerelease
-#cmd("v3.0.0-dev"). Download the archive for your platform and the
-checksums, check the archive, unpack it, and put #cmd("mbt") into a
-directory on your #cmd("PATH"). With the GitHub command #cmd("gh"), on a Mac
-with Apple silicon:
+Download the archive for your platform and the checksums, check the
+archive, unpack it, and put #cmd("mbt") into a directory on your
+#cmd("PATH"). With the GitHub command #cmd("gh"), on a Mac with Apple
+silicon, for MBT 3.0.0:
 
 ```
-gh release download v3.0.0-dev -R mvslovers/mbt \
-   -p 'mbt-3.0.0-dev-darwin-arm64.tar.gz' -p 'mbt-3.0.0-dev-sha256.txt'
-shasum -a 256 -c --ignore-missing mbt-3.0.0-dev-sha256.txt
-tar -xzf mbt-3.0.0-dev-darwin-arm64.tar.gz
-install mbt-3.0.0-dev-darwin-arm64/mbt ~/.local/bin/mbt
+gh release download v3.0.0 -R mvslovers/mbt \
+   -p 'mbt-3.0.0-darwin-arm64.tar.gz' -p 'mbt-3.0.0-sha256.txt'
+shasum -a 256 -c --ignore-missing mbt-3.0.0-sha256.txt
+tar -xzf mbt-3.0.0-darwin-arm64.tar.gz
+install mbt-3.0.0-darwin-arm64/mbt ~/.local/bin/mbt
 ```
 
 The archives can also be downloaded from the release page in a browser.
