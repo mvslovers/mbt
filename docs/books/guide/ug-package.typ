@@ -91,8 +91,8 @@ already recorded stay under the old name (_MBT Reference_, "DD Names").
 #idx("installation job")
 The package holds three jobs, or two with #cmd("[smp] accept_fmid = false").
 The operator uploads the TRANSMIT files to MVS
-in binary, as files of 80-byte records, runs the allocation job once, puts
-the names of the uploaded files into the installation job, and submits it.
+in binary, as files of 80-byte records, runs the allocation job once (a
+second run ends with an error, @ug-package-again), puts the names of the uploaded files into the installation job, and submits it.
 The installation job ends after the #cmd("APPLY"). The operator tries the
 product, and submits the accept job when it is to stay.
 
@@ -487,66 +487,47 @@ lists what is applied, #cmd("ACDS") what is accepted\; check both.
 modules already in #cmd("dist/"), without building. It is for a change to
 the package itself, such as a new README or another data set name.
 
-== Known Limitations of the Jobs <ug-package-limits>
+== Submitting the Jobs Again <ug-package-again>
 
-#idx("known limitations")
-Three behaviours of the jobs are planned to change in MBT 3.0.1. Until then,
-work round them as described here. The listings come from a run on MVS/CE.
+#idx("allocation job", "second run")#idx("installation job", "second run")
+Both jobs end with an error when they are submitted a second time, and do
+not change the system. The listings come from a run on MVS/CE with the
+libraries and the SYSMOD of a BREXX/370 3.0.0 package. TK5 gives the same.
 
-*The allocation job runs once* (mbt\#96). #idx("allocation job", "second run")
-It allocates every library new, on the volumes named by #cmd("TGTVOL") and
-#cmd("DLBVOL"). Submitted a second time with the same volumes, it ends with a
-JCL error, and nothing is allocated. The name in the message is the DD name of
-the library, here the #cmd("target_dd") of the project, #cmd("AQATLOD"):
+*The allocation job* starts with a step #cmd("CHECK") that looks every
+library it would allocate up in the catalog. If one is cataloged, the step
+ends with return code 8, the allocation step is not run, and the job ends
+with 8. The listing shows the libraries it found:
 
 #fig(caption: [The allocation job, submitted again])[
   #screen(raw(read("../ex/ug-package/alloc-again.txt")))
 ] <ug-package-alloc-again>
 
-Submitted a second time with other volumes, for example after the defaults
-were changed, it ends with return code 0. The libraries of the first run stay
-cataloged. The new ones are allocated and not cataloged, because the catalog
-already has the name (#cmd("NOT CATLGD 2")), and they stay on the other
-volume:
+The catalog is asked, not the volume. A second run with other volumes, for
+example after the defaults were changed, ends the same way. Delete the
+libraries first if they are to be allocated again, or take other names (_MBT
+Reference_, "The Allocation Job, Submitted Again").
 
-#fig(caption: [The allocation job, submitted again with another volume])[
-  #screen(raw(read("../ex/ug-package/alloc-othervol.txt")))
-] <ug-package-alloc-othervol>
-
-#note[*A defect* (mbt\#96): the job ends with return code 0 although it
-left libraries nobody will use. Read the #cmd("IEF287I") lines of every run
-after the first, and run the job once. Before a second run, find the volume of
-each library with #cmd("LISTCAT LEVEL(")#var("NAME")#cmd(") VOLUME") and keep
-that volume. A library the second run left behind is scratched by naming the
-volume it is on, which is not the volume #cmd("LISTCAT") shows:
-
-```
-//DEL      EXEC PGM=IEFBR14
-//D1       DD  DSN=QATST.LINKLIB,DISP=(OLD,DELETE),
-//             UNIT=SYSDA,VOL=SER=PUB000
-```
-
-The cataloged library stays.]
-
-*The installation job runs once* (mbt\#99). #idx("installation job", "second run")
-The #cmd("APPLY") runs only if the #cmd("APPLYCHK") before it ended with 0.
-When the SYSMOD is already received, the #cmd("RECV") ends with 8, the
-#cmd("APPLYCHK") does not run, and the #cmd("APPLY") runs without the check:
-a step that did not run does not hold the next one back. This happens when an
-earlier run stopped after the #cmd("RECV"), or when the job is submitted twice:
+*The installation job* ends with return code 8 when the SYSMOD is already
+received, because the #cmd("RECV") ends with 8 (#cmd("HMA3862")). Each SMP
+step names every SMP step before it, so the #cmd("APPLYCHK") and the
+#cmd("APPLY") are not run behind it:
 
 #fig(caption: [The installation job, submitted a second time])[
   #screen(raw(read("../ex/ug-package/inst-again.txt")))
 ] <ug-package-inst-again>
 
-#note[*A defect* (mbt\#99): the job ends with return code 8 and has applied
-without the dry run. If an earlier run stopped with the SYSMOD received and
-not applied, take it out first with an SMP step that has the DD cards of the
-#cmd("APPLY") and the statement #cmd("REJECT S(")#var("fmid")#cmd(") .")\;
-the job then runs through with return code 0. A SYSMOD that is applied and not
-accepted can be taken out with #cmd("RESTORE S(")#var("fmid")#cmd(") .") in
-the same way. Do not submit the job again to "repeat" a run that ended
-before the #cmd("APPLY") without one of these.]
+The SYSMOD has to be taken out before the job is submitted again. A SYSMOD
+that is only received is taken out with an SMP step that has the DD cards of
+the #cmd("APPLY") and the statement #cmd("REJECT S(")#var("fmid")#cmd(") .")\;
+one that is applied and not accepted, with #cmd("RESTORE S(")#var("fmid")#cmd(") .")
+in the same way. The job then runs through as on the first day.
+
+== Known Limitations of the Jobs <ug-package-limits>
+
+#idx("known limitations")
+One behaviour of the jobs is planned to change in MBT 3.0.1. Until then,
+work round it as described here.
 
 *The accept job does not look at the installation job* (mbt\#335).
 #idx("accept job", "limitation")
