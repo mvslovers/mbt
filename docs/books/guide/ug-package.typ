@@ -171,8 +171,10 @@ libraries, and the level is never accepted.
 is the decision to keep the level. Until it has run, a #cmd("RESTORE") can
 take the function out of the system again. Its #cmd("ACCEPT") copies the
 modules into the distribution library, the level a later #cmd("RESTORE")
-returns to, and cannot be undone. Submit it only after the installation job
-ended with return code 0 (4 with a library of #cmd("SRC") elements). Behind
+returns to, and cannot be undone. Submit it only after an installation job
+whose #cmd("APPLY CHECK") and #cmd("APPLY") ended with return code 0, or with 4
+for #cmd("HMA2461") (the upgrade of a predecessor) or #cmd("HMA4441") (a
+library of #cmd("SRC") elements) alone, not after 8 or 12. Behind
 a successful #cmd("ACCEPT") its #cmd("CLEANUP") deletes the staging library, and those of the element
 libraries. A failed #cmd("ACCEPT") leaves them in place, and the job can be
 submitted again. It needs no editing.
@@ -567,7 +569,8 @@ The status has #cmd("ACC") and no #cmd("APP"), the target library holds no
 module, and the #cmd("CLEANUP") has deleted the staging libraries.
 
 #note[*A defect* (mbt\#335): submit the accept job only after an installation
-job that ended with return code 0 (4 with a library of #cmd("SRC") elements),
-and read the #cmd("APPLYCHK") line first. After a #cmd("RESTORE") the accept
+job whose #cmd("APPLY CHECK") and #cmd("APPLY") ended with return code 0, or
+with 4 for #cmd("HMA2461") or #cmd("HMA4441") alone, and read the
+#cmd("APPLYCHK") line first. After a #cmd("RESTORE") the accept
 job stops by itself: the #cmd("ACCEPT") ends with 12 and the
 #cmd("CLEANUP") does not run.]

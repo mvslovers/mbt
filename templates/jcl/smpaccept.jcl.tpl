@@ -4,9 +4,11 @@ $JOBCARD
 //*
 //* SUBMIT THIS JOB WHEN YOU HAVE TRIED THE PRODUCT
 //*   Run $INSTALL_JOB first: it ends after the APPLY.
-//*   Submit this job only if that job ended with return code 0
-//*   (4 with a library of SRC elements): this job does not look
-//*   at what the install job did.
+//*   Submit this job only if the APPLY CHECK and the APPLY of that
+//*   job ended with return code 0, or with 4 for HMA2461 (a
+//*   predecessor in delete) or HMA4441 (a library of SRC elements)
+//*   alone: that is the normal end of an upgrade. Not after 8 or
+//*   12. This job does not look at what the install job did.
 //*   Until the ACCEPT a RESTORE can still take the function out
 //*   again. ACCEPT is the point without a way back, so the decision
 //*   is yours and the install job does not make it for you.
