@@ -89,7 +89,7 @@ already recorded stay under the old name (_MBT Reference_, "DD Names").
 == The Installation Jobs <ug-package-jobs>
 
 #idx("installation job")
-The package holds three jobs, two with #cmd("[smp] accept_fmid = false").
+The package holds three jobs, or two with #cmd("[smp] accept_fmid = false").
 The operator uploads the TRANSMIT files to MVS
 in binary, as files of 80-byte records, runs the allocation job once, puts
 the names of the uploaded files into the installation job, and submits it.
@@ -146,15 +146,12 @@ libraries, and the level is never accepted.
 
 *The accept job*, #var("name")#cmd("-")#var("version")#cmd("-accept.jcl"),
 is the decision to keep the level. Until it has run, a #cmd("RESTORE") can
-take the load modules out of the system again. It cannot take out the macros
-of a package with a macro library: SMP4 ends that #cmd("RESTORE") with return
-code 12 and #cmd("HMA4092").
-
-The #cmd("ACCEPT") of the job copies the modules into the distribution
-library, the level a later #cmd("RESTORE") returns to, and cannot be undone.
-Behind a successful #cmd("ACCEPT") the #cmd("CLEANUP") deletes the staging
-library, and those of the element libraries. A failed #cmd("ACCEPT") leaves
-them in place, and the job can be submitted again. It needs no editing.
+take the function out of the system again. Its #cmd("ACCEPT") copies the
+modules into the distribution library, the level a later #cmd("RESTORE")
+returns to, and cannot be undone. Behind a successful #cmd("ACCEPT") its
+#cmd("CLEANUP") deletes the staging library, and those of the element
+libraries. A failed #cmd("ACCEPT") leaves them in place, and the job can be
+submitted again. It needs no editing.
 
 Someone who never accepts keeps the staging libraries. The closing comment of
 the installation job has the #cmd("DELETE") statements for them, to run with
