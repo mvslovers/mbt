@@ -420,8 +420,11 @@ The installation job does not submit the accept job, but the accept job does
 not check what the installation job did either. Submitted after an
 #cmd("APPLY CHECK") that failed on a missing prerequisite, it would take the
 #cmd("ACCEPT") with that requisite bypassed and delete the staging libraries.
-Submit it only after the installation job ended with return code 0 (4 with a
-library of #cmd("SRC") elements), as the header of the job says. This and the
+Submit it only after an installation job whose #cmd("APPLY CHECK") and
+#cmd("APPLY") ended with return code 0, or with 4 for #cmd("HMA2461") (a
+predecessor in #cmd("delete"), the normal end of an upgrade) or
+#cmd("HMA4441") (a library of #cmd("SRC") elements) alone, and not after 8 or
+12, as the header of the job says. This and the
 other two limits of the jobs are described in _MBT User's Guide_, "Known
 Limitations of the Jobs"\; MBT 3.0.1 is planned to change them.
 
