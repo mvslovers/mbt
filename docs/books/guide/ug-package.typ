@@ -115,6 +115,29 @@ it waits, and the console shows #cmd("IEF238D") and asks for a device name
 or #cmd("CANCEL"). Reply #cmd("CANCEL"), correct the volume, and submit the
 job again (_MBT Reference_, "The Volumes of the Allocation Job").
 
+#idx("APF")#idx("IEAAPF00")
+*A load library that must be APF-authorized goes on the volume of its APF
+entry.* An entry in #cmd("SYS1.PARMLIB(IEAAPF00)") names a data set and a
+volume, #cmd("dsname volser"). The library is authorized only on that
+volume. The same name on another volume is a library that exists, holds the
+modules, and is not authorized, and the installation does not say so: no
+step fails, and a list of the members shows the modules. The program that
+needs the authorization finds out when it runs. So read
+the list before the allocation job runs:
+
+- *The system has an entry for the library.* Set #cmd("TGTVOL") to its
+  volume, on the #cmd("PROC") statement or on the #cmd("EXEC") statement
+  (#cmd("//ALLOC   EXEC SMPALLOC,TGTVOL=WORK00")), or once for every
+  package of the project with #cmd("target_volume") in #cmd("[smp]"). The
+  job then allocates every target library there. A product whose libraries
+  have entries on different volumes writes the volume of the one that
+  differs into its #cmd("DD") statement in place of #cmd("&TGTVOL"). If
+  that leaves a symbol on the #cmd("PROC") statement that no #cmd("DD") uses,
+  remove it (@ug-package-upgrade).
+- *The system has no entry yet.* Add one for the volume the job puts the
+  library on, #cmd("TGTVOL"). MVS 3.8j reads the list at IPL, so the entry
+  counts after the next IPL.
+
 *The installation job*, #var("name")#cmd("-")#var("version")#cmd("-inst.jcl"),
 installs the product. The SMP steps run in order, and each is skipped when the
 step it depends on failed:
@@ -358,11 +381,35 @@ With a library of its own name, the new library does not exist yet. The
 allocation job of the release would
 also allocate the libraries that do, and fails on them. Submit a job of your
 own instead, with one #cmd("IEFBR14") step and the #cmd("DD") statement of the
-new library taken from the allocation job, its volume written out. If you cut
-the allocation job down instead, remove the symbols on its #cmd("PROC")
-statement that no remaining #cmd("DD") uses (#cmd("TGTVOL") for target
-libraries, #cmd("DLBVOL") for distribution libraries): MVS 3.8j ends the job
-with a JCL error (#cmd("IEF452I"), #cmd("IEF657I")) otherwise.
+new library taken from the allocation job, its volume written out.
+
+If you cut the allocation job down instead, take two things out of it: the
+#cmd("DD") statements of the libraries that exist, and every symbol on the
+#cmd("PROC") statement that no remaining #cmd("DD") uses. MVS 3.8j does not
+ignore an unused symbol, it ends the job. The generated job of a product
+whose target library is new and whose distribution library exists has
+#cmd("PROC TGTVOL=MVSRES,DLBVOL=SMP000") on its #cmd("PROC") statement. The
+job cut down to the new target library keeps the one symbol its #cmd("DD")
+uses:
+
+```
+//SMPALLOC PROC TGTVOL=MVSRES
+//ALLOC   EXEC PGM=IEFBR14
+//ABCLINK  DD  DSN=ABC.ABCLINK,DISP=(NEW,CATLG,DELETE),
+//            UNIT=SYSDA,VOL=SER=&TGTVOL,SPACE=(CYL,(5,2,20)),
+//            DCB=(DSORG=PO,RECFM=U,BLKSIZE=15040)
+//        PEND
+//ALLOC   EXEC SMPALLOC
+```
+
+Left on the #cmd("PROC") statement, #cmd("DLBVOL") is a symbol that no
+statement uses, and the system rejects the job before it runs
+(@ug-package-unused). It works the other way round as well: a job cut down
+to the distribution library alone loses #cmd("TGTVOL").
+
+#fig(caption: [An allocation job with a symbol that no DD uses])[
+  #screen(raw(read("../ex/ug-package/alloc-unused.txt")))
+] <ug-package-unused>
 
 #idx("APF")
 Two things an upgrade does not do:
@@ -376,7 +423,8 @@ Two things an upgrade does not do:
   without them the old program keeps running.
 - *It does not change the APF list.* An APF entry names a data set and its
   volume. A library that is on another volume than its entry says is not
-  authorized.
+  authorized (@ug-package-jobs describes how to put the new library on the
+  volume of its entry).
 
 #idx("prerequisite")
 *A required version of another product* does not belong into the SYSMOD.
