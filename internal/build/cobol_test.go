@@ -27,7 +27,7 @@ func TestCOBOLSteps(t *testing.T) {
 	}
 	as := b.compileStep("src/Hello.CBL", "build/Hello.o")
 	if as.kind != "as" || !reflect.DeepEqual(as.inputs, []string{"build/cobol/Hello.asm"}) ||
-		!reflect.DeepEqual(as.argv, []string{"as370", "-I", "maclib", "-o", "build/Hello.o", "build/cobol/Hello.asm"}) || as.depfile != "" {
+		!reflect.DeepEqual(as.argv, []string{"as370", "-I", "maclib", "-o", "build/Hello.o", "build/cobol/Hello.asm"}) || as.depfile != "build/Hello.d" {
 		t.Errorf("assemble %+v", as)
 	}
 	if cc := b.compileStep("src/a.c", "build/a.o"); cc.depfile != "build/a.d" {
