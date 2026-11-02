@@ -682,6 +682,19 @@ func TestAllocVolumesDefault(t *testing.T) {
 	}
 }
 
+func TestAllocHeaderNamesAPFEntry(t *testing.T) {
+	d := parseElem(t, map[string]any{"dir": "rxlib", "target": "ABC.RXLIB", "element": "MAC"})
+	job := allocJob(t, d)
+	for _, want := range []string{
+		"//* An IEAAPF00 entry is \"dsname volser\". If the system already has\n",
+		"//* an entry for a library of this product, set TGTVOL to the volume\n",
+	} {
+		if !strings.Contains(job, want) {
+			t.Errorf("header lacks %q:\n%s", want, job)
+		}
+	}
+}
+
 func TestAllocVolumesOverride(t *testing.T) {
 	cfg := elemCfg(map[string]any{"dir": "rxlib", "target": "ABC.RXLIB", "element": "MAC"})
 	smp := cfg["distribution"].(map[string]any)["smp"].(map[string]any)
