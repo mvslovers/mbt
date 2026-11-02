@@ -235,7 +235,8 @@ error that names the file: exclude it or give it a
     steps of #cmd("mbt test --mvs") (batch and TSO), or
     #cmd("{ batch = ..., tso = ... }"). A host test gets none. Without it the
     test gets none\;
-    one that then skips its work passes with no assertions.],
+    one that then skips its work passes with no assertions. At most 49
+    characters for the batch step and 69 for the TSO step.],
   [#cmd("fixtures")], [none], [#cmd("{ ")#var("DD")#cmd(" = [")#var("files")#cmd("] }"):
     members loaded into a data set per DD, #var("HLQ")#cmd(".")#var("PROJECT")#cmd(".FIX.")#var("TEST")#cmd(".")#var("DD"),
     FB 80. A member is the file's name without its extension, in upper

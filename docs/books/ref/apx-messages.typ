@@ -76,9 +76,14 @@ the way out.
     [#cmd("mbt.toml: [tso.NAME] fixtures must be a table: { KEY = [\"file\", ...] }")],
       [write #cmd("fixtures") as an inline table that maps each key to a
       list of files.],
-    [#cmd("mbt.toml: [dependencies] \"...\" is ..., not a version range -- write \"...\" = \"^1\"")],
+    [#cmd("mbt.toml: [dependencies] \"...\" is ..., not a version range -- write \"...\" = \"<range>\"")],
       [give the dependency as a version range string
       (@ref-toml-deps).],
+    [#cmd("test NAME: parm is N chars; M is the most the batch EXEC card holds (JCL ends at column 71)")],
+      [#cmd("mbt test --mvs") (exit 2, before anything is uploaded): the
+      #cmd("parm") does not fit the batch step even on a continuation card
+      (49 characters) or, in the form "... the TSO CALL holds (TSO reads
+      columns 1-72)", the TSO step (69). Shorten it.],
     [#cmd("mbt.toml: test.NAME.parm is ... -- write a string, or a table [test.NAME.parm] with batch and tso")],
       [write #cmd("parm") as one string, or as a table with the keys
       #cmd("batch") and #cmd("tso").],

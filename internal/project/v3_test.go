@@ -456,6 +456,10 @@ func TestLoadV3WrongForm(t *testing.T) {
 		{"fixtures a list", func(s string) string {
 			return strings.Replace(s, `fixtures = { SYSPROC = ["f/b"], SYSEXEC = ["f/a"] }`, `fixtures = ["f/a"]`, 1)
 		}, []string{"test.TSTB.fixtures"}},
+		{"build.host replace a string", func(s string) string { return s + "[build.host]\nreplace = \"a\"\n" },
+			[]string{"build.host.replace", "a string", "[build.host.replace]"}},
+		{"build.host replace an array", func(s string) string { return s + "[build.host]\nreplace = [\"a\"]\n" },
+			[]string{"build.host.replace", "[build.host.replace]"}},
 		{"dependency a table", func(s string) string { return s + "[dependencies.\"mvslovers/libc370\"]\nversion = \"^2\"\n" },
 			[]string{"mvslovers/libc370", "range"}},
 		{"tools array", func(s string) string { return s + "[[tools]]\nrepo = \"a/b\"\n" },
@@ -508,8 +512,9 @@ func TestLoadV3UnknownKeyEverywhere(t *testing.T) {
 	}
 }
 
-// Every mbt.toml the repository ships as an example or in the books loads:
-// the checks of mbt#312 must not turn a documented file into an error.
+// Every mbt.toml the repository ships as an example loads (the ones under
+// docs/books/ex; snippets inside the chapters are not loaded): the checks of
+// mbt#312 must not turn an example into an error.
 func TestShippedMbtTomlLoads(t *testing.T) {
 	top := filepath.Join("..", "..")
 	n := 0
@@ -546,5 +551,34 @@ func TestLoadV3ParmString(t *testing.T) {
 	}
 	if tb := p.RawTables("test")[1]; tb["parm"] != "21771" {
 		t.Errorf("TSTB %v", tb)
+	}
+}
+
+// mbt#337: the hint names the range the user wrote a table for, not "^1".
+func TestDependencyHintNeutral(t *testing.T) {
+	_, err := LoadV3(v3Tree(t, v3Base+"[dependencies.\"mvslovers/libc370\"]\nversion = \"^2\"\n"), FileV3)
+	if err == nil || strings.Contains(err.Error(), "^1") || !strings.Contains(err.Error(), `"mvslovers/libc370" = "<range>"`) {
+		t.Errorf("hint: %v", err)
+	}
+}
+
+// mbt#337: with two faults in one file the same one is reported every run.
+func TestErrorsAreStable(t *testing.T) {
+	head := "schema = 3\n[project]\nname = \"ufsd\"\nversion = \"1.4.0-dev\"\n"
+	cases := []struct{ name, toml, want string }{
+		{"keyed arrays", head + "[[test]]\nname = \"A\"\n[[tso]]\nsize = \"x\"\n[[module]]\nname = \"B\"\n", "[[module]]"},
+		{"dependencies", head + "[dependencies]\n\"z/z\" = 1\n\"m/m\" = 2\n\"a/a\" = 3\n", `"a/a"`},
+		{"module entries", head + "[module]\nZ = 1\nM = 2\nA = 3\n", "'A'"},
+		{"parm keys", strings.Replace(v3Base, `parm = { batch = "0", tso = "1" }`, `parm = { zz = "1", mm = "2", aa = "3" }`, 1), "has 'aa'"},
+		{"tso fixtures", v3Base + "[tso.T]\nfixtures = { \"b d\" = [\"f\"], \"c d\" = [\"f\"], \"a d\" = [\"f\"] }\n", `"a d"`},
+	}
+	for _, c := range cases {
+		root := v3Tree(t, c.toml)
+		for i := 0; i < 60; i++ {
+			_, err := LoadV3(root, FileV3)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("%s, run %d: got %v, want %q", c.name, i, err, c.want)
+			}
+		}
 	}
 }

@@ -133,6 +133,22 @@ func tableAt(parent map[string]any, key, path, entry string) (map[string]any, er
 	return nil, configErr("mbt.toml: %s is %s, not a table -- write %s", path, kindOf(v), want)
 }
 
+// sortedKeys lists a table's keys in order, so that a loop reporting the
+// first fault it finds reports the same one every run.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func isString(v any) bool {
+	_, ok := v.(string)
+	return ok
+}
+
 // kindOf names the TOML type of a decoded value, for a message.
 func kindOf(v any) string {
 	switch v.(type) {
@@ -161,14 +177,20 @@ func checkForms(in map[string]any) error {
 			return err
 		}
 	}
-	for k, entry := range v3Keyed {
-		if _, err := tableAt(in, k, k, entry); err != nil {
+	for _, k := range sortedKeys(v3Keyed) {
+		if _, err := tableAt(in, k, k, v3Keyed[k]); err != nil {
 			return err
 		}
 	}
 	if b, _ := in["build"].(map[string]any); b != nil {
-		if _, err := tableAt(b, "host", "build.host", ""); err != nil {
+		host, err := tableAt(b, "host", "build.host", "")
+		if err != nil {
 			return err
+		}
+		if host != nil {
+			if _, err := tableAt(host, "replace", "build.host.replace", ""); err != nil {
+				return err
+			}
 		}
 	}
 	if d, _ := in["distribution"].(map[string]any); d != nil {
@@ -177,9 +199,9 @@ func checkForms(in map[string]any) error {
 		}
 	}
 	if deps, _ := in["dependencies"].(map[string]any); deps != nil {
-		for k, v := range deps {
-			if _, ok := v.(string); !ok {
-				return configErr("mbt.toml: [dependencies] %q is %s, not a version range -- write %q = \"^1\"", k, kindOf(v), k)
+		for _, k := range sortedKeys(deps) {
+			if v := deps[k]; !isString(v) {
+				return configErr("mbt.toml: [dependencies] %q is %s, not a version range -- write %q = \"<range>\"", k, kindOf(v), k)
 			}
 		}
 	}
@@ -341,7 +363,8 @@ func translateV3(root string, in map[string]any) (map[string]any, string, error)
 				if !ok {
 					return nil, "", configErr("mbt.toml: [tso.%s] fixtures must be a table: { KEY = [\"file\", ...] }", quoteKey(n))
 				}
-				for k, l := range fm {
+				for _, k := range sortedKeys(fm) {
+					l := fm[k]
 					if !qualRE.MatchString(strings.ToUpper(k)) {
 						return nil, "", configErr("mbt.toml: [tso.%s] fixtures: %q is the last qualifier of a data set (1-8 characters, a letter first)", quoteKey(n), k)
 					}
@@ -404,7 +427,8 @@ func keyedTables(in map[string]any, kind string) ([]string, map[string]map[strin
 	}
 	names := make([]string, 0, len(t))
 	entries := map[string]map[string]any{}
-	for n, v := range t {
+	for _, n := range sortedKeys(t) {
+		v := t[n]
 		e, ok := v.(map[string]any)
 		if !ok {
 			return nil, nil, configErr("mbt.toml: [%s] holds one table per entry, [%s.NAME]; '%s' is %s", kind, kind, n, kindOf(v))
@@ -586,7 +610,8 @@ func v3Tests(root string, in map[string]any) ([]map[string]any, error) {
 		}
 		if p, ok := e["parm"].(map[string]any); ok {
 			delete(e, "parm")
-			for k, v := range p {
+			for _, k := range sortedKeys(p) {
+				v := p[k]
 				if k != "batch" && k != "tso" {
 					return nil, configErr("mbt.toml: [test.%s] parm has '%s' -- only batch and tso", quoteKey(n), k)
 				}
