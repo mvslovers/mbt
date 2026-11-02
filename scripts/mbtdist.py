@@ -216,6 +216,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         "FMID": dist.smp.fmid,
         "INSTALL_JOB": inst_job,
         "ALLOC_DDS": D.render_alloc_dds(dist),
+        "CHECK_CARDS": D.render_catalog_check(dist),
         "TGTVOL": dist.smp.target_volume,
         "DLBVOL": dist.smp.dlib_volume,
     })
@@ -252,7 +253,8 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         accept_summary = ("//*   (no ACCEPT -- this level never becomes the "
                           "restore base)\n" + cleanup_note)
         accept_step = "//*"
-        cleanup_step = D.render_cleanup_step(dist, "APPLY.HMASMP")
+        cleanup_step = D.render_cleanup_step(
+            dist, "APPLY.HMASMP", (D.APPLYCHK_GATE, D.RECV_GATE))
 
     inst_jcl = render_template("smpinst.jcl.tpl", {
         "JOBCARD": D.jobcard(D.job_name(name, "INS"), f"{name.upper()[:12]} INSTALL"),
@@ -275,7 +277,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
             "//* product owns those patterns, the site owns the copies it makes of\n"
             "//* them. See the README for which member goes where."),
         "APPLY_WHAT": "copy the load modules into the target library",
-        "CHECK_COND": "(0,NE,APPLYCHK.HMASMP)",
+        "APPLY_COND": D.cond_list(D.RECV_GATE, D.APPLYCHK_GATE),
         "CHECK_RC": "RC=0",
         "ACCEPT_SUMMARY": accept_summary,
         "ACCEPT_STEP": accept_step,

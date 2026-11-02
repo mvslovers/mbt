@@ -4,6 +4,14 @@ $JOBCARD
 //*
 //* RUN THIS ONCE, BEFORE $INSTALL_JOB.
 //*
+//* The step CHECK looks in the catalog first. On a first run it prints
+//* IDC3012I ENTRY ... NOT FOUND for every library below: that is the
+//* answer wanted, and CHECK ends RC 0. If a library is already
+//* cataloged, CHECK lists it and ends RC 8, ALLOC does not run and
+//* nothing is allocated. Without that look a second run would end RC 0
+//* with IEF287I ... NOT CATLGD 2 and leave an uncataloged copy of the
+//* library on the other volume.
+//*
 //* There is deliberately no DELETE step. Once FMID $FMID has been
 //* accepted, the distribution libraries hold the accepted copy of
 //* every element; a re-run that scratched them would leave the SMP
@@ -37,5 +45,10 @@ $JOBCARD
 //ALLOC   EXEC PGM=IEFBR14
 $ALLOC_DDS
 //        PEND
-//ALLOC   EXEC SMPALLOC
+//CHECK   EXEC PGM=IDCAMS
+//SYSPRINT DD  SYSOUT=*
+//SYSIN    DD  *
+$CHECK_CARDS
+/*
+//ALLOC   EXEC SMPALLOC,COND=(0,NE,CHECK)
 //

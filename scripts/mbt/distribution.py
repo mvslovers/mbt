@@ -712,6 +712,23 @@ def render_apply_dds(dist: Distribution) -> str:
     return "\n".join(next(iter(blocks.values())))
 
 
+def render_catalog_check(dist: Distribution) -> str:
+    """SYSIN of the CHECK step in front of the allocation.
+
+    Allocating over a name the catalog already has ends RC 0 with
+    NOT CATLGD 2 and an uncataloged duplicate on another volume, so the job
+    looks first.  LISTCAT ends 0 for a name it finds and 4 for one it does
+    not; any name found raises MAXCC to 8, and a MAXCC of 4 at the end means
+    none was found.
+    """
+    lines = []
+    for dsn in dist.allocated_datasets():
+        lines.append(f"  LISTCAT ENTRIES({dsn})")
+        lines.append("  IF LASTCC = 0 THEN SET MAXCC = 8")
+    lines.append("  IF MAXCC = 4 THEN SET MAXCC = 0")
+    return "\n".join(lines)
+
+
 def render_alloc_dds(dist: Distribution) -> str:
     """DD block for the IEFBR14 allocation step.
 
@@ -874,7 +891,32 @@ def render_install_end(dist: Distribution, accept_job: str) -> str:
     return "\n".join(lines)
 
 
-def render_cleanup_step(dist: Distribution, after_step: str) -> str:
+#: COND test holding every step behind the SMP RECV back.  A COND naming a
+#: step that did not run is not made, so each step names all the steps before
+#: it, not only the one directly in front.
+RECV_GATE = "0,NE,RECV.HMASMP"
+APPLYCHK_GATE = "0,NE,APPLYCHK.HMASMP"
+
+
+def cond_list(*tests: str) -> str:
+    """The COND parameter for one or more tests, each "rc,op,step"."""
+    if len(tests) == 1:
+        return f"({tests[0]})"
+    return "((" + "),(".join(tests) + "))"
+
+
+def cleanup_exec(*tests: str) -> str:
+    """The EXEC card of the CLEANUP.  Several tests do not fit one card (an MCS
+    card is read to column 71), so the first stays on it and the rest continue
+    on the next."""
+    head = "//CLEANUP EXEC PGM=IDCAMS,COND="
+    if len(tests) == 1:
+        return head + cond_list(*tests)
+    return head + "((" + tests[0] + "),\n//             (" + "),(".join(tests[1:]) + "))"
+
+
+def render_cleanup_step(dist: Distribution, after_step: str,
+                        gates: tuple = ()) -> str:
     """Scratch the staging library once SMP has taken what it needs from it.
 
     The staging library is a delivery channel, not a system component -- the
@@ -904,7 +946,7 @@ def render_cleanup_step(dist: Distribution, after_step: str) -> str:
         "//* Only reached when everything above worked. Comment the step out",
         "//* if you would rather keep the shipped modules on the system.",
         "//*",
-        f"//CLEANUP EXEC PGM=IDCAMS,COND=({rc},{after_step})",
+        cleanup_exec(f"{rc},{after_step}", *gates),
         "//SYSPRINT DD  SYSOUT=*",
         "//SYSIN    DD  *",
         *[f"  {d}" for d in staging_deletes(dist)],
