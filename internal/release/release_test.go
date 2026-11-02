@@ -192,3 +192,26 @@ func TestReleaseRefusesANextVersionAbove9(t *testing.T) {
 		t.Errorf("next minor: %v", err)
 	}
 }
+
+// A failing ls-remote is its own error, not "tag already exists on origin"
+// (mbt#346); a tag that is on origin keeps its message.
+func TestReleaseOriginCheck(t *testing.T) {
+	work, origin := repo(t, "1.4.0-dev", "")
+	sh(t, work, "git", "remote", "set-url", "origin", filepath.Join(filepath.Dir(work), "gone.git"))
+	err := Release(work, load(t, work), "1.4.0", "", opts(t))
+	if err == nil || strings.Contains(err.Error(), "already exists") || !strings.Contains(err.Error(), "cannot check origin") {
+		t.Errorf("unreachable origin: %v", err)
+	}
+	if _, ok := err.(*Error); !ok {
+		t.Errorf("not a refusal (exit 2): %T", err)
+	}
+
+	sh(t, work, "git", "remote", "set-url", "origin", origin)
+	sh(t, work, "git", "tag", "v1.4.0")
+	sh(t, work, "git", "push", "-q", "origin", "v1.4.0")
+	sh(t, work, "git", "tag", "-d", "v1.4.0")
+	err = Release(work, load(t, work), "1.4.0", "", opts(t))
+	if err == nil || !strings.Contains(err.Error(), "tag v1.4.0 already exists on origin") {
+		t.Errorf("tag on origin: %v", err)
+	}
+}

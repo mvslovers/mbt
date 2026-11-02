@@ -441,7 +441,13 @@ The installation job does not submit the accept job. The accept job checks
 what the installation job did (the guard, @ref-smp-accept): after an
 #cmd("APPLY CHECK") that failed on a missing prerequisite the SYSMOD is
 received and not applied, so the job ends in #cmd("NOTAPPL") and does not take
-the #cmd("ACCEPT") with the requisite bypassed.
+the #cmd("ACCEPT") with the requisite bypassed. Submit it after an
+installation job whose #cmd("APPLY CHECK") and #cmd("APPLY") ended with return
+code 0, or with 4 for #cmd("HMA2461") (a predecessor in #cmd("delete"), the
+normal end of an upgrade) or #cmd("HMA4441") (a library of #cmd("SRC")
+elements) alone, and not after 8 or 12, as the header of the job says. The
+guard looks for the SYSMOD in the target zone, not at the return code of the
+installation job.
 
 == The SYSMOD <ref-smp-sysmod>
 

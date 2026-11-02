@@ -171,10 +171,14 @@ libraries, and the level is never accepted.
 is the decision to keep the level. Until it has run, a #cmd("RESTORE") can
 take the function out of the system again. Its #cmd("ACCEPT") copies the
 modules into the distribution library, the level a later #cmd("RESTORE")
-returns to, and cannot be undone. Its first step, #cmd("GUARD"), looks for the
-SYSMOD in the target zone. Only when it is applied do the #cmd("ACCEPT") and
-the #cmd("CLEANUP") run\; otherwise the job ends with return code 8 in the
-step #cmd("NOTAPPL") and nothing is accepted or scratched:
+returns to, and cannot be undone. Submit it after an installation job whose
+#cmd("APPLY CHECK") and #cmd("APPLY") ended with return code 0, or with 4 for
+#cmd("HMA2461") (the upgrade of a predecessor) or #cmd("HMA4441") (a library of
+#cmd("SRC") elements) alone, not after 8 or 12. Its first step,
+#cmd("GUARD"), looks for the SYSMOD in the target zone. Only when it is
+applied do the #cmd("ACCEPT") and the #cmd("CLEANUP") run\; otherwise
+the job ends with return code 8 in the step #cmd("NOTAPPL") and nothing is
+accepted or scratched:
 
 #fig(caption: [The accept job after an installation job that ended with 12 at the #cmd("APPLYCHK")])[
   #screen(raw(read("../ex/ug-package/accept-unapplied.txt")))

@@ -107,7 +107,11 @@ func Release(root string, p *project.Project, ver, next string, o Options) error
 	if out, _ := o.Git(root, "tag", "-l", tag); strings.TrimSpace(out) != "" {
 		return errf("tag %s already exists locally -- if an aborted run left it: git tag -d %s; git push origin --delete %s", tag, tag, tag)
 	}
-	if out, _ := o.Git(root, "ls-remote", "--tags", "origin", "refs/tags/"+tag); strings.TrimSpace(out) != "" {
+	out, err := o.Git(root, "ls-remote", "--tags", "origin", "refs/tags/"+tag)
+	if err != nil {
+		return errf("cannot check origin for tag %s (network, authentication or no origin remote?): %v", tag, err)
+	}
+	if strings.TrimSpace(out) != "" {
 		return errf("tag %s already exists on origin -- git push origin --delete %s first", tag, tag)
 	}
 
