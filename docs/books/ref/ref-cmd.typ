@@ -249,7 +249,8 @@ it, commits #cmd("release: v")#var("version"), tags, pushes, then sets the
 next development version, commits #cmd("chore: bump to ")#var("next") and
 pushes. Refused, with return code 2, unless the tree is clean and at a
 prerelease of #var("version") (#cmd("-dev") or #cmd("-rc")#var("n")), when
-the tag exists locally or on #cmd("origin"), for a patch release with an SMP
+the tag exists locally or on #cmd("origin") or #cmd("origin") cannot be
+asked (no such remote, no network, no access), for a patch release with an SMP
 package but no explicit #cmd("fmid"), and when the project does not own the
 repository's tags (@ref-cmd-prerelease), and, for a product with an SMP
 package, when the next version has a number above 9. A step that fails is
