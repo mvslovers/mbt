@@ -8,12 +8,13 @@ mbt command [options] [arguments]
 ```
 
 #cmd("mbt") is run in the directory of a project, the one that holds its
-#cmd("mbt.toml"), except #cmd("mbt target") and #cmd("mbt version"), which
-need no project. #cmd("mbt") without a command lists the commands and ends
+#cmd("mbt.toml"), except #cmd("mbt target"), #cmd("mbt version") and
+#cmd("mbt help"), which need no project. #cmd("mbt") without a command lists the commands and ends
 with return code 2\; #cmd("mbt help"), #cmd("-h") and #cmd("--help") list
 them with return code 0. Options may stand before or after the arguments,
 and #cmd("--") ends them. A long option is written with one or two
-hyphens.
+hyphens. An unknown command, and an argument to a command that takes none,
+are return code 2.
 
 When #cmd("mbt.toml") pins another version of MBT in
 #cmd("[toolchain] mbt"), the command is run by that version
@@ -44,8 +45,9 @@ Before it links, #cmd("mbt build") runs the check of
 #cmd("mbt module-data"). It also checks that the installed LIBC/370 is not
 older than #cmd("[toolchain] libc370") (return code 1 otherwise), and that
 the declared dependencies are staged (return code 3). A #var("NAME") that
-is no module or test stops the build before anything runs (return code 2),
-as #cmd("mbt deploy --module") does.
+is no module or test stops the build before any step runs (return code 2).
+#cmd("mbt deploy --module") checks its names only after the build and the
+logon.
 
 == mbt check <ref-cmd-check>
 
@@ -137,7 +139,8 @@ mbt dist
 
 Writes the SMP installation package again from the load TRANSMIT file
 already in #cmd("dist/"), without building. It refuses the same versions as
-#cmd("mbt package") (@ref-cmd-package).
+#cmd("mbt package") (@ref-cmd-package). A project without
+#cmd("[distribution]") has nothing to build and ends with return code 0.
 
 == mbt doctor <ref-cmd-doctor>
 
@@ -146,13 +149,14 @@ already in #cmd("dist/"), without building. It refuses the same versions as
 mbt doctor [--offline]
 ```
 
-Checks the commands of CC/370, the toolchain's directory tree with
-LIBC/370, their versions against #cmd("[toolchain]"), and the project file,
-(#cmd("cc370"), #cmd("as370"), #cmd("ld370"), #cmd("ar370"),
-#cmd("xmit370")), and logs on to the target, read-only\; the target is
-chosen as for every command, #cmd("MBT_TARGET") included. Errors, an
-unreachable mvsMF among them, end it with return code 2\; a CC/370 older
-than #cmd("[toolchain] cc370") is a warning.
+Checks that the commands #cmd("cc370"), #cmd("as370"), #cmd("ld370"),
+#cmd("ar370") and #cmd("xmit370") are found, the toolchain's directory tree
+with LIBC/370, their versions against #cmd("[toolchain]"), and the project
+file, and logs on to the target, read-only\; the target is chosen as for
+every command, #cmd("MBT_TARGET") included. A project file that does not
+load, an unreachable mvsMF and a failed logon are errors and end the command
+with return code 2\; a CC/370 older than #cmd("[toolchain] cc370") is a
+warning.
 
 #deflist(width: 1.2in,
   [#cmd("--offline")], [check the workstation only: no connection, no
@@ -166,7 +170,8 @@ mbt migrate [--dry-run]
 ```
 
 Reads #cmd("project.toml") of MBT 2, writes #cmd("mbt.toml"), and removes
-#cmd("project.toml") and #cmd("VERSION"). It writes nothing when the new
+#cmd("project.toml") and, if there is one, #cmd("VERSION"). With an
+#cmd("mbt.toml") present it does nothing and ends with return code 0. It writes nothing when the new
 file would describe a different project than the old one: it says
 #cmd("nothing written") and ends with return code 99. Notes go to standard
 error.
@@ -186,7 +191,11 @@ outside functions and #cmd("static") definitions inside them that are not
 #cmd("const"). Writable data in a #cmd("rent = true") module is an error,
 in an #cmd("ac = 1") module, or a module without a #cmd("rent")
 declaration (an MBT 2 project), a warning. Modules with
-#cmd("rent = false") and no #cmd("ac"), and tests, are not checked.
+#cmd("rent = false") and no #cmd("ac") are not checked. A test is checked
+only if it declares #cmd("rent = true") (an error) or #cmd("ac = 1") (a
+warning). Writable data in the #cmd("[internal]") sources is a warning too,
+as long as a module may be RENT. An error ends the command with return code
+1\; the report goes to standard error.
 
 #deflist(width: 1.2in,
   [#cmd("--all")], [list every warning, not three per module. Errors are
@@ -205,11 +214,13 @@ mbt package [-j n]
 Builds the load modules and the library and writes the release files into
 #cmd("dist/"): #var("name")#cmd("-")#var("version")#cmd("-load.xmit"),
 #cmd("-lib.tar.gz"), and, with #cmd("[distribution]"), the installation
-package #cmd("-dist.zip") and #cmd("-dist.tar.gz") (@ref-smp). A release
-version whose FMID cannot be derived is refused (@ref-toml-smp), and so
-is a prerelease without an explicit #cmd("[smp] fmid") (@ref-smp-prerelease),
-with return code 2 and no installation package\; the other files are
-written.
+package #cmd("-dist.zip") and #cmd("-dist.tar.gz") (@ref-smp). A version from
+which no FMID can be derived stops #cmd("mbt") at the start with return code
+2 (@ref-toml-smp). Without an explicit #cmd("[smp] fmid"), a prerelease and a
+patch release are refused (@ref-smp-prerelease), and so is a
+#var("x")#cmd(".")#var("y")#cmd(".0") when a patch of the previous minor was
+released and #cmd("[smp] delete") is not explicit\; these end with return
+code 2 and no installation package, the other files are written.
 
 == mbt prerelease <ref-cmd-prerelease>
 
@@ -242,17 +253,18 @@ the tag exists locally or on #cmd("origin"), for a patch release with an SMP
 package but no explicit #cmd("fmid"), and when the project does not own the
 repository's tags (@ref-cmd-prerelease), and, for a product with an SMP
 package, when the next version has a number above 9. A step that fails is
-not undone.
+not undone, and the command ends with return code 2.
 
 #deflist(width: 1.5in,
   [#cmd("--next") #var("version")], [the next development version, a
-    #cmd("-dev") version. Default: the patch number plus one.],
+    prerelease (#cmd("-dev") or #cmd("-rc")#var("n")). Default: the patch
+    number plus one, with #cmd("-dev").],
 )
 
 == mbt run <ref-cmd-run>
 
 ```
-mbt run [name] [-v] [--dry-run] [-- arguments...]
+mbt run [name] [--target name] [-v] [--dry-run] [-- arguments...]
 ```
 
 Runs a command or a task of the Lua of the project and of
@@ -261,6 +273,7 @@ runs even when it is up to date. The arguments after #cmd("--") reach a
 command as #cmd("ctx.args")\; a task gets none.
 
 #deflist(width: 1.2in,
+  [#cmd("--target") #var("name")], [the target a task uses (@ref-targets-select).],
   [#cmd("-v")], [show each program run and its output.],
   [#cmd("--dry-run")], [run the Lua, but start no program and write
     nothing.],
@@ -292,7 +305,7 @@ when mvsMF does not answer or, with #cmd("--tso"), the TSO logon fails.
   [#cmd("info")], [logs on to mvsMF and shows what runs there.],
   [#cmd("--wait") #var("s")], [wait up to #var("s") seconds for mvsMF to
     answer\; with #cmd("--tso"), for the TSO logon too, within the same
-    #var("s").],
+    #var("s"). If mvsMF does not answer in time, return code 4.],
   [#cmd("--tso")], [after the other probes, log on to TSO over TN3270 as the
     #cmd("[tn3270]") user up to #cmd("READY"), log off and show how long the
     logon took. mvsMF answering does not mean TSO takes logons: HTTPD
@@ -323,7 +336,8 @@ workstation's C compiler and runs them there.
   [#cmd("--mvs")], [build the test load modules, deploy them to the test
     library and run each in batch and under TSO on the target.],
   [#cmd("--tso")], [run #cmd("test/tso/*.lua") in TSO sessions over
-    TN3270.],
+    TN3270. Wins over #cmd("--mvs")\; #cmd("--no-deploy") and
+    #cmd("--linklib") are ignored.],
   [#cmd("--only") #var("NAME")], [only this test. Repeatable.],
   [#cmd("--no-deploy")], [with #cmd("--mvs"): use the test library already
     on MVS.],
@@ -352,6 +366,11 @@ warning:
 The return code is not affected. With #cmd("--mvs"), a step part of whose
 output could not be read is not marked. #cmd("--tso") counts no
 assertions.
+
+A test that fails ends the command with return code 1. On the workstation, a
+test with #cmd("host = false") or a source that is not C is skipped and
+named as #cmd("skipped (MVS-only)"). With #cmd("--mvs"), the return codes
+are those of @apx-messages: 4 when mvsMF fails, 5 for a data set.
 
 == mbt version <ref-cmd-version>
 
@@ -384,4 +403,8 @@ mbt ci-info
 
 For workflows: prints #cmd("PROJECT_NAME"), #cmd("PROJECT_VERSION"),
 #cmd("PROJECT_FILE"), #cmd("CC370_REF"), #cmd("LIBC370_REF") and
-#cmd("MBT_PIN") from the project file.
+#cmd("MBT_PIN") from the project file, one #cmd("KEY=VALUE") per line.
+#cmd("CC370_REF") and #cmd("LIBC370_REF") are #cmd("v")#var("version") for a
+version in #cmd("[toolchain]"), the entry itself for anything else (a
+branch, say), and #cmd("main") for none. #cmd("MBT_PIN") is empty when the
+project pins no version of MBT.

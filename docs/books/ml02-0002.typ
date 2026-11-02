@@ -5,18 +5,15 @@
   subtitle: "Reference",
   short-title: "MBT Reference",
   product: "MBT",
-  number: "ML02-0002-0",
-  date: "October 2026",
+  number: "ML02-0002-1",
+  date: "November 2026",
   authors: ("Mike Großmann",),
   edition: [
-    #text(font: head-font, weight: "bold", size: 11pt)[First Edition (October 2026)]
+    #text(font: head-font, weight: "bold", size: 11pt)[First Edition (November 2026)]
 
     This edition applies to Version 3 Release 0 of MBT, the MVS build tool
     (mbt 3.0.0), and to all subsequent releases and modifications until
     otherwise indicated in new editions.
-
-    *Draft.* MBT 3 is still in development, and so is this book: chapters
-    still to be written say so.
 
     Comments on this book may be addressed to the issue tracker of the
     mvslovers/mbt repository on GitHub.
