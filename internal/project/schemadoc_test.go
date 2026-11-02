@@ -63,7 +63,7 @@ func TestSchemaDocListsEveryKey(t *testing.T) {
 		if kind == "" {
 			top := sectionTokens("## Top level")
 			for _, k := range keys {
-				if !top[k] && !regexp.MustCompile(`\[` + regexp.QuoteMeta(k) + `[\].]`).MatchString(doc) {
+				if !top[k] && !regexp.MustCompile(`\[`+regexp.QuoteMeta(k)+`[\].]`).MatchString(doc) {
 					t.Errorf("top-level table [%s] is not described in internals/mbt-3-schema.md", k)
 				}
 			}
