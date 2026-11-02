@@ -21,13 +21,15 @@ mbt is a reusable Git submodule that centralizes the full build pipeline for
 >
 > The `project.toml` reference, the v1→v2 mapping and the v2 migration steps
 > are in [docs/MIGRATION.md as of v2.2.0](https://github.com/mvslovers/mbt/blob/v2.2.0/docs/MIGRATION.md).
-> **mbt 3** (a single installed program instead of the submodule) is on its
-> way: [docs/MIGRATION.md](docs/MIGRATION.md) takes a project from mbt 2 to mbt 3.
+> **mbt 3** (a single installed program instead of the submodule) is released
+> as 3.0.0 (tag `v3.0.0`): [docs/MIGRATION.md](docs/MIGRATION.md) takes a
+> project from mbt 2 to mbt 3. The mbt 2 line lives on the `v2.*` tags; the
+> newest is v2.2.0.
 >
 > **The MBT 3 manuals**, *MBT User's Guide* (ML02-0001) and *MBT Reference*
 > (ML02-0002), are read online at
 > [mvslovers.readthedocs.io/projects/mbt](https://mvslovers.readthedocs.io/projects/mbt/).
-> mbt 3 releases built after 2026-10-10 also carry them as PDFs. Their sources are in
+> The mbt 3 releases also carry them as PDFs. Their sources are in
 > [docs/books](docs/books).
 >
 > The legacy v1 (remote mvsMF/JCL) build documented below still works via

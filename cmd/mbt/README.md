@@ -1,7 +1,9 @@
-# mbt 3 (in development)
+# mbt 3
 
-The Go implementation of the mbt 3 proposal (`internals/mbt-3-design.md`).
-It lives beside mbt 2 (`mk/`, `scripts/`) until every project has migrated.
+The Go implementation of mbt 3, released as 3.0.0 (design:
+`internals/mbt-3-design.md`). It lives beside mbt 2 (`mk/`, `scripts/`,
+the `v2.*` tags, newest v2.2.0) until every project has migrated.
+Installing it: `docs/MIGRATION.md`, section 1.
 
 ```
 go build -o mbt ./cmd/mbt
