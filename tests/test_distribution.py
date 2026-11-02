@@ -383,7 +383,7 @@ class AcceptJobTest(unittest.TestCase):
     def test_without_prereq_there_is_no_bypass(self):
         jcl = self._step()
         self.assertNotIn("BYPASS", jcl)
-        self.assertIn("//ACCEPT  EXEC SMPAPP\n", jcl)
+        self.assertIn("//ACCEPT  EXEC SMPAPP,COND=(0,NE,GUARD.HMASMP)\n", jcl)
         self.assertIn(" ACCEPT S(TUFS110) DIS(WRITE) .\n", jcl)
         self.assertEqual(D.bypass_note(D.parse(_cfg(), "V1R1M1")), "")
 
@@ -402,13 +402,40 @@ class AcceptJobTest(unittest.TestCase):
     def test_cleanup_condition(self):
         plain = D.parse(_cfg(), "V1R1M1")
         bypass = D.parse(_cfg(prereq=["MS00100"]), "V1R1M1")
-        self.assertIn("COND=(0,NE,ACCEPT.HMASMP)",
+        self.assertIn("COND=((0,NE,GUARD.HMASMP),(0,NE,ACCEPT.HMASMP))",
                       D.render_cleanup_step(plain, "ACCEPT.HMASMP"))
-        self.assertIn("COND=(4,LT,ACCEPT.HMASMP)",
+        self.assertIn("COND=((0,NE,GUARD.HMASMP),(4,LT,ACCEPT.HMASMP))",
                       D.render_cleanup_step(bypass, "ACCEPT.HMASMP"))
         # behind the APPLY (accept_fmid = false) prereq changes nothing
         self.assertIn("COND=(0,NE,APPLY.HMASMP)",
                       D.render_cleanup_step(bypass, "APPLY.HMASMP"))
+
+    def test_guard_looks_for_the_fmid_in_the_cds(self):
+        dist = D.parse(_cfg(), "V1R1M1")
+        guard = D.render_guard_step(dist)
+        self.assertIn("//GUARD   EXEC SMPAPP\n", guard)
+        self.assertIn("\n LIST CDS SYSMOD(TUFS110) .\n", guard)
+        self.assertIn("//NOTAPPL EXEC PGM=IDCAMS,COND=(4,NE,GUARD.HMASMP)\n",
+                      guard)
+        self.assertIn("\n  SET MAXCC=8\n", guard)
+        D.check_card_text(guard, "guard step")
+
+    def test_every_step_behind_the_guard_names_it(self):
+        # A step whose COND names only a step that did not run is not held
+        # back: a CLEANUP naming just the ACCEPT would scratch the staging
+        # library of a SYSMOD the GUARD turned away.
+        for prereq in ([], ["MS00100"]):
+            dist = D.parse(_cfg(prereq=prereq), "V1R1M1")
+            text = "\n".join([D.render_guard_step(dist),
+                              D.render_accept_step(dist),
+                              D.render_cleanup_step(dist, "ACCEPT.HMASMP")])
+            text = text.replace("\n//             COND=", " COND=")
+            execs = [l for l in text.splitlines()
+                     if " EXEC " in l and not l.startswith("//*")]
+            self.assertEqual(len(execs), 4)
+            self.assertNotIn("COND", execs[0])
+            for l in execs[1:]:
+                self.assertIn("GUARD.HMASMP", l)
 
     def test_install_end_says_how_to_scratch_the_staging_library(self):
         dist = D.parse(_cfg(), "V1R1M1")
@@ -437,7 +464,7 @@ class CleanupTest(unittest.TestCase):
             self.assertNotIn(dsn, self.jcl)
 
     def test_runs_only_after_the_last_smp_step_succeeded(self):
-        self.assertIn("COND=(0,NE,ACCEPT.HMASMP)", self.jcl)
+        self.assertIn("(0,NE,ACCEPT.HMASMP))", self.jcl)
         # without an ACCEPT the APPLY is the last step that reads the library
         self.assertIn("COND=(0,NE,APPLY.HMASMP)",
                       D.render_cleanup_step(self.dist, "APPLY.HMASMP"))

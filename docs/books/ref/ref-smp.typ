@@ -26,7 +26,7 @@ one directory #var("n")#cmd("-")#var("v")#cmd("/") with:
   [#var("n")#cmd("-")#var("v")#cmd("-inst.jcl")], [the installation job,
     with the SYSMOD inline. It ends after the #cmd("APPLY").],
   [#var("n")#cmd("-")#var("v")#cmd("-accept.jcl")], [the accept job:
-    #cmd("ACCEPT") and #cmd("CLEANUP") (@ref-smp-accept). Not written with
+    #cmd("GUARD"), #cmd("ACCEPT") and #cmd("CLEANUP") (@ref-smp-accept). Not written with
     #cmd("accept_fmid = false").],
   [#cmd("extra") files], [under their own names.],
 )
@@ -370,16 +370,37 @@ installation job.
 
 #table(columns: (1.1in, 1fr),
   [Step], [Action],
+  [#cmd("GUARD")], [SMP: #cmd("LIST CDS SYSMOD(")#var("fmid")#cmd(")"). Ends
+    with 0 while the SYSMOD is in the target zone, and with 4 when it is not.],
+  [#cmd("NOTAPPL")], [IDCAMS, with #cmd("COND=(4,NE,GUARD.HMASMP)"): runs only
+    when the #cmd("GUARD") ended with 4, and ends the job with return code 8.],
   [#cmd("ACCEPT")], [#cmd("ACCEPT S(")#var("fmid")#cmd(") DIS(WRITE)"), with
-    #cmd("BYPASS(REQ)") if #cmd("prereq") is not empty (@ref-smp-prereq).],
+    #cmd("BYPASS(REQ)") if #cmd("prereq") is not empty (@ref-smp-prereq).
+    Runs only if the #cmd("GUARD") ended with 0.],
   [#cmd("CLEANUP")], [IDCAMS: deletes the staging library, and those of the
-    element libraries, if the #cmd("ACCEPT") ended with 0. With
-    #cmd("prereq"), the #cmd("ACCEPT") ends with 4 by design, and the step runs
-    at 4 as well, but not above.],
+    element libraries, if the #cmd("GUARD") ended with 0 and the
+    #cmd("ACCEPT") ended with 0. With #cmd("prereq"), the #cmd("ACCEPT") ends
+    with 4 by design, and the step runs at 4 as well, but not above.],
 )
 
-The job ends with return code 0, or with 4 when #cmd("prereq") is set. A failed
-#cmd("ACCEPT") (return code 8 or above, for example a staging library that
+*The guard.* The #cmd("APPLY") enters the SYSMOD in the target zone (CDS) and
+a #cmd("RESTORE") takes it out again, so #cmd("LIST CDS") ends with 0 exactly
+while the SYSMOD is applied. A SYSMOD that was received and never applied has
+no entry there, which is the case after an #cmd("APPLY CHECK") that ended with
+12, and after an installation job that never ran. Then the job ends with return
+code 8 in the step #cmd("NOTAPPL"), the #cmd("ACCEPT") and the #cmd("CLEANUP")
+do not run, and nothing is accepted or scratched. A job step whose #cmd("COND")
+names only a step that did not run is not held back, so the #cmd("ACCEPT") and
+the #cmd("CLEANUP") name the #cmd("GUARD") themselves.
+
+The guard tests for the entry, not for the status text. A #cmd("RESTORE") that
+fails for lack of the DD cards of the #cmd("APPLY") leaves the entry, with the
+status #cmd("REC APP RES ERR"), and #cmd("LIST CDS") still ends with 0: the
+job goes on. After a #cmd("RESTORE") that ended with return code 0 the entry is
+gone and the job stops at the guard.
+
+A clean run ends with return code 0, or with 4 when #cmd("prereq") is set. A
+failed #cmd("ACCEPT") (return code 8 or above, for example a staging library that
 was deleted) leaves the staging libraries alone, and the job can be
 submitted again once the cause is fixed. Until the #cmd("ACCEPT") ran, a
 #cmd("RESTORE") takes the function out again. A #cmd("RESTORE") run with the
@@ -416,14 +437,11 @@ ends with return code 4 and #cmd("HMA3590     --- ") #var("id")
 #cmd(" REQ BYPASSED") for each prerequisite: that is expected. Without
 #cmd("prereq"), the step has no #cmd("BYPASS").
 
-The installation job does not submit the accept job, but the accept job does
-not check what the installation job did either. Submitted after an
-#cmd("APPLY CHECK") that failed on a missing prerequisite, it would take the
-#cmd("ACCEPT") with that requisite bypassed and delete the staging libraries.
-Submit it only after the installation job ended with return code 0 (4 with a
-library of #cmd("SRC") elements), as the header of the job says. This and the
-other two limits of the jobs are described in _MBT User's Guide_, "Known
-Limitations of the Jobs"\; MBT 3.0.1 is planned to change them.
+The installation job does not submit the accept job. The accept job checks
+what the installation job did (the guard, @ref-smp-accept): after an
+#cmd("APPLY CHECK") that failed on a missing prerequisite the SYSMOD is
+received and not applied, so the job ends in #cmd("NOTAPPL") and does not take
+the #cmd("ACCEPT") with the requisite bypassed.
 
 == The SYSMOD <ref-smp-sysmod>
 
@@ -517,7 +535,8 @@ renumbered, cut or stripped.
 *Return codes.* With a library of #cmd("SRC") elements the #cmd("APPLY
 CHECK") and the #cmd("APPLY") end at return code 4 (#cmd("HMA4441"), twice
 per element: SMP has no assembly step for the source and says so), so the
-job allows 4 there and goes on. The accept job ends at 0.
+job allows 4 there and goes on. The guard of the accept job lists the SYSMOD
+and ends at 0, so the accept job ends at 0 as well.
 The installation job's header says so. A project without such a library
 keeps the check on 0.
 

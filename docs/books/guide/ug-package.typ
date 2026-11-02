@@ -171,11 +171,26 @@ libraries, and the level is never accepted.
 is the decision to keep the level. Until it has run, a #cmd("RESTORE") can
 take the function out of the system again. Its #cmd("ACCEPT") copies the
 modules into the distribution library, the level a later #cmd("RESTORE")
-returns to, and cannot be undone. Submit it only after the installation job
-ended with return code 0 (4 with a library of #cmd("SRC") elements). Behind
-a successful #cmd("ACCEPT") its #cmd("CLEANUP") deletes the staging library, and those of the element
-libraries. A failed #cmd("ACCEPT") leaves them in place, and the job can be
-submitted again. It needs no editing.
+returns to, and cannot be undone. Its first step, #cmd("GUARD"), looks for the
+SYSMOD in the target zone. Only when it is applied do the #cmd("ACCEPT") and
+the #cmd("CLEANUP") run\; otherwise the job ends with return code 8 in the
+step #cmd("NOTAPPL") and nothing is accepted or scratched:
+
+#fig(caption: [The accept job after an installation job that ended with 12 at the #cmd("APPLYCHK")])[
+  #screen(raw(read("../ex/ug-package/accept-unapplied.txt")))
+] <ug-package-accept-unapplied>
+
+The same happens when the installation job never ran, and after a
+#cmd("RESTORE") has taken the function out. Behind a successful
+#cmd("ACCEPT") the #cmd("CLEANUP") deletes the staging library, and those of
+the element libraries. A failed #cmd("ACCEPT") leaves them in place, and the
+job can be submitted again. It needs no editing.
+
+The #cmd("GUARD") tests for the entry of the SYSMOD in the target zone, not
+for its status text. A #cmd("RESTORE") that failed, for lack of the DD cards of
+the #cmd("APPLY"), leaves the entry and the status #cmd("REC APP RES ERR"),
+and the #cmd("GUARD") lets the job go on. Read the #cmd("RESTORE") output
+before you submit the accept job.
 
 Someone who never accepts keeps the staging libraries. The closing comment of
 the installation job has the #cmd("DELETE") statements for them, to run with
@@ -488,7 +503,7 @@ the package itself, such as a new README or another data set name.
 == Known Limitations of the Jobs <ug-package-limits>
 
 #idx("known limitations")
-Three behaviours of the jobs are planned to change in MBT 3.0.1. Until then,
+Two behaviours of the jobs are planned to change in MBT 3.0.1. Until then,
 work round them as described here. The listings come from a run on MVS/CE.
 
 *The allocation job runs once* (mbt\#96). #idx("allocation job", "second run")
@@ -545,29 +560,3 @@ the job then runs through with return code 0. A SYSMOD that is applied and not
 accepted can be taken out with #cmd("RESTORE S(")#var("fmid")#cmd(") .") in
 the same way. Do not submit the job again to "repeat" a run that ended
 before the #cmd("APPLY") without one of these.]
-
-*The accept job does not look at the installation job* (mbt\#335).
-#idx("accept job", "limitation")
-It runs #cmd("ACCEPT") and #cmd("CLEANUP") whatever the installation job did.
-With #cmd("[smp] prereq"), an installation job that ended with 12 at the
-#cmd("APPLYCHK") for a missing prerequisite leaves the SYSMOD received. The
-accept job then ends with 4, as it does on a good run, and accepts the SYSMOD
-that was never applied:
-
-#fig(caption: [An accept job after an installation job that ended with 12])[
-  #screen(raw(read("../ex/ug-package/accept-unapplied.txt")))
-] <ug-package-accept-unapplied>
-
-#fig(caption: [The SYSMOD in the distribution zone afterwards
-  (#cmd("LIST ACDS SYSMOD(TQBT100)"), without the dates)])[
-  #screen(raw(read("../ex/ug-package/accept-acds.txt")))
-] <ug-package-accept-acds>
-
-The status has #cmd("ACC") and no #cmd("APP"), the target library holds no
-module, and the #cmd("CLEANUP") has deleted the staging libraries.
-
-#note[*A defect* (mbt\#335): submit the accept job only after an installation
-job that ended with return code 0 (4 with a library of #cmd("SRC") elements),
-and read the #cmd("APPLYCHK") line first. After a #cmd("RESTORE") the accept
-job stops by itself: the #cmd("ACCEPT") ends with 12 and the
-#cmd("CLEANUP") does not run.]

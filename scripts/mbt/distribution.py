@@ -801,6 +801,45 @@ def render_receive_steps(plan: list[tuple[str, str, str, str]]) -> str:
     return "\n".join(lines)
 
 
+# The COND of every step behind the GUARD of the accept job.  The GUARD ends 0
+# when the SYSMOD is in the CDS and 4 when it is not; a step whose COND names
+# only a bypassed step is not held back, so each one names the GUARD itself.
+ACCEPT_GUARD_COND = "(0,NE,GUARD.HMASMP)"
+
+
+def render_guard_step(dist: Distribution) -> str:
+    """The first step of the accept job.
+
+    The CDS entry of a SYSMOD is made by the APPLY and taken out again by a
+    RESTORE, so LIST ends 0 exactly while the SYSMOD is applied.  NOTAPPL turns
+    the 4 into a failed job with a message, because a bare 4 is also how a good
+    run with prereq ends.
+    """
+    fmid = dist.smp.fmid
+    return "\n".join([
+        "//*",
+        f"//* ---- GUARD: is {fmid} applied? " + "-" * (38 - len(fmid)),
+        "//* SMP lists the SYSMOD from the target zone. The APPLY enters it",
+        "//* there and a RESTORE takes it out again. LIST ends 0 when it is",
+        "//* there and 4 when it is not. Only 0 goes on to the ACCEPT.",
+        "//*",
+        "//GUARD   EXEC SMPAPP",
+        "//SMPCNTL  DD  *",
+        f" LIST CDS SYSMOD({fmid}) .",
+        "/*",
+        "//*",
+        "//* Reached only when the SYSMOD is not applied: the job fails here,",
+        "//* and the ACCEPT and the CLEANUP do not run.",
+        "//*",
+        "//NOTAPPL EXEC PGM=IDCAMS,COND=(4,NE,GUARD.HMASMP)",
+        "//SYSPRINT DD  SYSOUT=*",
+        "//SYSIN    DD  *",
+        f"  /* {fmid} IS NOT APPLIED: NOTHING ACCEPTED, NOTHING SCRATCHED */",
+        "  SET MAXCC=8",
+        "/*",
+    ])
+
+
 def render_accept_step(dist: Distribution) -> str:
     """The ACCEPT step of the accept job.
 
@@ -820,7 +859,7 @@ def render_accept_step(dist: Distribution) -> str:
         "//* a RESTORE would DELETE the module instead of reverting it.\n"
         "//* Service (PTFs) is deliberately never accepted.\n"
         "//*\n"
-        "//ACCEPT  EXEC SMPAPP\n"
+        f"//ACCEPT  EXEC SMPAPP,COND={ACCEPT_GUARD_COND}\n"
         f"{render_apply_dds(dist)}\n"
         "//SMPCNTL  DD  *\n"
         f" ACCEPT S({dist.smp.fmid}){bypass} DIS(WRITE) .\n"
@@ -898,13 +937,18 @@ def render_cleanup_step(dist: Distribution, after_step: str) -> str:
         )
     # BYPASS(REQ) ends the ACCEPT at RC 4 by design (REQ BYPASSED)
     rc = "4,LT" if after_step == "ACCEPT.HMASMP" and dist.smp.prereq else "0,NE"
+    if after_step == "ACCEPT.HMASMP":
+        step = ["//CLEANUP EXEC PGM=IDCAMS,",
+                f"//             COND=({ACCEPT_GUARD_COND},({rc},{after_step}))"]
+    else:
+        step = [f"//CLEANUP EXEC PGM=IDCAMS,COND=({rc},{after_step})"]
     return "\n".join([
         "//*",
         "//* ---- remove the staging library -----------------------------------",
         "//* Only reached when everything above worked. Comment the step out",
         "//* if you would rather keep the shipped modules on the system.",
         "//*",
-        f"//CLEANUP EXEC PGM=IDCAMS,COND=({rc},{after_step})",
+        *step,
         "//SYSPRINT DD  SYSOUT=*",
         "//SYSIN    DD  *",
         *[f"  {d}" for d in staging_deletes(dist)],

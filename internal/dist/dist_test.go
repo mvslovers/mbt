@@ -121,13 +121,47 @@ func TestAcceptJobWithoutPrereq(t *testing.T) {
 			t.Errorf("install job lacks %q", want)
 		}
 	}
-	for _, want := range []string{"//ACCEPT  EXEC SMPAPP\n", "\n ACCEPT S(TABC100) DIS(WRITE) .\n", "//CLEANUP EXEC PGM=IDCAMS,COND=(0,NE,ACCEPT.HMASMP)\n"} {
+	for _, want := range []string{
+		"//GUARD   EXEC SMPAPP\n", "\n LIST CDS SYSMOD(TABC100) .\n",
+		"//NOTAPPL EXEC PGM=IDCAMS,COND=(4,NE,GUARD.HMASMP)\n", "\n  SET MAXCC=8\n",
+		"//ACCEPT  EXEC SMPAPP,COND=(0,NE,GUARD.HMASMP)\n", "\n ACCEPT S(TABC100) DIS(WRITE) .\n",
+		"//CLEANUP EXEC PGM=IDCAMS,\n//             COND=((0,NE,GUARD.HMASMP),(0,NE,ACCEPT.HMASMP))\n"} {
 		if !strings.Contains(acc, want) {
 			t.Errorf("accept job lacks %q:\n%s", want, acc)
 		}
 	}
 	if strings.Contains(acc, "BYPASS") || strings.Contains(acc, "COND=(0,NE,APPLY") {
 		t.Errorf("accept job without prereq bypasses or gates on APPLY:\n%s", acc)
+	}
+}
+
+// The GUARD is the first step of the accept job and every step behind it
+// names it: a step whose COND names only a step that did not run is not held
+// back, so a CLEANUP that named only the ACCEPT would scratch the staging
+// libraries of a SYSMOD the GUARD turned away.
+func TestAcceptJobEveryStepNamesTheGuard(t *testing.T) {
+	if _, err := exec.LookPath("xmit370"); err != nil {
+		t.Skip("xmit370 not on PATH")
+	}
+	for _, extra := range []map[string]any{nil, {"prereq": []any{"MS00100"}}} {
+		_, acc := buildJobs(t, extra)
+		var execs []string
+		for _, l := range strings.Split(strings.ReplaceAll(acc, "\n//             COND=", " COND="), "\n") {
+			if strings.Contains(l, " EXEC ") && !strings.HasPrefix(l, "//*") {
+				execs = append(execs, l)
+			}
+		}
+		if len(execs) != 4 {
+			t.Fatalf("%v: %d EXEC cards, want GUARD NOTAPPL ACCEPT CLEANUP:\n%s", extra, len(execs), acc)
+		}
+		if !strings.HasPrefix(execs[0], "//GUARD ") || strings.Contains(execs[0], "COND") {
+			t.Errorf("%v: first step is not an unconditional GUARD: %s", extra, execs[0])
+		}
+		for _, l := range execs[1:] {
+			if !strings.Contains(l, "GUARD.HMASMP") {
+				t.Errorf("%v: step does not name the GUARD: %s", extra, l)
+			}
+		}
 	}
 }
 
@@ -149,7 +183,7 @@ func TestAcceptJobBypassesReqOnly(t *testing.T) {
 		if n := strings.Count(acc, " ACCEPT S(TABC100) BYPASS(REQ) DIS(WRITE) .\n"); n != 1 {
 			t.Errorf("%v: %d BYPASS(REQ) ACCEPT commands:\n%s", ids, n, acc)
 		}
-		for _, want := range []string{"HMA3590     --- <id> REQ BYPASSED", "RC 04", "COND=(4,LT,ACCEPT.HMASMP)"} {
+		for _, want := range []string{"HMA3590     --- <id> REQ BYPASSED", "RC 04", "COND=((0,NE,GUARD.HMASMP),(4,LT,ACCEPT.HMASMP))"} {
 			if !strings.Contains(acc, want) {
 				t.Errorf("%v: accept job lacks %q", ids, want)
 			}

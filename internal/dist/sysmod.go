@@ -309,6 +309,41 @@ func renderReceiveSteps(plan []recv) string {
 	return strings.Join(lines, "\n")
 }
 
+// acceptGuardCond: the COND of the steps behind the GUARD of the accept job.
+// The GUARD ends 0 when the SYSMOD is in the CDS and 4 when it is not; a step
+// whose COND names only a bypassed step is not held back, so every step
+// behind the GUARD names the GUARD itself.
+const acceptGuardCond = "(0,NE,GUARD.HMASMP)"
+
+// renderGuardStep: the first step of the accept job. The CDS entry of a
+// SYSMOD is made by the APPLY and taken out again by a RESTORE, so LIST ends
+// 0 exactly while the SYSMOD is applied. NOTAPPL turns the 4 into a failed
+// job with a message, because a bare 4 is also how a good run with prereq ends.
+func renderGuardStep(d *Distribution) string {
+	return strings.Join([]string{
+		"//*",
+		"//* ---- GUARD: is " + d.SMP.FMID + " applied? " + strings.Repeat("-", 38-len(d.SMP.FMID)),
+		"//* SMP lists the SYSMOD from the target zone. The APPLY enters it",
+		"//* there and a RESTORE takes it out again. LIST ends 0 when it is",
+		"//* there and 4 when it is not. Only 0 goes on to the ACCEPT.",
+		"//*",
+		"//GUARD   EXEC SMPAPP",
+		"//SMPCNTL  DD  *",
+		fmt.Sprintf(" LIST CDS SYSMOD(%s) .", d.SMP.FMID),
+		"/*",
+		"//*",
+		"//* Reached only when the SYSMOD is not applied: the job fails here,",
+		"//* and the ACCEPT and the CLEANUP do not run.",
+		"//*",
+		"//NOTAPPL EXEC PGM=IDCAMS,COND=(4,NE,GUARD.HMASMP)",
+		"//SYSPRINT DD  SYSOUT=*",
+		"//SYSIN    DD  *",
+		fmt.Sprintf("  /* %s IS NOT APPLIED: NOTHING ACCEPTED, NOTHING SCRATCHED */", d.SMP.FMID),
+		"  SET MAXCC=8",
+		"/*",
+	}, "\n")
+}
+
 // renderAcceptStep: the ACCEPT of the accept job. With a prerequisite
 // (prereq) it carries BYPASS(REQ): APPLY checks a requisite against the CDS,
 // ACCEPT against the ACDS, and a prerequisite that is applied but can never
@@ -327,7 +362,7 @@ func renderAcceptStep(d *Distribution) string {
 		"//* a RESTORE would DELETE the module instead of reverting it.\n" +
 		"//* Service (PTFs) is deliberately never accepted.\n" +
 		"//*\n" +
-		"//ACCEPT  EXEC SMPAPP\n" +
+		"//ACCEPT  EXEC SMPAPP,COND=" + acceptGuardCond + "\n" +
 		renderApplyDDs(d) + "\n" +
 		"//SMPCNTL  DD  *\n" +
 		fmt.Sprintf(" ACCEPT S(%s)%s DIS(WRITE) .\n", d.SMP.FMID, bypass) +
@@ -364,7 +399,7 @@ func renderAcceptJob(d *Distribution, jobcard, name, ver, instJob string) (strin
 	return render("smpaccept.jcl.tpl", map[string]string{
 		"JOBCARD": jobcard, "PRODUCT": name, "VERSION": ver, "FMID": d.SMP.FMID,
 		"INSTALL_JOB": instJob, "STAGING": what, "BYPASS_NOTE": bypassNote(d),
-		"ACCEPT_STEP": renderAcceptStep(d), "CLEANUP_STEP": cleanup,
+		"GUARD_STEP": renderGuardStep(d), "ACCEPT_STEP": renderAcceptStep(d), "CLEANUP_STEP": cleanup,
 	})
 }
 
@@ -423,13 +458,18 @@ func renderCleanupStep(d *Distribution, after string) (string, error) {
 	if d.hasSRC() || (after == "ACCEPT.HMASMP" && len(d.SMP.Prereq) > 0) {
 		cond = "4,LT"
 	}
+	exec := fmt.Sprintf("//CLEANUP EXEC PGM=IDCAMS,COND=(%s,%s)", cond, after)
+	if after == "ACCEPT.HMASMP" {
+		exec = "//CLEANUP EXEC PGM=IDCAMS,\n" +
+			fmt.Sprintf("//             COND=(%s,(%s,%s))", acceptGuardCond, cond, after)
+	}
 	lines := []string{
 		"//*",
 		"//* ---- remove the staging library -----------------------------------",
 		"//* Only reached when everything above worked. Comment the step out",
 		"//* if you would rather keep the shipped modules on the system.",
 		"//*",
-		fmt.Sprintf("//CLEANUP EXEC PGM=IDCAMS,COND=(%s,%s)", cond, after),
+		exec,
 		"//SYSPRINT DD  SYSOUT=*",
 		"//SYSIN    DD  *",
 	}
