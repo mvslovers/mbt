@@ -139,6 +139,46 @@ primary space (secondary 2), so the job above takes 10 cylinders of each
 volume. The load library of a package of the size of
 BREXX/370 3.0.0 needs 7 to 8 cylinders on each side, which fits.
 
+=== The Volume and the APF List <ref-smp-apf>
+
+#idx("APF")#idx("IEAAPF00")
+An entry in #cmd("SYS1.PARMLIB(IEAAPF00)") of MVS 3.8j is #cmd("dsname volser"): it names a data set together with its volume, and authorizes it
+there. A library of the same name on another volume is not authorized. The
+allocation job does not read the list, does not compare the volume with it
+and does not say if they differ: the volume of a library is whatever
+#cmd("TGTVOL") (or the volume written into its #cmd("DD")) says. Where the
+library is APF-listed, the volume of the entry decides:
+
+#tab(caption: [Setting the volume of a library with an APF entry])[
+  #table(columns: (1.9in, 1fr),
+    [Where], [Effect],
+    [#cmd("target_volume") in #cmd("[smp]")], [The default of #cmd("TGTVOL"),
+      written into the #cmd("PROC") statement when #cmd("mbt package") or
+      #cmd("mbt dist") renders the job. Every package of the project gets it.],
+    [#cmd("PROC") statement of the job], [Changes the default for this run
+      of the job, if the package is already written.],
+    [#cmd("EXEC SMPALLOC,TGTVOL=") #var("volser")], [The same, on the
+      #cmd("EXEC") statement.],
+    [#cmd("VOL=SER=") #var("volser") in a #cmd("DD")], [For one library,
+      when the target libraries of the product have entries on different
+      volumes. If no #cmd("DD") uses #cmd("TGTVOL") then, it leaves the
+      #cmd("PROC") statement as well (see below).],
+  )
+]
+
+The list is read at IPL. A library that has no entry yet gets one that names
+the volume #cmd("TGTVOL") puts it on, and counts as authorized after the
+next IPL.
+
+*A symbol that no DD uses.* Taking a #cmd("DD") statement out of the job,
+for a library that exists, can leave #cmd("TGTVOL") or #cmd("DLBVOL") on the
+#cmd("PROC") statement with nothing that uses it. MVS 3.8j does not ignore
+the symbol: the job does not run, with #cmd("IEF452I JOB NOT RUN - JCL ERROR")
+and #cmd("IEF657I SYMBOL NOT DEFINED IN PROCEDURE") (measured on MVS/CE
+with #cmd("DLBVOL"), and with #cmd("TGTVOL") left behind a job of one
+distribution library). The symbol goes from the #cmd("PROC") statement with
+its #cmd("DD") (_MBT User's Guide_, "Upgrading an Installation").
+
 == DD Names <ref-smp-ddnames>
 
 #idx("DD name")
