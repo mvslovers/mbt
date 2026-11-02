@@ -419,6 +419,20 @@ func TestLatin1ThroughXmit370(t *testing.T) {
 	}
 }
 
+func checkJobText(t *testing.T, label, text string, want, not []string) {
+	t.Helper()
+	for _, w := range want {
+		if !strings.Contains(text, w) {
+			t.Errorf("%s lacks %q:\n%s", label, w, text)
+		}
+	}
+	for _, n := range not {
+		if strings.Contains(text, n) {
+			t.Errorf("%s has %q", label, n)
+		}
+	}
+}
+
 func TestBuildEndToEnd(t *testing.T) {
 	if _, err := exec.LookPath("xmit370"); err != nil {
 		t.Skip("xmit370 not on PATH")
@@ -442,7 +456,7 @@ func TestBuildEndToEnd(t *testing.T) {
 	inst, _ := os.ReadFile(filepath.Join(root, "build", "dist-stage", "abc-1.0.0-inst.jcl"))
 	alloc, _ := os.ReadFile(filepath.Join(root, "build", "dist-stage", "abc-1.0.0-alloc.jcl"))
 	text := string(inst)
-	for _, want := range []string{
+	checkJobText(t, "install job", text, []string{
 		"++MAC(ALPHA) DISTLIB(ARXLIB) SYSLIB(RXLIB) TXLIB(ALPHA) .",
 		"++SRC(GAMMA) DISTLIB(ASAMPLES) SYSLIB(SAMPLES) TXLIB(GAMMA) .",
 		"RECEIVE INDSN('CHANGE.ME.TRXLIB')",
@@ -450,16 +464,7 @@ func TestBuildEndToEnd(t *testing.T) {
 		"//ALPHA    DD  DISP=SHR,DSN=ABC.TRXLIB(ALPHA)\n//BETA ",
 		"//APPLY   EXEC SMPAPP,COND=(4,LT,APPLYCHK.HMASMP)",
 		"//*     DELETE ABC.TSAMPLES NONVSAM SCRATCH PURGE",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("install job lacks %q", want)
-		}
-	}
-	for _, not := range []string{"//ACCEPT ", "//CLEANUP "} {
-		if strings.Contains(text, not) {
-			t.Errorf("install job has %q: the ACCEPT and the CLEANUP are the accept job's", not)
-		}
-	}
+	}, []string{"//ACCEPT ", "//CLEANUP "})
 	if n := strings.Count(text, "DSN=ABC.TRXLIB(ALPHA)"); n != 3 {
 		t.Errorf("ALPHA is read from its staging member in RECEIVE, APPLY CHECK and APPLY, found %d cards", n)
 	}
@@ -467,17 +472,13 @@ func TestBuildEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{
+	checkJobText(t, "accept job", string(acc), []string{
 		"//ACCEPT  EXEC SMPAPP\n",
 		"//HMASMP.ALPHA    DD  DISP=SHR,DSN=ABC.TRXLIB(ALPHA)\n",
 		" ACCEPT S(TABC100) DIS(WRITE) .\n",
 		"//CLEANUP EXEC PGM=IDCAMS,COND=(4,LT,ACCEPT.HMASMP)\n",
 		"  DELETE ABC.LKLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.TRXLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.TSAMPLES NONVSAM SCRATCH PURGE\n",
-	} {
-		if !strings.Contains(string(acc), want) {
-			t.Errorf("accept job lacks %q:\n%s", want, acc)
-		}
-	}
+	}, nil)
 	if !strings.Contains(string(alloc), "RECFM=FB,LRECL=80,BLKSIZE=3120") {
 		t.Errorf("alloc job:\n%s", alloc)
 	}
@@ -695,7 +696,7 @@ func TestAllocVolumesOverride(t *testing.T) {
 	}
 	for _, bad := range []string{"", "TOOLONG1", "TK 5", "tk5.res", "TK5-RES"} {
 		smp["target_volume"] = bad
-		if _, err := Parse(cfg, "V1R0M0"); err == nil || !strings.Contains(err.Error(), "target_volume") {
+		if _, err := Parse(cfg, "V1R0M0"); err == nil || !strings.Contains(err.Error(), "[smp]: target_volume") {
 			t.Errorf("volume %q accepted: %v", bad, err)
 		}
 	}

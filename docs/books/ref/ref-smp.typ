@@ -117,7 +117,8 @@ distribution):
   [A volume the system does not have (MVS/CE: #cmd("TGTVOL=NOVOL1"); TK5: the
     defaults)], [The job does not end, and no return code comes. It is held
     while the system allocates the data sets of the step, and the console shows
-    #cmd("IEF244I ... UNABLE TO ALLOCATE 1 UNIT(S)"),
+    #cmd("IEF244I ... UNABLE TO ALLOCATE 1 UNIT(S)") (#cmd("2 UNIT(S)") on
+    TK5 with the defaults, where both volumes are missing),
     #cmd("IEF489I ... 1 UNIT(S) NEEDED FOR LINKLIB") and
     #cmd("*00 IEF238D ... REPLY DEVICE NAME OR 'CANCEL'"). Reply
     #cmd("R 00,CANCEL"): the job ends with #cmd("IEF251I ... JOB CANCELLED"),
