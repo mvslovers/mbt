@@ -57,12 +57,13 @@ the way out.
       [write one table per entry, for a library
       #cmd("[distribution.library.DIR]") (@ref-toml-distlib).],
     [#cmd("mbt.toml: [[...]] is an array of tables -- write one table, [...]")],
-      [the table is written with double brackets; use single brackets, as
-      the message shows.],
+      [the table is written with double brackets, or as an inline array
+      (#cmd("x = [...]"), which gives the same message): write it with single
+      brackets, as the message shows.],
     [#cmd("mbt.toml: ... is a string, not a table -- write [...]")], [the key
-      is a value where MBT expects a table (the type may also be an integer,
-      a float, a boolean or an array): write it as a table, as the message
-      shows.],
+      is a value where MBT expects a table (the type is a string, an integer,
+      a float or a boolean, or, for a date-time, "a value of another type"):
+      write it as a table, as the message shows.],
     [#cmd("mbt.toml: [...] holds one table per entry, [....NAME]; '...' is ...")],
       [an entry of #cmd("[module]") or #cmd("[test]") is a value, not a
       table: write #cmd("[module.NAME]") or #cmd("[test.NAME]").],
