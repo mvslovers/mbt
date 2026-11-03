@@ -462,7 +462,7 @@ func TestBuildEndToEnd(t *testing.T) {
 		"RECEIVE INDSN('CHANGE.ME.TRXLIB')",
 		"DATASET('ABC.TRXLIB')",
 		"//ALPHA    DD  DISP=SHR,DSN=ABC.TRXLIB(ALPHA)\n//BETA ",
-		"//APPLY   EXEC SMPAPP,COND=(4,LT,APPLYCHK.HMASMP)",
+		"//APPLY   EXEC SMPAPP,COND=((0,NE,RECV.HMASMP),(4,LT,APPLYCHK.HMASMP))",
 		"//*     DELETE ABC.TSAMPLES NONVSAM SCRATCH PURGE",
 	}, []string{"//ACCEPT ", "//CLEANUP "})
 	if n := strings.Count(text, "DSN=ABC.TRXLIB(ALPHA)"); n != 3 {
@@ -660,7 +660,7 @@ func TestAllocVolumesDefault(t *testing.T) {
 	d := parseElem(t, map[string]any{"dir": "rxlib", "target": "ABC.RXLIB", "element": "MAC"})
 	job := allocJob(t, d)
 	if !strings.Contains(job, "//SMPALLOC PROC TGTVOL=MVSRES,DLBVOL=SMP000\n//ALLOC   EXEC PGM=IEFBR14\n") ||
-		!strings.Contains(job, "\n//        PEND\n//ALLOC   EXEC SMPALLOC\n//\n") {
+		!strings.Contains(job, "\n//        PEND\n//CHECK   EXEC PGM=IDCAMS\n") {
 		t.Errorf("no in-stream PROC with the MVS/CE volumes:\n%s", job)
 	}
 	if !strings.Contains(job, "TGTVOL=TK5RES and DLBVOL=TK5DLB") {
@@ -680,6 +680,19 @@ func TestAllocVolumesDefault(t *testing.T) {
 	}
 	if dds != 4 {
 		t.Errorf("%d libraries allocated, want 4:\n%s", dds, job)
+	}
+}
+
+func TestAllocHeaderNamesAPFEntry(t *testing.T) {
+	d := parseElem(t, map[string]any{"dir": "rxlib", "target": "ABC.RXLIB", "element": "MAC"})
+	job := allocJob(t, d)
+	for _, want := range []string{
+		"//* An IEAAPF00 entry is \"dsname volser\". If the system already has\n",
+		"//* an entry for a library of this product, set TGTVOL to the volume\n",
+	} {
+		if !strings.Contains(job, want) {
+			t.Errorf("header lacks %q:\n%s", want, job)
+		}
 	}
 }
 
@@ -711,5 +724,61 @@ func TestAllocVolumeSymbolsPerKind(t *testing.T) {
 		if got := volSymbol(d, dsn); got != want {
 			t.Errorf("%s: %s, want %s", dsn, got, want)
 		}
+	}
+}
+
+// A second run of the allocation job must not end RC 0 over a name the catalog
+// already has: the CHECK step finds it (LISTCAT ends 0), raises MAXCC to 8, and
+// ALLOC is bypassed. A first run, where every LISTCAT ends 4, ends 0.
+func TestAllocJobChecksCatalogFirst(t *testing.T) {
+	d := parseElem(t, map[string]any{"dir": "rxlib", "target": "ABC.RXLIB", "element": "MAC"})
+	job := allocJob(t, d)
+	var cards []string
+	for _, dsn := range d.allocated() {
+		cards = append(cards, "  LISTCAT ENTRIES("+dsn+")\n  IF LASTCC = 0 THEN SET MAXCC = 8")
+	}
+	want := "//CHECK   EXEC PGM=IDCAMS\n//SYSPRINT DD  SYSOUT=*\n//SYSIN    DD  *\n" +
+		strings.Join(cards, "\n") + "\n  IF MAXCC = 4 THEN SET MAXCC = 0\n/*\n" +
+		"//ALLOC   EXEC SMPALLOC,COND=(0,NE,CHECK)\n//\n"
+	if !strings.Contains(job, want) {
+		t.Errorf("no catalog check in front of the allocation, want:\n%s\nin:\n%s", want, job)
+	}
+	if len(cards) != 4 {
+		t.Errorf("%d libraries checked, want 4", len(cards))
+	}
+}
+
+// Behind a failed RECV nothing may run: a COND that names a step that did not
+// run is not made, so APPLY and CLEANUP name RECV and APPLYCHK as well.
+func TestInstallJobGatesEveryStepOnAllBefore(t *testing.T) {
+	if _, err := exec.LookPath("xmit370"); err != nil {
+		t.Skip("xmit370 not on PATH")
+	}
+	inst, _ := buildJobs(t, map[string]any{"accept_fmid": false})
+	for _, want := range []string{
+		"//APPLY   EXEC SMPAPP,COND=((0,NE,RECV.HMASMP),(0,NE,APPLYCHK.HMASMP))\n",
+		"//CLEANUP EXEC PGM=IDCAMS,COND=((0,NE,APPLY.HMASMP),\n//             (0,NE,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP))\n",
+		"//APPLYCHK EXEC SMPAPP,COND=(0,NE,RECV.HMASMP)\n",
+	} {
+		if !strings.Contains(inst, want) {
+			t.Errorf("install job lacks %q:\n%s", want, inst)
+		}
+	}
+}
+
+// With a library of ++SRC elements the APPLYCHK and the APPLY end 4 by design,
+// and the gates tolerate it; a failed RECV still stops everything.
+func TestGatesWithSRCLibrary(t *testing.T) {
+	d := parseElem(t, map[string]any{"dir": "samples", "target": "ABC.SAMPLES", "element": "SRC"})
+	if got := condList(recvGate, applyCheckGate(d)); got != "((0,NE,RECV.HMASMP),(4,LT,APPLYCHK.HMASMP))" {
+		t.Errorf("APPLY COND %s", got)
+	}
+	c, err := renderCleanupStep(d, "APPLY.HMASMP", applyCheckGate(d), recvGate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "//CLEANUP EXEC PGM=IDCAMS,COND=((4,LT,APPLY.HMASMP),\n//             (4,LT,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP))\n"
+	if !strings.Contains(c, want) {
+		t.Errorf("cleanup lacks %q:\n%s", want, c)
 	}
 }

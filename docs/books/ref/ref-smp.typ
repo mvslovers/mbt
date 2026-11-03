@@ -67,7 +67,9 @@ release.
 
 The allocation job allocates the target and distribution libraries,
 #cmd("RECFM=U"), #cmd("BLKSIZE=15040"), in cylinders, and never deletes
-them. The target and distribution library of an element library are
+them. A first step, #cmd("CHECK"), looks each of them up in the catalog and
+ends with return code 8 if one is cataloged: the allocation step does not run
+then (@ref-smp-alloc-again). The target and distribution library of an element library are
 allocated by it as well, fixed 80, #cmd("BLKSIZE=3120"), sized for the
 first version twice over, with a directory of at least 20 blocks. Every one
 of them is allocated on a volume of the job's choosing (@ref-smp-volumes).
@@ -132,6 +134,29 @@ again with the volumes corrected.
 
 The job has no step that deletes a library (see above), so it does not
 move one that exists to another volume.
+
+=== The Allocation Job, Submitted Again <ref-smp-alloc-again>
+
+#idx("allocation job", "second run")
+#idx("CHECK")
+The #cmd("CHECK") step is IDCAMS with one #cmd("LISTCAT ENTRIES(")#var("dsn")#cmd(")")
+for each library the job allocates, each followed by
+#cmd("IF LASTCC = 0 THEN SET MAXCC = 8"). A name that is not in the catalog
+ends the #cmd("LISTCAT") with 4, which the last statement of the step turns
+into 0\; a name that is cataloged, on any volume, makes the step end with 8.
+The allocation step carries #cmd("COND=(0,NE,CHECK)") and is not run behind
+it. The job ends with return code 8, and the listing shows the libraries
+found. Nothing is allocated, and no #cmd("IEF287I ... NOT CATLGD 2") is
+left behind.
+
+The catalog is asked, not the volume, so the check holds when the second run
+names other volumes than the first: that is the case in which the
+allocation alone ended with return code 0 and an uncataloged duplicate.
+The check works the same on MVS/CE and on TK5 (measured with the libraries
+of a BREXX/370 3.0.0 package: first run #cmd("CHECK") 0 and
+#cmd("ALLOC") 0\; second run #cmd("CHECK") 8, #cmd("ALLOC") not run, job 8,
+also with #cmd("TGTVOL") changed). To allocate again, delete the libraries
+first, or take other names.
 
 Free space, measured on a fresh MVS/CE container, before the job:
 #cmd("MVSRES") 276 cylinders, #cmd("SMP000") 158 cylinders and 26 tracks. A
@@ -339,10 +364,19 @@ the table is removed again.
     of the SYSMOD, inline in the job (#cmd("DD DATA,DLM=@@")), if the last
     #cmd("RECV")#var("n") ended with 0.],
   [#cmd("APPLYCHK")], [#cmd("APPLY CHECK"), if #cmd("RECV") ended with 0.],
-  [#cmd("APPLY")], [#cmd("APPLY"), only after a clean check.],
+  [#cmd("APPLY")], [#cmd("APPLY"), only after a clean check: if #cmd("RECV")
+    and #cmd("APPLYCHK") ended with 0.],
   [#cmd("CLEANUP")], [only with #cmd("accept_fmid = false"): IDCAMS deletes
-    the staging library, if the #cmd("APPLY") ended with 0.],
+    the staging library, if #cmd("RECV"), #cmd("APPLYCHK") and the
+    #cmd("APPLY") ended with 0 (with 4 for the #cmd("APPLYCHK") and the
+    #cmd("APPLY") of a package with a library of #cmd("SRC") elements).],
 )
+
+JCL does not test a #cmd("COND") against a step that did not run. So each
+SMP step names every SMP step before it, not only the one before: behind a
+#cmd("RECV") that ended with 8, the #cmd("APPLYCHK") is bypassed, and an
+#cmd("APPLY") that named only the #cmd("APPLYCHK") would run without the
+check.
 
 With #cmd("accept_fmid") (the default) the job has no #cmd("ACCEPT") and no
 #cmd("CLEANUP"). It ends after the #cmd("APPLY"), and its closing comment

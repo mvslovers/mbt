@@ -4,6 +4,14 @@ $JOBCARD
 //*
 //* RUN THIS ONCE, BEFORE $INSTALL_JOB.
 //*
+//* The step CHECK looks in the catalog first. On a first run it prints
+//* IDC3012I ENTRY ... NOT FOUND for every library below: that is the
+//* answer wanted, and CHECK ends RC 0. If a library is already
+//* cataloged, CHECK lists it and ends RC 8, ALLOC does not run and
+//* nothing is allocated. Without that look a second run would end RC 0
+//* with IEF287I ... NOT CATLGD 2 and leave an uncataloged copy of the
+//* library on the other volume.
+//*
 //* There is deliberately no DELETE step. Once FMID $FMID has been
 //* accepted, the distribution libraries hold the accepted copy of
 //* every element; a re-run that scratched them would leave the SMP
@@ -29,6 +37,12 @@ $JOBCARD
 //* TGTVOL=TK5RES and DLBVOL=TK5DLB, either on the PROC statement or on
 //* the EXEC ALLOC statement below.
 //*
+//* An IEAAPF00 entry is "dsname volser". If the system already has
+//* an entry for a library of this product, set TGTVOL to the volume
+//* of that entry. A library of the same name on another volume
+//* exists, holds the modules, and is not APF-authorized. This job
+//* does not read the list and does not say if the volumes differ.
+//*
 //* A volume that is not mounted does not fail the job, it holds it:
 //* the console shows IEF238D ... REPLY DEVICE NAME OR 'CANCEL' and the
 //* job waits. Reply CANCEL, correct the volume, submit the job again.
@@ -37,5 +51,10 @@ $JOBCARD
 //ALLOC   EXEC PGM=IEFBR14
 $ALLOC_DDS
 //        PEND
-//ALLOC   EXEC SMPALLOC
+//CHECK   EXEC PGM=IDCAMS
+//SYSPRINT DD  SYSOUT=*
+//SYSIN    DD  *
+$CHECK_CARDS
+/*
+//ALLOC   EXEC SMPALLOC,COND=(0,NE,CHECK)
 //

@@ -437,6 +437,28 @@ class AcceptJobTest(unittest.TestCase):
             for l in execs[1:]:
                 self.assertIn("GUARD.HMASMP", l)
 
+    def test_steps_name_every_step_before_them(self):
+        # A COND naming a step that did not run is not made (mbt#99): behind
+        # a RECV that ended 8 the APPLY and the CLEANUP must still stop.
+        dist = D.parse(_cfg(), "V1R1M1")
+        self.assertEqual(D.cond_list(D.RECV_GATE, D.APPLYCHK_GATE),
+                         "((0,NE,RECV.HMASMP),(0,NE,APPLYCHK.HMASMP))")
+        step = D.render_cleanup_step(dist, "APPLY.HMASMP",
+                                     (D.APPLYCHK_GATE, D.RECV_GATE))
+        self.assertIn("//CLEANUP EXEC PGM=IDCAMS,COND=((0,NE,APPLY.HMASMP),\n"
+                      "//             (0,NE,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP))\n",
+                      step)
+        D.check_card_text(step, "cleanup")
+
+    def test_allocation_looks_in_the_catalog_first(self):
+        # mbt#96: allocating over a cataloged name ends RC 0 with NOT CATLGD 2.
+        dist = D.parse(_cfg(), "V1R1M1")
+        cards = D.render_catalog_check(dist).split("\n")
+        for dsn in dist.allocated_datasets():
+            i = cards.index(f"  LISTCAT ENTRIES({dsn})")
+            self.assertEqual(cards[i + 1], "  IF LASTCC = 0 THEN SET MAXCC = 8")
+        self.assertEqual(cards[-1], "  IF MAXCC = 4 THEN SET MAXCC = 0")
+
     def test_install_end_says_how_to_scratch_the_staging_library(self):
         dist = D.parse(_cfg(), "V1R1M1")
         end = D.render_install_end(dist, "p-1.1.1-accept.jcl")

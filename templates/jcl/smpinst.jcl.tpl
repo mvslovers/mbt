@@ -23,6 +23,14 @@ $ACCEPT_SUMMARY
 //*
 $SMP_SCOPE
 //*
+//* SUBMITTED AGAIN
+//*   Each SMP step names all the SMP steps before it, so none runs
+//*   behind a failed or skipped one. A SYSMOD that is already
+//*   received ends the RECV with RC 08 (HMA3862): no APPLYCHK, no
+//*   APPLY, and the job ends RC 08. Take the SYSMOD out first (REJECT
+//*   if it is only received, RESTORE if it is applied), then submit
+//*   the job again.
+//*
 //* The SYSMOD travels inline in this job -- it is plain text, so
 //* there is no third file to upload and no dataset to allocate for
 //* it. Measured on SMP 4 level 04.48: received RC 0, and the stored
@@ -62,7 +70,7 @@ $APPLY_DDS
 /*
 //*
 //* ---- APPLY --------------------------------------------------------
-//APPLY   EXEC SMPAPP,COND=$CHECK_COND
+//APPLY   EXEC SMPAPP,COND=$APPLY_COND
 $APPLY_DDS
 //SMPCNTL  DD  *
  APPLY S($FMID) DIS(WRITE) .

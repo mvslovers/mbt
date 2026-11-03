@@ -156,7 +156,6 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		"//* product owns those patterns, the site owns the copies it makes of\n" +
 		"//* them. See the README for which member goes where."
 	applyWhat := "copy the load modules into the target library"
-	applyChkCond := "(0,NE,APPLYCHK.HMASMP)"
 	applyChkRC := "RC=0"
 	if len(d.delivered()) > 0 {
 		cleanupNote = "//*   CLEANUP   scratch the staging libraries, now spent"
@@ -164,7 +163,6 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		applyWhat = "copy load modules and elements into target libraries"
 	}
 	if d.hasSRC() {
-		applyChkCond = "(4,LT,APPLYCHK.HMASMP)"
 		applyChkRC = "RC<=4"
 	}
 	// With accept_fmid the install job ends after the APPLY: ACCEPT is the
@@ -187,7 +185,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	} else {
 		acceptSummary = "//*   (no ACCEPT -- this level never becomes the restore base)\n" + cleanupNote
 		acceptStep = "//*"
-		cleanup, err = renderCleanupStep(d, "APPLY.HMASMP")
+		cleanup, err = renderCleanupStep(d, "APPLY.HMASMP", applyCheckGate(d), recvGate)
 		if err != nil {
 			return err
 		}
@@ -203,7 +201,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		"RECEIVE_SUMMARY": strings.Join(summary, "\n"), "RECEIVE_STEPS": renderReceiveSteps(plan),
 		"LAST_RECV": plan[len(plan)-1].step, "APPLY_DDS": renderApplyDDs(d),
 		"RECV_DDS": renderRecvDDs(d), "SMP_SCOPE": loadsOnly, "APPLY_WHAT": applyWhat,
-		"CHECK_COND": applyChkCond, "CHECK_RC": applyChkRC,
+		"APPLY_COND": condList(recvGate, applyCheckGate(d)), "CHECK_RC": applyChkRC,
 		"ACCEPT_SUMMARY": acceptSummary, "ACCEPT_STEP": acceptStep,
 		"CLEANUP_STEP": cleanup,
 	})

@@ -254,13 +254,30 @@ func renderAllocDDs(d *Distribution) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderCatalogCheck: the SYSIN of the CHECK step. Allocating over a name the
+// catalog already has ends RC 0 with NOT CATLGD 2 and an uncataloged duplicate
+// on another volume, so the job looks first. LISTCAT ends 0 for a name it
+// finds and 4 for one it does not; any name found raises MAXCC to 8, and a
+// MAXCC of 4 at the end means none was found.
+func renderCatalogCheck(d *Distribution) string {
+	var lines []string
+	for _, dsn := range d.allocated() {
+		lines = append(lines,
+			"  LISTCAT ENTRIES("+dsn+")",
+			"  IF LASTCC = 0 THEN SET MAXCC = 8")
+	}
+	lines = append(lines, "  IF MAXCC = 4 THEN SET MAXCC = 0")
+	return strings.Join(lines, "\n")
+}
+
 // renderAllocJob: the allocation job, its PROC defaulting TGTVOL and DLBVOL to
 // the volumes of the descriptor.
 func renderAllocJob(d *Distribution, jobcard, name, ver, instJob string) (string, error) {
 	return render("smpalloc.jcl.tpl", map[string]string{
 		"JOBCARD": jobcard, "PRODUCT": name, "VERSION": ver, "FMID": d.SMP.FMID,
 		"INSTALL_JOB": instJob, "ALLOC_DDS": renderAllocDDs(d),
-		"TGTVOL": d.SMP.TargetVolume, "DLBVOL": d.SMP.DlibVolume,
+		"CHECK_CARDS": renderCatalogCheck(d),
+		"TGTVOL":      d.SMP.TargetVolume, "DLBVOL": d.SMP.DlibVolume,
 	})
 }
 
@@ -446,7 +463,42 @@ func renderInstallEnd(d *Distribution, acceptJob string) string {
 	return strings.Join(lines, "\n")
 }
 
-func renderCleanupStep(d *Distribution, after string) (string, error) {
+// recvGate is the COND test that holds every step behind the SMP RECV back. A
+// COND naming a step that did not run is not made, so each step names all the
+// steps before it, not only the one directly in front.
+const recvGate = "0,NE,RECV.HMASMP"
+
+// applyCheckGate: the COND test on the APPLYCHK, which ends 4 by design with a
+// library of ++SRC elements (HMA4441).
+func applyCheckGate(d *Distribution) string {
+	if d.hasSRC() {
+		return "4,LT,APPLYCHK.HMASMP"
+	}
+	return "0,NE,APPLYCHK.HMASMP"
+}
+
+// condList: the COND parameter for one or more tests, each "rc,op,step".
+func condList(tests ...string) string {
+	if len(tests) == 1 {
+		return "(" + tests[0] + ")"
+	}
+	return "((" + strings.Join(tests, "),(") + "))"
+}
+
+// cleanupExec: the EXEC card of the CLEANUP. Several tests do not fit one
+// card (an MCS card is read to column 71), so the first stays on it and the
+// rest continue on the next.
+func cleanupExec(tests []string) string {
+	const exec = "//CLEANUP EXEC PGM=IDCAMS,COND="
+	if len(tests) == 1 {
+		return exec + condList(tests...)
+	}
+	return exec + "((" + tests[0] + "),\n//             (" + strings.Join(tests[1:], "),(") + "))"
+}
+
+// renderCleanupStep: gates are further tests (steps before `after`) that also
+// bypass the CLEANUP, for the case that `after` itself did not run.
+func renderCleanupStep(d *Distribution, after string, gates ...string) (string, error) {
 	for _, a := range d.allocated() {
 		if a == d.SMP.LKLib {
 			return "", errf("refusing to generate a cleanup step for %s: it is one of the libraries SMP installs into", d.SMP.LKLib)
@@ -458,7 +510,7 @@ func renderCleanupStep(d *Distribution, after string) (string, error) {
 	if d.hasSRC() || (after == "ACCEPT.HMASMP" && len(d.SMP.Prereq) > 0) {
 		cond = "4,LT"
 	}
-	exec := fmt.Sprintf("//CLEANUP EXEC PGM=IDCAMS,COND=(%s,%s)", cond, after)
+	exec := cleanupExec(append([]string{cond + "," + after}, gates...))
 	if after == "ACCEPT.HMASMP" {
 		exec = "//CLEANUP EXEC PGM=IDCAMS,\n" +
 			fmt.Sprintf("//             COND=(%s,(%s,%s))", acceptGuardCond, cond, after)
