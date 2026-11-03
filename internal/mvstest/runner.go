@@ -128,7 +128,14 @@ func fixtureSteps(tests []string, fx map[string][]Fixture) ([]string, map[string
 				data := splitLines(m[1])
 				dlm := fixDelimiter(data)
 				lines = append(lines, "//SYSUT1   DD DATA,DLM="+dlm)
-				lines = append(lines, data...)
+				for _, l := range data {
+					if l == "" {
+						// a zero-length record in the stream never reaches the
+						// member (#111); a blank is the same FB 80 record
+						l = " "
+					}
+					lines = append(lines, l)
+				}
 				lines = append(lines, dlm)
 			}
 		}
@@ -149,6 +156,68 @@ type Step struct{ Test, Leg string }
 // FxStep maps a fixture-load step to what it loads.
 type FxStep struct{ Test, DD, Member, PDS string }
 
+// execCard is a test's batch EXEC card. A PARM that would take it past
+// column 71 goes on a continuation card (#95); CheckParms refuses the ones
+// that do not fit there either.
+func execCard(step, test string, parm *string) string {
+	card := fmt.Sprintf("//%-8sEXEC PGM=%s,COND=EVEN,REGION=%s", step, test, RunnerRegion)
+	if parm == nil {
+		return card
+	}
+	one := card + fmt.Sprintf(",PARM='%s'", *parm)
+	if len(one) <= 71 {
+		return one
+	}
+	return card + ",\n" + contIndent + fmt.Sprintf("PARM='%s'", *parm)
+}
+
+// callCommand is a test's TSO CALL. TSO reads columns 1-72 of a SYSTSIN
+// record and drops the rest without a word (measured on MVS/CE), so an
+// argument that would pass column 72 goes on the next record behind a
+// trailing '-' (#95); CheckParms refuses the ones that do not fit there.
+func callCommand(testlib, test string, arg *string) string {
+	cmd := fmt.Sprintf(" CALL '%s(%s)'", testlib, test)
+	if arg == nil {
+		return cmd
+	}
+	if one := cmd + fmt.Sprintf(" '%s'", *arg); len(one) <= tsoWidth {
+		return one
+	}
+	return cmd + " -\n" + fmt.Sprintf(" '%s'", *arg)
+}
+
+// tsoWidth is the last column TSO reads of a SYSTSIN record.
+const tsoWidth = 72
+
+// maxTSOParm is the longest argument the continued CALL holds.
+const maxTSOParm = tsoWidth - len(" ''")
+
+// contIndent starts a continuation card, as ddCard's does.
+const contIndent = "//             "
+
+// maxContParm is the longest PARM value a continuation card holds:
+// contIndent, PARM=' and the closing apostrophe, within column 71.
+const maxContParm = 71 - len(contIndent) - len("PARM=''")
+
+// CheckParms refuses a test whose parm cannot be put into the runner JCL,
+// naming the test, so the mistake does not surface as a JES2 rejection that
+// says nothing about parm (#95).
+func CheckParms(tests []string, parms map[string]Parm) error {
+	for _, t := range tests {
+		p, ok := parms[t]
+		if !ok {
+			continue
+		}
+		if p.Batch != nil && len(*p.Batch) > maxContParm {
+			return fmt.Errorf("test %s: parm is %d chars; %d is the most the batch EXEC card holds (JCL ends at column 71)", t, len(*p.Batch), maxContParm)
+		}
+		if p.TSO != nil && len(*p.TSO) > maxTSOParm {
+			return fmt.Errorf("test %s: parm is %d chars; %d is the most the TSO CALL holds (TSO reads columns 1-72)", t, len(*p.TSO), maxTSOParm)
+		}
+	}
+	return nil
+}
+
 // GenRunner builds the runner JCL: fixture loads first, then a batch step per
 // test, then a TSO step per test, each COND=EVEN so one failure blocks none.
 // linklib "" means no production library is deployed.
@@ -163,11 +232,7 @@ func GenRunner(jobcard string, tests []string, testlib, linklib string, fx map[s
 	lines := append([]string{jobcard}, fxLines...)
 	for n, t := range tests {
 		b := fmt.Sprintf("B%02d", n+1)
-		parm := ""
-		if p, ok := parms[t]; ok && p.Batch != nil {
-			parm = fmt.Sprintf(",PARM='%s'", *p.Batch)
-		}
-		lines = append(lines, fmt.Sprintf("//%-8sEXEC PGM=%s,COND=EVEN,REGION=%s%s", b, t, RunnerRegion, parm), strings.TrimRight(steplib, "\n"))
+		lines = append(lines, execCard(b, t, parms[t].Batch), strings.TrimRight(steplib, "\n"))
 		if d := fixtureDDs(fx, t); d != "" {
 			lines = append(lines, strings.TrimRight(d, "\n"))
 		}
@@ -189,11 +254,7 @@ func GenRunner(jobcard string, tests []string, testlib, linklib string, fx map[s
 			lines = append(lines, "//SYSOUT   DD SYSOUT=*")
 		}
 		lines = append(lines, "//SYSTSIN  DD *")
-		arg := ""
-		if p, ok := parms[t]; ok && p.TSO != nil {
-			arg = fmt.Sprintf(" '%s'", *p.TSO)
-		}
-		lines = append(lines, fmt.Sprintf(" CALL '%s(%s)'%s", testlib, t, arg), "/*")
+		lines = append(lines, callCommand(testlib, t, parms[t].TSO), "/*")
 		steps[s] = Step{t, "tso"}
 		stepOrder = append(stepOrder, s)
 	}

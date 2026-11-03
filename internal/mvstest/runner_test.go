@@ -161,3 +161,95 @@ func TestRunnerSYSOUTForCOBOL(t *testing.T) {
 		t.Errorf("SYSOUT must come before the instream SYSTSIN:\n%s", tso)
 	}
 }
+
+// mbt#95: an EXEC card past column 71 is rejected by JES2 with a message
+// that says nothing about PARM. The card is continued instead; what does
+// not fit even then is refused before anything is uploaded.
+func TestLongBatchParm(t *testing.T) {
+	longest := func(card string) int {
+		n := 0
+		for _, l := range strings.Split(card, "\n") {
+			if len(l) > n {
+				n = len(l)
+			}
+		}
+		return n
+	}
+	run := func(test, parm string) string {
+		jcl, _, _, _, _ := GenRunner("//J JOB", []string{test}, "T.TESTLIB", "", nil, map[string]Parm{test: {Batch: s(parm)}}, nil)
+		return jcl
+	}
+	// fits on one card: unchanged
+	if jcl := run("TSTPRM", "X"); !strings.Contains(jcl, "//B01     EXEC PGM=TSTPRM,COND=EVEN,REGION=8M,PARM='X'\n") {
+		t.Errorf("short parm:\n%s", jcl)
+	}
+	// the case of the issue: 72 columns
+	jcl := run("TSTPRM", "IBMUSER.FTPD.TSTPRM")
+	want := "//B01     EXEC PGM=TSTPRM,COND=EVEN,REGION=8M,\n//             PARM='IBMUSER.FTPD.TSTPRM'\n"
+	if !strings.Contains(jcl, want) {
+		t.Errorf("continued card missing:\n%s", jcl)
+	}
+	// a full data set name
+	dsn := "IBMUSER." + strings.Repeat("A", 36)
+	jcl = run("TSTPRM", dsn)
+	if n := longest(jcl); n > 71 {
+		t.Errorf("a card is %d columns:\n%s", n, jcl)
+	}
+	if !strings.Contains(jcl, "PARM='"+dsn+"'") {
+		t.Errorf("parm lost:\n%s", jcl)
+	}
+}
+
+func TestCheckParms(t *testing.T) {
+	ok := map[string]Parm{"TSTPRM": {Batch: s(strings.Repeat("A", 49)), TSO: s("x")}}
+	if err := CheckParms([]string{"TSTPRM"}, ok); err != nil {
+		t.Errorf("49 chars fit on the continued card: %v", err)
+	}
+	bad := map[string]Parm{"TSTPRM": {Batch: s(strings.Repeat("A", 50))}}
+	err := CheckParms([]string{"TSTPRM"}, bad)
+	if err == nil || !strings.Contains(err.Error(), "TSTPRM") || !strings.Contains(err.Error(), "parm") || !strings.Contains(err.Error(), "50") || !strings.Contains(err.Error(), "49") {
+		t.Errorf("batch parm too long: %v", err)
+	}
+	tso := map[string]Parm{"TSTPRM": {TSO: s(strings.Repeat("A", 69))}}
+	if err := CheckParms([]string{"TSTPRM"}, tso); err != nil {
+		t.Errorf("69 chars fit on the continued CALL: %v", err)
+	}
+	tso["TSTPRM"] = Parm{TSO: s(strings.Repeat("A", 70))}
+	if err := CheckParms([]string{"TSTPRM"}, tso); err == nil || !strings.Contains(err.Error(), "TSO") {
+		t.Errorf("tso parm too long: %v", err)
+	}
+	if err := CheckParms([]string{"A"}, nil); err != nil {
+		t.Errorf("no parms: %v", err)
+	}
+}
+
+// mbt#95, TSO leg: TSO reads columns 1-72 of a SYSTSIN record (measured on
+// MVS/CE: a keyword in columns 74-80 was ignored); a longer CALL is
+// continued with a trailing '-', which TSO joined (same run).
+func TestLongTSOParm(t *testing.T) {
+	run := func(parm string) []string {
+		jcl, _, _, _, _ := GenRunner("//J JOB", []string{"TSTPRM"}, "IBMUSER.FTPD.V1R0M0D.TESTLIB", "", nil, map[string]Parm{"TSTPRM": {TSO: s(parm)}}, nil)
+		return strings.Split(jcl, "\n")
+	}
+	has := func(ls []string, l string) bool {
+		for _, x := range ls {
+			if x == l {
+				return true
+			}
+		}
+		return false
+	}
+	if ls := run("X"); !has(ls, " CALL 'IBMUSER.FTPD.V1R0M0D.TESTLIB(TSTPRM)' 'X'") {
+		t.Errorf("short arg: %q", ls)
+	}
+	dsn := "IBMUSER." + strings.Repeat("A", 36)
+	ls := run(dsn)
+	if !has(ls, " CALL 'IBMUSER.FTPD.V1R0M0D.TESTLIB(TSTPRM)' -") || !has(ls, " '"+dsn+"'") {
+		t.Errorf("continued CALL missing: %q", ls)
+	}
+	for _, l := range ls {
+		if len(l) > 72 && strings.HasPrefix(l, " ") {
+			t.Errorf("SYSTSIN record of %d columns: %q", len(l), l)
+		}
+	}
+}

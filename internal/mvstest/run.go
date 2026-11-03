@@ -197,6 +197,25 @@ func Run(o Options) int {
 		fixtures[t] = blocks
 	}
 
+	parms := map[string]Parm{}
+	for _, t := range tests {
+		d := decl[t]
+		p := Parm{Batch: d.ParmBatch, TSO: d.TSO}
+		if p.Batch == nil {
+			p.Batch = d.Parm
+		}
+		if p.TSO == nil {
+			p.TSO = d.Parm
+		}
+		if p.Batch != nil || p.TSO != nil {
+			parms[t] = p
+		}
+	}
+	if err := CheckParms(tests, parms); err != nil {
+		o.fail("%v", err)
+		return ExitConfig
+	}
+
 	testlib := o.TestTarget
 	if testlib == "" {
 		testlib = fmt.Sprintf("%s.%s.%s.TESTLIB", hlq, name, v.VRM())
@@ -236,20 +255,6 @@ func Run(o Options) int {
 		return ExitMainframe
 	}
 
-	parms := map[string]Parm{}
-	for _, t := range tests {
-		d := decl[t]
-		p := Parm{Batch: d.ParmBatch, TSO: d.TSO}
-		if p.Batch == nil {
-			p.Batch = d.Parm
-		}
-		if p.TSO == nil {
-			p.TSO = d.Parm
-		}
-		if p.Batch != nil || p.TSO != nil {
-			parms[t] = p
-		}
-	}
 	jc := mvsmf.Jobcard("MBTTEST", o.Config.JobClass(), o.Config.MsgClass(), "MBT TEST")
 	cobol := map[string]bool{}
 	for _, t := range tests {

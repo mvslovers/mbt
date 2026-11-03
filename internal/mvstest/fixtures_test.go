@@ -71,3 +71,19 @@ func TestBuildFixturesAndJob(t *testing.T) {
 		t.Errorf("twice: %v", err)
 	}
 }
+
+// mbt#111: a zero-length line in DD DATA did not reach the member (JES2 or
+// the reader drops it, IEBGENER ends CC 0 one record short); a blank does.
+func TestFixtureEmptyLineSurvives(t *testing.T) {
+	fx := map[string][]Fixture{"TSTE": {{DD: "SYSEXEC", PDS: "IBMUSER.P.FIX.TSTE.SYSEXEC", Members: [][2]string{{"M", "a\n\nb\n\n"}}}}}
+	jcl, _, _ := GenFixtureJob("//J JOB", []string{"TSTE"}, fx)
+	want := "//SYSUT1   DD DATA,DLM=$A\na\n \nb\n \n$A\n"
+	if !strings.Contains(jcl, want) {
+		t.Errorf("an empty line must go over as one blank:\n%s", jcl)
+	}
+	for i, l := range strings.Split(jcl, "\n") {
+		if l == "" && i < len(strings.Split(jcl, "\n"))-1 {
+			t.Errorf("line %d of the JCL is zero-length:\n%s", i+1, jcl)
+		}
+	}
+}

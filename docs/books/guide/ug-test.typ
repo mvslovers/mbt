@@ -179,6 +179,10 @@ so a test that does its work only when given one, such as
 #cmd("PARM='RUN'"), needs #cmd("parm = \"RUN\"") in its
 #cmd("[test.")#var("NAME")#cmd("]"). Without it the test skips itself, ends
 with 0, and is shown as passed with no assertions (@ug-test-what).
+An argument that does not fit on the step's card is continued on the next
+one; the longest is 49 characters for the batch step and 69 for the TSO
+step, enough for a data set name. #cmd("mbt test --mvs") refuses a longer
+one before it uploads anything, and names the test.
 
 #idx("APF")#idx("ac")
 *Authorized tests.* A test that must run APF-authorized needs
@@ -204,6 +208,9 @@ sized to what it will hold, loads each file as a member named after the
 file in upper case, and adds the DD statement to both steps of the test. A
 member is visible only under the DD that declares it, so a test of a search
 order can give one DD a member the other lacks.
+
+An empty line of a file is loaded as a line of blanks, the same record in an
+80-byte member; the load would otherwise drop it without a word.
 
 === When the Run Itself Fails <ug-test-fail>
 
