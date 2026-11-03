@@ -29,6 +29,12 @@ $JOBCARD
 //* TGTVOL=TK5RES and DLBVOL=TK5DLB, either on the PROC statement or on
 //* the EXEC ALLOC statement below.
 //*
+//* An IEAAPF00 entry is "dsname volser". If the system already has
+//* an entry for a library of this product, set TGTVOL to the volume
+//* of that entry. A library of the same name on another volume
+//* exists, holds the modules, and is not APF-authorized. This job
+//* does not read the list and does not say if the volumes differ.
+//*
 //* A volume that is not mounted does not fail the job, it holds it:
 //* the console shows IEF238D ... REPLY DEVICE NAME OR 'CANCEL' and the
 //* job waits. Reply CANCEL, correct the volume, submit the job again.
