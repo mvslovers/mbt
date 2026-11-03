@@ -154,9 +154,10 @@ names other volumes than the first: that is the case in which the
 allocation alone ended with return code 0 and an uncataloged duplicate.
 The check works the same on MVS/CE and on TK5 (measured with the libraries
 of a BREXX/370 3.0.0 package: first run #cmd("CHECK") 0 and
-#cmd("ALLOC") 0\; second run #cmd("CHECK") 8, #cmd("ALLOC") not run, job 8,
-also with #cmd("TGTVOL") changed). To allocate again, delete the libraries
-first, or take other names.
+#cmd("ALLOC") 0\; second run on the same volumes #cmd("CHECK") 8,
+#cmd("ALLOC") not run, job 8). With #cmd("TGTVOL") changed for the second run
+it was measured on TK5: the same result, and no #cmd("IEF287I"). To allocate
+again, delete the libraries first, or take other names.
 
 Free space, measured on a fresh MVS/CE container, before the job:
 #cmd("MVSRES") 276 cylinders, #cmd("SMP000") 158 cylinders and 26 tracks. A
