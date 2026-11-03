@@ -246,6 +246,7 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
             "INSTALL_JOB": inst_job,
             "STAGING": "library",
             "BYPASS_NOTE": D.bypass_note(dist),
+            "GUARD_STEP": D.render_guard_step(dist),
             "ACCEPT_STEP": D.render_accept_step(dist),
             "CLEANUP_STEP": D.render_cleanup_step(dist, "ACCEPT.HMASMP"),
         })

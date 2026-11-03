@@ -1,6 +1,0 @@
-TQBT100   TYPE            = FUNCTION
-          STATUS          = REC  BYP  ACC  RGN
-          FMID            = TQBT100
-          JCLIN           = YES
-          REQ    VER(001) = UZZ0001
-          MOD             = QBTST

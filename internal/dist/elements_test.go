@@ -195,7 +195,7 @@ func TestElementCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(c, "COND=(0,NE,ACCEPT.HMASMP)") {
+	if !strings.Contains(c, "(0,NE,ACCEPT.HMASMP))") {
 		t.Errorf("a clean ACCEPT ends at RC 0:\n%s", c)
 	}
 	if !strings.Contains(c, "  DELETE ABC.LKLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.TMACS NONVSAM SCRATCH PURGE\n") {
@@ -209,7 +209,7 @@ func TestElementCleanup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(c, "COND=(4,LT,ACCEPT.HMASMP)") {
+	if !strings.Contains(c, "(4,LT,ACCEPT.HMASMP))") {
 		t.Errorf("++SRC leaves the steps at RC 4 (HMA4441):\n%s", c)
 	}
 }
@@ -473,10 +473,11 @@ func TestBuildEndToEnd(t *testing.T) {
 		t.Fatal(err)
 	}
 	checkJobText(t, "accept job", string(acc), []string{
-		"//ACCEPT  EXEC SMPAPP\n",
+		"//GUARD   EXEC SMPAPP\n",
+		"//ACCEPT  EXEC SMPAPP,COND=(0,NE,GUARD.HMASMP)\n",
 		"//HMASMP.ALPHA    DD  DISP=SHR,DSN=ABC.TRXLIB(ALPHA)\n",
 		" ACCEPT S(TABC100) DIS(WRITE) .\n",
-		"//CLEANUP EXEC PGM=IDCAMS,COND=(4,LT,ACCEPT.HMASMP)\n",
+		"//CLEANUP EXEC PGM=IDCAMS,\n//             COND=((0,NE,GUARD.HMASMP),(4,LT,ACCEPT.HMASMP))\n",
 		"  DELETE ABC.LKLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.TRXLIB NONVSAM SCRATCH PURGE\n  DELETE ABC.TSAMPLES NONVSAM SCRATCH PURGE\n",
 	}, nil)
 	if !strings.Contains(string(alloc), "RECFM=FB,LRECL=80,BLKSIZE=3120") {
