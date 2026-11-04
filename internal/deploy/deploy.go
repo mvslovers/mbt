@@ -327,12 +327,14 @@ func Run(o Options) int {
 			return ExitMainframe
 		}
 		if re, ok := err.(*ReceiveError); ok {
-			keep = true
+			keep = !re.NoRetry
 			o.fail("%s", re.Headline)
 			for _, d := range re.Details {
 				o.cont("%s", d)
 			}
-			o.cont("%s kept for a retry of the RECEIVE", staging)
+			if keep {
+				o.cont("%s kept for a retry of the RECEIVE", staging)
+			}
 			return ExitMainframe
 		}
 		o.fail("deploy failed: %v", err)
@@ -414,12 +416,25 @@ func Merge(o *Options, c *mvsmf.Client, xmitDSN, stage, target, spoolPath string
 		h = strings.Replace(h, "RECEIVE job", "deploy job", 1)
 		// a job flushed at its ALLOC step leaves no library at all
 		state := target + " may hold some of the new members (IEBCOPY replaces one by one) -- see the spool"
+		_, spaceDSN, _, spaceAbend := SpaceAbend(res.Spool)
+		if spaceAbend && spaceDSN != target {
+			// the staging copy ran out of room; the MERGE step never started
+			state = target + " was not written"
+		}
 		if alloc != nil && !c.DatasetExists(target) {
 			state = target + " does not exist: the job did not allocate it"
 			d = append(d, "a plain 'mbt deploy' allocates it again")
 		}
 		h = strings.Replace(h, target+" was not written", state, 1)
-		return &ReceiveError{h, d}
+		noRetry := false
+		if spaceAbend && spaceDSN == target {
+			noRetry = true
+			d = append(d,
+				"compress "+target+" while nothing holds it (stop the server), or",
+				"'mbt deploy --reallocate' while the server is stopped (same volume, larger)",
+				"until a deploy completes, treat the library as a mix of old and new members")
+		}
+		return &ReceiveError{Headline: h, Details: d, NoRetry: noRetry}
 	}
 	return nil
 }
@@ -461,6 +476,9 @@ var allocMsgRE = regexp.MustCompile(`IEF2[0-9][0-9]I [^\n]*NOT AVAILABLE[^\n]*`)
 type ReceiveError struct {
 	Headline string
 	Details  []string
+	// NoRetry: the staged RECEIVE is not what failed, so keeping it helps no
+	// retry (the target is out of space).
+	NoRetry bool
 }
 
 func (e *ReceiveError) Error() string { return e.Headline }
@@ -500,7 +518,7 @@ func Receive(o *Options, c *mvsmf.Client, xmitDSN, target, spoolPath string, n i
 		spoolPath = ""
 	}
 	if h, d := ReceiveFailure(res, target, timeout, spoolPath); h != "" {
-		return &ReceiveError{h, d}
+		return &ReceiveError{Headline: h, Details: d}
 	}
 	return nil
 }
@@ -530,6 +548,10 @@ func ReceiveFailure(r *mvsmf.JobResult, target string, timeout time.Duration, sp
 		return fmt.Sprintf("RECEIVE job %s was rejected -- %s", job, notWritten), append(mvsmf.JCLDiagnostics(r.Spool), hint...)
 	}
 	if r.Status == "ABEND" {
+		if code, dsn, step, ok := SpaceAbend(r.Spool); ok {
+			return fmt.Sprintf("RECEIVE job %s ran out of space (S%s in step %s, %s) -- %s", job, code, step, dsn, notWritten),
+				append([]string{spaceAbendReason[code]}, hint...)
+		}
 		return fmt.Sprintf("RECEIVE job %s abended -- %s", job, notWritten), hint
 	}
 	if r.Status == "CC" {
@@ -537,6 +559,26 @@ func ReceiveFailure(r *mvsmf.JobResult, target string, timeout time.Duration, sp
 	}
 	return fmt.Sprintf("RECEIVE job %s ended with no usable status (%s) -- outcome unknown", job, r.Status),
 		append([]string{fmt.Sprintf("check %s on MVS before rerunning -- a rerun deletes it first", target)}, hint...)
+}
+
+var spaceAbendReason = map[string]string{
+	"D37": "SD37: the data set's extents are full and it has no secondary quantity left to take",
+	"B37": "SB37: the volume has no room for the next extent",
+	"E37": "SE37: no further extent or volume could be added to the data set",
+}
+
+// IEC031I names the abend (D37-04), the step and the data set that ran out
+// of room; the data set's name follows on a line of its own.
+var spaceAbendRE = regexp.MustCompile(`IEC031I ([DBE]37)-[0-9A-F]{2},[^,\n]*,[^,\n]*,([^,\n]*),[^\n]*\n[^\n]*?IEC031I (\S+)`)
+
+// SpaceAbend reports whether the job ended on an out-of-space abend
+// (SD37, SB37, SE37), with the abend code, the data set and the step.
+func SpaceAbend(spool string) (code, dsn, step string, ok bool) {
+	m := spaceAbendRE.FindStringSubmatch(spool)
+	if m == nil {
+		return "", "", "", false
+	}
+	return m[1], m[3], m[2], true
 }
 
 func sortStrings(s []string) {
