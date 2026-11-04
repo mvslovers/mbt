@@ -136,6 +136,13 @@ the numbers and the three ways out:
 - *#cmd("mbt deploy --ignore-space")* copies all the same, for a library
   whose secondary extents will take it.
 
+If the copy then runs out of room anyway, because the library has no
+secondary quantity or the volume is full, MVS ends the copy step with
+an SD37 (or SB37, SE37). MBT says so, names the library and the step, and
+exits with a non-zero code. IEBCOPY replaces the members one by one, so the
+library may hold some new members next to the old ones: compress it or use
+#cmd("--reallocate"), then deploy again.
+
 The free entries of the library's directory cannot be measured from the
 workstation\; a library with many members can run out of directory blocks
 before it runs out of tracks. A library that MBT allocates gets a directory
