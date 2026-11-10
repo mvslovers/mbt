@@ -73,8 +73,9 @@ func (t *tsoSession) key(name string, wait bool) error {
 func (t *tsoSession) Expect(text string, timeout time.Duration) error {
 	return t.s.Expect(text, timeout)
 }
-func (t *tsoSession) Screen() []string   { return t.s.Screen() }
-func (t *tsoSession) Cursor() (int, int) { r, c := t.s.Cursor(); return r + 1, c + 1 }
+func (t *tsoSession) Screen() []string                   { return t.s.Screen() }
+func (t *tsoSession) Cursor() (int, int)                 { r, c := t.s.Cursor(); return r + 1, c + 1 }
+func (t *tsoSession) Color(row, col int) (string, error) { return t.s.Color(row-1, col-1) }
 
 // cmdTestTSO: mbt test --tso -- the interactive tests in test/tso/*.lua,
 // one TSO logon each, through the target's [tn3270].

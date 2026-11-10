@@ -42,6 +42,11 @@ type screen struct {
 	// lines() and the session does not trace a record while any is left.
 	// A host write to the position, or an erase, clears the mark.
 	secret []bool
+	// fcolor is the colour of a field (from Start Field Extended or Modify
+	// Field, at the attribute's position), ccolor the colour of a character
+	// (from Set Attribute); 0 is none, the default colour.
+	fcolor []byte
+	ccolor []byte
 	cursor int
 }
 
@@ -55,7 +60,8 @@ func newScreenSize(alt Size) *screen {
 		n = bufSize
 	}
 	s := &screen{altRows: alt.Rows, altCols: alt.Cols,
-		buf: make([]byte, n), attr: make([]int16, n), secret: make([]bool, n)}
+		buf: make([]byte, n), attr: make([]int16, n), secret: make([]bool, n),
+		fcolor: make([]byte, n), ccolor: make([]byte, n)}
 	s.reset(false)
 	return s
 }
@@ -79,6 +85,8 @@ func (s *screen) erase() {
 		s.buf[i] = 0
 		s.attr[i] = -1
 		s.secret[i] = false
+		s.fcolor[i] = 0
+		s.ccolor[i] = 0
 	}
 	s.cursor = 0
 }
@@ -98,12 +106,49 @@ func (s *screen) setChar(pos int, b byte) {
 	s.buf[pos] = b
 	s.attr[pos] = -1
 	s.secret[pos] = false
+	s.fcolor[pos] = 0
+	s.ccolor[pos] = 0
 }
 
 func (s *screen) setAttr(pos int, a byte) {
 	s.buf[pos] = 0
 	s.attr[pos] = int16(a)
 	s.secret[pos] = false
+	s.fcolor[pos] = 0
+	s.ccolor[pos] = 0
+}
+
+// The colours of the 3270 extended data stream (attribute type 0x42).
+var colorNames = map[byte]string{
+	0xF1: "blue", 0xF2: "red", 0xF3: "pink", 0xF4: "green",
+	0xF5: "turquoise", 0xF6: "yellow", 0xF7: "white", 0xF0: "white",
+}
+
+// color is the colour a 3279 shows at pos: the character's own colour, else
+// its field's, else the default of the field's attribute (protected blue,
+// protected and intensified white, unprotected green, unprotected and
+// intensified red); green on an unformatted screen.
+func (s *screen) color(pos int) string {
+	if c, ok := colorNames[s.ccolor[pos]]; ok {
+		return c
+	}
+	f := s.fieldOf(pos)
+	if f < 0 {
+		return "green"
+	}
+	if c, ok := colorNames[s.fcolor[f]]; ok {
+		return c
+	}
+	bright := s.attr[f]&attrDisplay == 0x08
+	switch {
+	case s.attr[f]&attrProtected != 0 && bright:
+		return "white"
+	case s.attr[f]&attrProtected != 0:
+		return "blue"
+	case bright:
+		return "red"
+	}
+	return "green"
 }
 
 func (s *screen) formatted() bool {

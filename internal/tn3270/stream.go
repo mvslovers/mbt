@@ -146,6 +146,7 @@ func (s *screen) write(data []byte) (hostResult, error) {
 	res.restore = wcc&wccKbd != 0
 	n := s.size()
 	pos := s.cursor
+	sa := byte(0) // the colour of Set Attribute, for the characters that follow
 	need := func(i, n int) bool { return i+n < len(data) }
 	for i := 1; i < len(data); i++ {
 		switch b := data[i]; b {
@@ -166,36 +167,43 @@ func (s *screen) write(data []byte) (hostResult, error) {
 			if !need(i, 1) {
 				return res, errTruncated
 			}
-			n := int(data[i+1])
-			if !need(i, 1+2*n) {
+			np := int(data[i+1])
+			if !need(i, 1+2*np) {
 				return res, errTruncated
 			}
-			a := byte(0)
-			for k := 0; k < n; k++ {
-				if data[i+2+2*k] == 0xC0 { // the 3270 field attribute
+			a, c := byte(0), byte(0)
+			for k := 0; k < np; k++ {
+				switch data[i+2+2*k] {
+				case 0xC0: // the 3270 field attribute
 					a = data[i+3+2*k]
+				case 0x42: // the colour
+					c = data[i+3+2*k]
 				}
 			}
 			s.setAttr(pos, a)
+			s.fcolor[pos] = c
 			pos = (pos + 1) % n
-			i += 1 + 2*n
+			i += 1 + 2*np
 		case orderMF:
 			if !need(i, 1) {
 				return res, errTruncated
 			}
-			n := int(data[i+1])
-			if !need(i, 1+2*n) {
+			np := int(data[i+1])
+			if !need(i, 1+2*np) {
 				return res, errTruncated
 			}
 			if s.attr[pos] >= 0 {
-				for k := 0; k < n; k++ {
-					if data[i+2+2*k] == 0xC0 {
+				for k := 0; k < np; k++ {
+					switch data[i+2+2*k] {
+					case 0xC0:
 						s.attr[pos] = int16(data[i+3+2*k])
+					case 0x42:
+						s.fcolor[pos] = data[i+3+2*k]
 					}
 				}
 			}
 			pos = (pos + 1) % n
-			i += 1 + 2*n
+			i += 1 + 2*np
 		case orderIC:
 			s.cursor = pos
 		case orderPT:
@@ -220,6 +228,7 @@ func (s *screen) write(data []byte) (hostResult, error) {
 			}
 			for k := span(pos, to, n); k > 0; k-- {
 				s.setChar(pos, ch)
+				s.ccolor[pos] = sa
 				pos = (pos + 1) % n
 			}
 		case orderEUA:
@@ -238,16 +247,24 @@ func (s *screen) write(data []byte) (hostResult, error) {
 			if !need(i, 2) {
 				return res, errTruncated
 			}
+			switch data[i+1] {
+			case 0x00: // all character attributes back to the field's
+				sa = 0
+			case 0x42:
+				sa = data[i+2]
+			}
 			i += 2
 		case orderGE:
 			if !need(i, 1) {
 				return res, errTruncated
 			}
 			s.setChar(pos, data[i+1])
+			s.ccolor[pos] = sa
 			pos = (pos + 1) % n
 			i++
 		default:
 			s.setChar(pos, b)
+			s.ccolor[pos] = sa
 			pos = (pos + 1) % n
 		}
 	}

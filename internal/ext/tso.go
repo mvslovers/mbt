@@ -25,6 +25,8 @@ type TSO interface {
 	Expect(text string, timeout time.Duration) error
 	Screen() []string
 	Cursor() (row, col int)
+	// Color is the colour shown at row, col (from 1) on a 3279.
+	Color(row, col int) (string, error)
 }
 
 // TSOTests lists test/tso/*.lua, sorted; the name is the file's, upper case.
@@ -212,6 +214,21 @@ func (e *Engine) tsoTable(s TSO, info map[string]any, loggedOn *bool) rt.Value {
 	})
 	method("text", 1, func(th *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
 		return k.PushingNext1(th.Runtime, rt.StringValue(strings.Join(s.Screen(), "\n"))), nil
+	})
+	method("color", 3, func(th *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
+		row, err := k.IntArg(1)
+		if err != nil {
+			return nil, err
+		}
+		col, err := k.IntArg(2)
+		if err != nil {
+			return nil, err
+		}
+		c, err := s.Color(int(row), int(col))
+		if err != nil {
+			return nil, err
+		}
+		return k.PushingNext1(th.Runtime, rt.StringValue(c)), nil
 	})
 	method("cursor", 1, func(th *rt.Thread, k *rt.GoCont) (rt.Cont, error) {
 		r, c := s.Cursor()
