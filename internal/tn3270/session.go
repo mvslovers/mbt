@@ -173,6 +173,17 @@ func (s *Session) Cursor() (row, col int) {
 	return s.scr.cursor / s.scr.cols, s.scr.cursor % s.scr.cols
 }
 
+// Color is the colour shown at row, col (0-based) on a 3279: "blue",
+// "red", "pink", "green", "turquoise", "yellow" or "white" -- the colour the
+// host gave the character or its field, else the default colour of the
+// field's attribute.
+func (s *Session) Color(row, col int) (string, error) {
+	if row < 0 || row >= s.scr.rows || col < 0 || col >= s.scr.cols {
+		return "", fmt.Errorf("tn3270: position %d,%d is off the %s screen", row, col, s.Size())
+	}
+	return s.scr.color(row*s.scr.cols + col), nil
+}
+
 // SetCursor moves the cursor, 0-based.
 func (s *Session) SetCursor(row, col int) error {
 	if row < 0 || row >= s.scr.rows || col < 0 || col >= s.scr.cols {

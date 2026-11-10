@@ -60,6 +60,15 @@ end
     such as a password, are blank.],
   [#cmd("t:text()")], [the same as one string, lines joined by newlines.],
   [#cmd("t:cursor()")], [the cursor's row and column, counted from 1.],
+  [#cmd("t:color(")#var("row")#cmd(", ")#var("col")#cmd(")")], [the colour
+    a 3279 shows at #var("row"), #var("col") (from 1): #cmd("\"blue\""),
+    #cmd("\"red\""), #cmd("\"pink\""), #cmd("\"green\""),
+    #cmd("\"turquoise\""), #cmd("\"yellow\"") or #cmd("\"white\""). The
+    colour the host gave the character (Set Attribute) or its field (Start
+    Field Extended, Modify Field), else the default of the field: protected
+    blue, protected and intensified white, unprotected green, unprotected
+    and intensified red. A blank cell has a colour too, although it shows
+    none.],
   [#cmd("t.user")], [the TN3270 user.],
   [#cmd("t.testlib")], [the name of the test library of #cmd("mbt test
     --mvs").],
@@ -71,7 +80,8 @@ end
     (@ref-tso-size).],
 )
 
-All methods except #cmd("screen"), #cmd("text") and #cmd("cursor") return
+All methods except #cmd("screen"), #cmd("text"), #cmd("cursor") and
+#cmd("color") return
 the session, so calls can be chained: #cmd("t:type(\"TIME\"):enter()").
 Enter, Clear, PF and PA wait for the keyboard to be unlocked, at most 60
 seconds, and then for 300 milliseconds without output. With a table

@@ -44,8 +44,9 @@ func (f *fakeTSO) Expect(text string, _ time.Duration) error {
 	}
 	return errors.New("not there")
 }
-func (f *fakeTSO) Screen() []string   { return f.screen }
-func (f *fakeTSO) Cursor() (int, int) { return 3, 1 }
+func (f *fakeTSO) Screen() []string                   { return f.screen }
+func (f *fakeTSO) Cursor() (int, int)                 { return 3, 1 }
+func (f *fakeTSO) Color(row, col int) (string, error) { return "blue", nil }
 
 func TestTSOTest(t *testing.T) {
 	v := setup(t, map[string]string{
@@ -56,6 +57,7 @@ return function(t)
   t:expect("HELLO FROM REXX", { timeout = 3 }):expect("READY")
   local r, c = t:cursor()
   assert(r == 3 and c == 1 and #t:screen() == 3)
+  assert(t:color(1, 1) == "blue")
   t:pf(3)
 end`,
 		"test/tso/broken.lua": `

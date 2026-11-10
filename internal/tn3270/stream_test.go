@@ -308,3 +308,41 @@ func TestHostReadCommands(t *testing.T) {
 		t.Error("an unknown command was accepted")
 	}
 }
+
+// The colour of a field from SFE and MF, of characters from SA, and the
+// default colours of the basic attribute.
+func TestColors(t *testing.T) {
+	s := newScreen()
+	a1, a2 := encodeAddr(0)
+	b1, b2 := encodeAddr(80)
+	c1, c2 := encodeAddr(160)
+	rec := []byte{cmdEW, 0xC3,
+		orderSBA, a1, a2, orderSFE, 0x02, 0xC0, 0x60, 0x42, 0xF4, 0xC1, 0xC2, // protected, green
+		orderSA, 0x42, 0xF2, 0xC3, orderSA, 0x00, 0x00, 0xC4, // C red, D back to green
+		orderSBA, b1, b2, orderSF, 0x60, 0xC1, // protected: blue
+		orderSF, 0x68, 0xC1, // protected, intensified: white
+		orderSF, 0x40, 0xC1, // unprotected: green
+		orderSF, 0x48, 0xC1, // unprotected, intensified: red
+		orderSBA, c1, c2, orderSFE, 0x01, 0xC0, 0x60, 0xC1, // protected: blue,
+		orderSBA, c1, c2, orderMF, 0x01, 0x42, 0xF6, // then yellow
+	}
+	if _, err := s.process(rec); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		pos  int
+		want string
+	}{
+		{1, "green"}, {2, "green"}, {3, "red"}, {4, "green"},
+		{81, "blue"}, {83, "white"}, {85, "green"}, {87, "red"},
+		{161, "yellow"},
+	} {
+		if got := s.color(c.pos); got != c.want {
+			t.Errorf("position %d: %s, want %s", c.pos, got, c.want)
+		}
+	}
+	// SFE moves on by one position, whatever the number of its pairs
+	if s.buf[1] != 0xC1 || s.buf[2] != 0xC2 {
+		t.Errorf("SFE: % X", s.buf[:4])
+	}
+}
