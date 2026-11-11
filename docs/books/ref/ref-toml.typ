@@ -357,8 +357,9 @@ libraries of the same #cmd("element") type is an error, the same name as
 == [smp] <ref-toml-smp>
 
 Needed with #cmd("[distribution]"), and only with it\; a
-#cmd("[distribution]") needs at least one load module. #var("P4") is the
-first four characters of #var("NAME").
+#cmd("[distribution]") needs at least one load module to ship, and a module
+with #cmd("ship = false") is not one. #var("P4") is the first four
+characters of #var("NAME").
 
 #table(columns: (1.3in, 1.2in, 1fr),
   [Key], [Default], [Meaning],

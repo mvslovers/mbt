@@ -106,9 +106,11 @@ the way out.
     [#cmd("... has about N of M tracks free")], [compress the library, or
       #cmd("--reallocate") while nothing holds it, or #cmd("--ignore-space").],
     [#cmd("deploy job ... ran out of space (SD37 in step MERGE, ...)")],
-      [compress the library while nothing holds it, or #cmd("--reallocate");
-      then deploy again. The library may hold some of the new members until
-      a deploy completes.],
+      [the data set named is the library: compress it while nothing holds
+      it, or #cmd("--reallocate"), then deploy again. The library may hold
+      some of the new members until a deploy completes. If the data set named
+      is the staging copy, the library was not written\; make room for the
+      staging copy and deploy again.],
     [#cmd("deploy failed: --reallocate: cannot delete ..., most likely a
       running server holds it -- stop it first")], [stop the server
       first.],

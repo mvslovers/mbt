@@ -266,6 +266,9 @@ Each load module is a table #cmd("[module.")#var("NAME")#cmd("]"),
       does for its CGI modules\; #cmd("false") keeps that of LIBC/370.],
     [#cmd("aliases")], [further names of the module, such as
       #cmd("[\"REXX\", \"RX\"]").],
+    [#cmd("ship")], [#cmd("false") keeps the module out of the installation
+      package, though it is built and deployed. Default #cmd("true"). See
+      @ug-package-noship.],
   )
 ] <ug-build-module-keys>
 

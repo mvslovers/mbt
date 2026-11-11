@@ -1,0 +1,8 @@
+$ mbt test --tso
+[mbt] 1 interactive test(s) on lab (lab:3270 as IBMUSER)
+
+  TEST       TSO
+  ---------- ----
+  COLOUR     ok
+
+[mbt] all 1 interactive test(s) passed
