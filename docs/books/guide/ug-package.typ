@@ -38,8 +38,8 @@ then writes the release files. @ug-package-run shows it for the project
 
 The library archive is written only for a project with #cmd("[lib]"), the
 installation package only for one with #cmd("[distribution]"). A project
-with #cmd("[distribution]") but no load module is an error: there is
-nothing to install.
+with #cmd("[distribution]") but no load module to ship is an error: there
+is nothing to install (@ug-package-noship).
 
 == Describing the Package <ug-package-describe>
 
@@ -85,6 +85,35 @@ that name to the system library. Give each library a DD name of its own with
 and with #cmd("target_dd") and #cmd("distlib_dd") in a library with
 #cmd("element"). Set them before the first installation: the elements SMP has
 already recorded stay under the old name (_MBT Reference_, "DD Names").
+
+== Modules That Stay Out of the Package <ug-package-noship>
+
+#idx("ship")#idx("test tool")
+Every #cmd("[module.")#var("NAME")#cmd("]") goes into the package. Some
+modules should not: a test tool that a TSO test (@ug-test-tso) calls, for
+instance, which belongs in the development library next to the product's
+own modules but must not reach the library SMP owns. Write
+#cmd("ship = false") in its table:
+
+```
+[module.TESTTOOL]
+sources = ["test/tool/*.c"]
+rent    = false
+reus    = false
+ship    = false
+```
+
+MBT builds the module and #cmd("mbt deploy") puts it into the development
+library, as for any other module\; #cmd("mbt package") and #cmd("mbt dist")
+leave it out of the load TRANSMIT file and out of the SYSMOD. The default is
+#cmd("true"). A value that is not #cmd("true") or #cmd("false") stops MBT with
+a configuration error.
+
+A module with #cmd("ship = false") does not count as a module to ship. A
+project whose #cmd("[distribution]") has none left is refused: #cmd("mbt
+package") stops with return code 2 and says that the table needs at least one
+module to ship. A project without #cmd("[distribution]") and with no module to
+ship gets no load TRANSMIT file.
 
 == The Installation Jobs <ug-package-jobs>
 

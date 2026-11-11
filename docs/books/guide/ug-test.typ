@@ -279,9 +279,33 @@ end
     test fails and shows the screen it saw.],
   [#cmd("t:screen()"), #cmd("t:text()"), #cmd("t:cursor()")], [read the
     screen and the cursor position.],
+  [#cmd("t:color(")#var("row")#cmd(", ")#var("col")#cmd(")")], [the colour
+    at a position, counted from 1: a name such as #cmd("\"red\"") or
+    #cmd("\"green\"").],
   [#cmd("t.testlib")], [the name of the test library #cmd("mbt test
     --mvs") uses, for a session that calls one of the tests.],
 )
+
+#idx("t:color")
+A program can mark what it shows with colour: an error in red, an answer
+in green. #cmd("t:color") reads the colour of a position, so that a test
+can check it. The row and the column are the ones of #cmd("t:cursor()"). On
+MVS/CE, the lines TSO writes are red and the command a user types is
+green:
+
+#fig(caption: [A test that checks colours])[
+  #code(read("../ex/ug-test/colour.lua"), numbers: true)
+] <ug-test-tso-color>
+
+#fig(caption: [Running it])[
+  #screen(raw(read("../ex/ug-test/colour.txt")))
+] <ug-test-tso-color-run>
+
+The test finds the row of the answer to #cmd("TIME") on the screen, and
+asks for the colour of its first character and of the command above it. A
+failed #cmd("assert") fails the test with the message and the line. The
+names, and how MBT arrives at the colour of a position, are in _MBT
+Reference_, "The TSO Test API".
 
 Each file gets its own logon, and the session is logged off whatever
 happens. #cmd("mbt test --tso") does not deploy the test modules itself:

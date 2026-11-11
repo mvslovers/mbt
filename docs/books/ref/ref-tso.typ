@@ -67,8 +67,9 @@ end
     colour the host gave the character (Set Attribute) or its field (Start
     Field Extended, Modify Field), else the default of the field: protected
     blue, protected and intensified white, unprotected green, unprotected
-    and intensified red. A blank cell has a colour too, although it shows
-    none.],
+    and intensified red. On a screen without fields the colour is green.
+    A blank cell has a colour too, although it shows none. A position off
+    the screen is an error.],
   [#cmd("t.user")], [the TN3270 user.],
   [#cmd("t.testlib")], [the name of the test library of #cmd("mbt test
     --mvs").],
