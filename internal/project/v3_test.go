@@ -583,3 +583,24 @@ func TestErrorsAreStable(t *testing.T) {
 		}
 	}
 }
+
+// ship = false keeps a module out of the package, not out of the build
+// (mbt#373); anything but a boolean is refused.
+func TestModuleShip(t *testing.T) {
+	src := strings.Replace(v3Base, "[module.\"UFS#A\"]\n", "[module.\"UFS#A\"]\nship = false\n", 1)
+	p, err := LoadV3(v3Tree(t, src), FileV3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Modules) != 2 {
+		t.Fatalf("modules: %d, want 2", len(p.Modules))
+	}
+	s := p.Shipped()
+	if len(s) != 1 || s[0].Name != "UFSD" {
+		t.Errorf("shipped: %v, want [UFSD]", s)
+	}
+	bad := strings.Replace(v3Base, "[module.\"UFS#A\"]\n", "[module.\"UFS#A\"]\nship = \"no\"\n", 1)
+	if _, err := LoadV3(v3Tree(t, bad), FileV3); err == nil || !strings.Contains(err.Error(), "'ship' must be true or false") {
+		t.Errorf("ship = \"no\": got %v", err)
+	}
+}

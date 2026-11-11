@@ -120,6 +120,7 @@ takes `sources`, `exclude`.
 | `dep_startup` | — | same |
 | `ac` | `0` | same |
 | `aliases` | `[]` | same |
+| `ship` | `true` | new (mbt#373): `false` keeps the module out of the SMP package; build and deploy are unchanged |
 
 `norent` / `noreus` are gone; `mbt migrate` writes `rent = false` /
 `reus = false`, also for `norent = false` / `noreus = false` (with a `NOTE`):

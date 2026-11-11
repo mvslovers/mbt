@@ -65,7 +65,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		return err
 	}
 	if len(modules) == 0 {
-		return errf("[distribution] needs at least one [[module]] to ship")
+		return errf("[distribution] needs at least one [[module]] to ship (ship = false leaves a module out)")
 	}
 	for _, w := range d.Warnings {
 		o.Log("WARNING: " + w)

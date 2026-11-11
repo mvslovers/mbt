@@ -39,10 +39,24 @@ type Unit struct {
 	AC            int
 	Attrs         []string // ld370 flags: --rent/--norent/--reus/--noreus/--refr
 	Aliases       []string
-	Sources       []string
+	// NoShip: ship = false, the module stays out of the SMP package (mbt#373)
+	NoShip  bool
+	Sources []string
 	// Raw keeps the unit's table for checks that read more than the model
 	// (module-data reads rent and ac).
 	Raw map[string]any
+}
+
+// Shipped lists the modules the SMP package carries: all but those with
+// ship = false (mbt#373).
+func (p *Project) Shipped() []*Unit {
+	var out []*Unit
+	for _, m := range p.Modules {
+		if !m.NoShip {
+			out = append(out, m)
+		}
+	}
+	return out
 }
 
 // Lib is the project's public static archive.
