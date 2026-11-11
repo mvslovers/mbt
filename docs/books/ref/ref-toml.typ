@@ -201,6 +201,10 @@ must be unique across all modules and aliases\; a test has none.
     else the build stops with return code 2.],
   [#cmd("ac")], [#cmd("0")], [the authorization code.],
   [#cmd("aliases")], [#cmd("[]")], [further names of the module.],
+  [#cmd("ship")], [#cmd("true")], [#cmd("false"): the module is built and
+    deployed, but #cmd("mbt package") and #cmd("mbt dist") leave it out of
+    the load TRANSMIT file and the SYSMOD, for a test tool that must not
+    reach the product library.],
 )
 
 == Tests <ref-toml-tests>

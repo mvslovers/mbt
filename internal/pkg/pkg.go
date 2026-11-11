@@ -55,14 +55,14 @@ func Run(p *project.Project, o Options) error {
 		return err
 	}
 	prefix := Prefix(p)
-	if len(p.Modules) > 0 {
+	if mods := p.Shipped(); len(mods) > 0 {
 		dsn, err := LoadDSN(p)
 		if err != nil {
 			return err
 		}
-		o.Log(fmt.Sprintf("Packaging %s-load.xmit (%d module(s) -> %s)", prefix, len(p.Modules), dsn))
+		o.Log(fmt.Sprintf("Packaging %s-load.xmit (%d module(s) -> %s)", prefix, len(mods), dsn))
 		args := []string{"--pack"}
-		for _, m := range p.Modules {
+		for _, m := range mods {
 			args = append(args, path.Join(o.BuildDir, m.Name+".iebcopy"))
 		}
 		args = append(args, "-o", path.Join(o.DistDir, prefix+"-load"), "-xmit", "--dsn", dsn)

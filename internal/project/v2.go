@@ -160,6 +160,13 @@ func (p *Project) unit(m map[string]any, test bool) (*Unit, error) {
 	}
 	u.Attrs = attrs
 	u.Aliases = strs(m, "aliases")
+	if s, ok := m["ship"]; ok {
+		b, isBool := s.(bool)
+		if !isBool {
+			return nil, configErr("[[module]] %s: 'ship' must be true or false, not %v", name, pyRepr(s))
+		}
+		u.NoShip = !b
+	}
 	srcs, empty := resolveSources(p.Root, strs(m, "sources"), strs(m, "exclude"))
 	p.warnEmpty(empty)
 	u.Sources = srcs

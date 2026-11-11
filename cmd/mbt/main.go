@@ -341,7 +341,7 @@ func runDist(p *project.Project, mtime time.Time) int {
 		return exitConfig
 	}
 	var mods []dist.Module
-	for _, m := range p.Modules {
+	for _, m := range p.Shipped() {
 		mods = append(mods, dist.Module{Name: m.Name, Aliases: m.Aliases})
 	}
 	err := dist.Build(p.Raw, p.Name, p.Version, mods, dist.Options{
