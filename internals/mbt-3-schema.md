@@ -121,6 +121,7 @@ takes `sources`, `exclude`.
 | `ac` | `0` | same |
 | `aliases` | `[]` | same |
 | `ship` | `true` | new (mbt#373): `false` keeps the module out of the SMP package; build and deploy are unchanged |
+| `smp` | — | new (mbt#380): a table `{ syslib, distlib, source, parm }`. The module goes into a system library of the SMP procedures (`syslib = "LPALIB"`, `distlib = "AOST4"`), link-edited there by a JCLIN step of its own, and travels as its one `.asm` source, assembled by the install job (`source = true`, required). `parm`: the IEWL PARM, default `MAP,LIST,NCAL` and the module's `rent`/`reus`/`refr`/`ac`. Refused in a `project.toml` |
 
 `norent` / `noreus` are gone; `mbt migrate` writes `rent = false` /
 `reus = false`, also for `norent = false` / `noreus = false` (with a `NOTE`):

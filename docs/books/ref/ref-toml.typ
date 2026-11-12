@@ -205,7 +205,60 @@ must be unique across all modules and aliases\; a test has none.
     deployed, but #cmd("mbt package") and #cmd("mbt dist") leave it out of
     the load TRANSMIT file and the SYSMOD, for a test tool that must not
     reach the product library.],
+  [#cmd("smp")], [none], [a table: the module goes into a system library
+    of the SMP procedures, not into the product's target
+    (@ref-toml-module-smp).],
 )
+
+=== [module.NAME.smp] <ref-toml-module-smp>
+
+#idx("system library")
+#idx("LPALIB")
+A module that belongs in a library of the system, such as an SVC routine in
+#cmd("SYS1.LPALIB"), is linked there by SMP and travels as its assembler
+source, assembled at installation by the target system's assembler
+(@ref-smp-system):
+
+```
+[module.IGX00011]
+entry   = "IGX00011"
+startup = false
+sources = ["asm/igx00011.asm"]
+rent    = true
+reus    = true
+refr    = true
+
+[module.IGX00011.smp]
+syslib  = "LPALIB"
+distlib = "AOST4"
+source  = true
+```
+
+#table(columns: (1.3in, 1.2in, 1fr),
+  [Key], [Default], [Meaning],
+  [#cmd("syslib")], [required], [the DD name, in the SMP procedures, of the
+    system library the module is linked into: #cmd("LPALIB"),
+    #cmd("LINKLIB") or #cmd("SVCLIB"). The data set is #cmd("SYS1.") and the
+    DD name.],
+  [#cmd("distlib")], [required], [the DD name of the distribution library SMP
+    keeps the module in: one of load modules of the MVS/CE procedures,
+    #cmd("AOS")#var("xx"), #cmd("ALPALIB") or #cmd("ACMDLIB"), as
+    #cmd("SYS1.") and the DD name.],
+  [#cmd("source")], [required], [#cmd("true"): the module is shipped as its
+    source. It is the only form supported: a load module linked from the
+    staging library into a system library has not been measured.],
+  [#cmd("parm")], [derived], [the #cmd("PARM") of the link-edit step,
+    without quotes. Derived: #cmd("MAP,LIST,NCAL"), then #cmd("RENT"),
+    #cmd("REUS"), #cmd("REFR") as the module declares them, and
+    #cmd("AC=")#var("n") for #cmd("ac").],
+)
+
+The module has exactly one source, a #cmd(".asm") file, and no aliases. At
+most one module of a project has this table, and at least one module goes
+into the product's target as before. Other keys and other values are
+errors (return code 2). #cmd("mbt build") and #cmd("mbt deploy") treat the
+module like any other. A #cmd("project.toml") (mbt 2) with #cmd("smp") on a
+#cmd("[[module]]") is refused: migrate it first.
 
 == Tests <ref-toml-tests>
 
@@ -358,7 +411,8 @@ libraries of the same #cmd("element") type is an error, the same name as
 
 Needed with #cmd("[distribution]"), and only with it\; a
 #cmd("[distribution]") needs at least one load module to ship, and a module
-with #cmd("ship = false") is not one. #var("P4") is the first four
+with #cmd("ship = false") is not one, nor is one with
+#cmd("[module.")#var("NAME")#cmd(".smp]"). #var("P4") is the first four
 characters of #var("NAME").
 
 #table(columns: (1.3in, 1.2in, 1fr),

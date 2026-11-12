@@ -17,6 +17,13 @@ func LoadV2(root, file string) (*Project, error) {
 	if _, err := toml.DecodeFile(filepath.Join(root, file), &raw); err != nil {
 		return nil, configErr("%s: %v", file, err)
 	}
+	// [module.NAME.smp] is mbt 3's (mbt#380): mbt 2 does not know it, and the
+	// package of a project.toml stays what mbt 2 makes of it.
+	for _, m := range tables(raw, "module") {
+		if _, ok := m["smp"]; ok {
+			return nil, configErr("%s: [[module]] %s: 'smp' is an mbt.toml key (schema 3) -- migrate the project first (mbt migrate)", file, str(m, "name", "?"))
+		}
+	}
 	return fromRaw(root, file, raw)
 }
 
@@ -172,6 +179,11 @@ func (p *Project) unit(m map[string]any, test bool) (*Unit, error) {
 	u.Sources = srcs
 	if err := checkCOBOL(p.Root, u, m); err != nil {
 		return nil, err
+	}
+	if v, ok := m["smp"]; ok && !test {
+		if u.SMP, err = moduleSMP(u, v); err != nil {
+			return nil, err
+		}
 	}
 	return u, nil
 }

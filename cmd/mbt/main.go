@@ -342,7 +342,11 @@ func runDist(p *project.Project, mtime time.Time) int {
 	}
 	var mods []dist.Module
 	for _, m := range p.Shipped() {
-		mods = append(mods, dist.Module{Name: m.Name, Aliases: m.Aliases})
+		dm := dist.Module{Name: m.Name, Aliases: m.Aliases}
+		if m.SMP != nil {
+			dm.System = &dist.SystemModule{Syslib: m.SMP.Syslib, Distlib: m.SMP.Distlib, Parm: m.LinkParm(), Source: m.SMP.File}
+		}
+		mods = append(mods, dm)
 	}
 	err := dist.Build(p.Raw, p.Name, p.Version, mods, dist.Options{
 		Root: p.Root, DistDir: "dist", BuildDir: "build", Mtime: mtime,

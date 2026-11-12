@@ -265,11 +265,12 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
         "ALLOC_JOB": alloc_job,
         "EDIT_PREFIX": D.XMIT_EDIT_PREFIX,
         "LKLIB": dist.smp.lklib,
-        "DELIM": D.INSTREAM_DELIMITER,
-        "MCS": mcs.rstrip("\n"),
+        "RECEIVE_SYSMOD": (
+            f"//RECV    EXEC SMPREC,COND=(0,NE,{plan[-1][0]})\n"
+            f"//SMPPTFIN DD  DATA,DLM={D.INSTREAM_DELIMITER}\n"
+            f"{mcs.rstrip(chr(10))}\n{D.INSTREAM_DELIMITER}"),
         "RECEIVE_SUMMARY": "\n".join(receive_summary),
         "RECEIVE_STEPS": D.render_receive_steps(plan),
-        "LAST_RECV": plan[-1][0],
         "APPLY_DDS": D.render_apply_dds(dist),
         "RECV_DDS": "",
         "SMP_SCOPE": (

@@ -115,6 +115,48 @@ package") stops with return code 2 and says that the table needs at least one
 module to ship. A project without #cmd("[distribution]") and with no module to
 ship gets no load TRANSMIT file.
 
+== A Module for a System Library <ug-package-system>
+
+#idx("system library")
+#idx("LPALIB")
+Some modules do not belong in the product's library at all: an SVC routine
+is loaded from #cmd("SYS1.LPALIB") at the IPL. Give such a module a table
+#cmd("smp") (_MBT Reference_, "[module.NAME.smp]"):
+
+```
+[module.IGX00011]
+entry   = "IGX00011"
+startup = false
+sources = ["asm/igx00011.asm"]
+rent    = true
+reus    = true
+refr    = true
+
+[module.IGX00011.smp]
+syslib  = "LPALIB"
+distlib = "AOST4"
+source  = true
+```
+
+SMP then owns the module where it runs: the SYSMOD's JCLIN link-edits it into
+#cmd("SYS1.LPALIB"), and the #cmd("ACCEPT") keeps it in #cmd("SYS1.AOST4"),
+as IBM's own modules are kept. A copy job after every installation is no
+longer needed, and an upgrade or a #cmd("RESTORE") replaces the module
+there.
+
+The module travels as its source, not as a load module. The installation job
+assembles it with the target system's own IFOX00 and macros, so the user gets
+the source of the code that runs in supervisor state, and the system's own
+mappings of its control blocks go into it. It must therefore be a single
+#cmd(".asm") file that IFOX00 assembles with return code 0. #cmd("mbt
+build") and #cmd("mbt deploy") build it as before, for testing.
+
+Two return codes change: the #cmd("APPLY") and the #cmd("ACCEPT") end with 4,
+because the module is not yet in the library SMP links it into
+(_MBT Reference_, "A Module in a System Library"). The module takes effect at the next IPL with
+#cmd("CLPA"), which the operator does\; say so in the product's installation
+guide.
+
 == The Installation Jobs <ug-package-jobs>
 
 #idx("installation job")

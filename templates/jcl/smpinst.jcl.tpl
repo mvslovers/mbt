@@ -46,10 +46,7 @@ $RECEIVE_STEPS
 //* statements. Either would cut a DD * stream short. DLM= moves the
 //* terminator somewhere the SYSMOD never goes.
 //*
-//RECV    EXEC SMPREC,COND=(0,NE,$LAST_RECV)
-//SMPPTFIN DD  DATA,DLM=$DELIM
-$MCS
-$DELIM
+$RECEIVE_SYSMOD
 //SMPCNTL  DD  *
  RESETRC .
  RECEIVE SELECT($FMID) .
