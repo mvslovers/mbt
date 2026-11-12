@@ -53,14 +53,14 @@ SHA-256 checksums:
 Download the archive for your platform and the checksums, check the
 archive, unpack it, and put #cmd("mbt") into a directory on your
 #cmd("PATH"). With the GitHub command #cmd("gh"), on a Mac with Apple
-silicon, for MBT 3.1.0:
+silicon, for MBT 3.2.0:
 
 ```
-gh release download v3.1.0 -R mvslovers/mbt \
-   -p 'mbt-3.1.0-darwin-arm64.tar.gz' -p 'mbt-3.1.0-sha256.txt'
-shasum -a 256 -c --ignore-missing mbt-3.1.0-sha256.txt
-tar -xzf mbt-3.1.0-darwin-arm64.tar.gz
-install mbt-3.1.0-darwin-arm64/mbt ~/.local/bin/mbt
+gh release download v3.2.0 -R mvslovers/mbt \
+   -p 'mbt-3.2.0-darwin-arm64.tar.gz' -p 'mbt-3.2.0-sha256.txt'
+shasum -a 256 -c --ignore-missing mbt-3.2.0-sha256.txt
+tar -xzf mbt-3.2.0-darwin-arm64.tar.gz
+install mbt-3.2.0-darwin-arm64/mbt ~/.local/bin/mbt
 ```
 
 The archives can also be downloaded from the release page in a browser.

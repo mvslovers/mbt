@@ -29,18 +29,18 @@ mbt 2 first. The v1-to-v2 guide this file used to hold is kept at
 mbt 3 is published as a GitHub release of
 [mvslovers/mbt](https://github.com/mvslovers/mbt/releases), for macOS and
 Linux (arm64 and amd64) and Windows (amd64). It is a single binary with no
-dependencies. mbt 3.1.0 is released as `v3.1.0`:
+dependencies. mbt 3.2.0 is released as `v3.2.0`:
 
 ```sh
-gh release download v3.1.0 -R mvslovers/mbt \
-   -p 'mbt-3.1.0-darwin-arm64.tar.gz' -p 'mbt-3.1.0-sha256.txt'
-shasum -a 256 -c --ignore-missing mbt-3.1.0-sha256.txt
-tar -xzf mbt-3.1.0-darwin-arm64.tar.gz
-install mbt-3.1.0-darwin-arm64/mbt ~/.local/bin/mbt     # any directory on PATH
+gh release download v3.2.0 -R mvslovers/mbt \
+   -p 'mbt-3.2.0-darwin-arm64.tar.gz' -p 'mbt-3.2.0-sha256.txt'
+shasum -a 256 -c --ignore-missing mbt-3.2.0-sha256.txt
+tar -xzf mbt-3.2.0-darwin-arm64.tar.gz
+install mbt-3.2.0-darwin-arm64/mbt ~/.local/bin/mbt     # any directory on PATH
 mbt version
 ```
 
-`mbt version` prints `mbt 3.1.0`. The mbt 2 line stays on the `v2.*` tags;
+`mbt version` prints `mbt 3.2.0`. The mbt 2 line stays on the `v2.*` tags;
 the newest is `v2.2.0`.
 
 Pick the archive for your platform: `darwin-arm64`, `darwin-amd64`,
@@ -506,8 +506,8 @@ Both install the newest mbt 3 release, which then switches to the version
 `[toolchain] mbt` pins. `build3.yml` builds against the tip of cc370 and
 libc370, as the mbt 2 workflow did. `release3.yml` builds with the versions
 `[toolchain]` names, checks that the tag matches `[project] version`, runs
-`mbt package` and publishes `dist/`. With mbt 3.1.0 released, you can pin
-`uses:` to the release (`@v3.1.0`) instead of `@main`.
+`mbt package` and publishes `dist/`. With mbt 3.2.0 released, you can pin
+`uses:` to the release (`@v3.2.0`) instead of `@main`.
 
 A workflow that talks to MVS sets its target from the environment:
 `MBT_TARGET_MVSMF_URL`, `MBT_TARGET_MVSMF_USER`, `MBT_TARGET_MVSMF_PASSWORD`,
