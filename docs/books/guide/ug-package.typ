@@ -141,8 +141,8 @@ source  = true
 SMP then owns the module where it runs: the SYSMOD's JCLIN link-edits it into
 #cmd("SYS1.LPALIB"), and the #cmd("ACCEPT") keeps it in #cmd("SYS1.AOST4"),
 as IBM's own modules are kept. A copy job after every installation is no
-longer needed, and an upgrade or a #cmd("RESTORE") replaces the module
-there.
+longer needed, and an upgrade replaces the module there (a #cmd("RESTORE")
+of such a module has not been measured).
 
 The module travels as its source, not as a load module. The installation job
 assembles it with the target system's own IFOX00 and macros, so the user gets
