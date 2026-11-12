@@ -1,6 +1,6 @@
 # mbt 3
 
-The Go implementation of mbt 3, released as 3.1.0 (design:
+The Go implementation of mbt 3, released as 3.2.0 (design:
 `internals/mbt-3-design.md`). It lives beside mbt 2 (`mk/`, `scripts/`,
 the `v2.*` tags, newest v2.2.0) until every project has migrated.
 Installing it: `docs/MIGRATION.md`, section 1.

@@ -22,7 +22,7 @@ mbt is a reusable Git submodule that centralizes the full build pipeline for
 > The `project.toml` reference, the v1→v2 mapping and the v2 migration steps
 > are in [docs/MIGRATION.md as of v2.2.0](https://github.com/mvslovers/mbt/blob/v2.2.0/docs/MIGRATION.md).
 > **mbt 3** (a single installed program instead of the submodule) is released
-> as 3.1.0 (tag `v3.1.0`; 3.0.0 was the first mbt 3 release):
+> as 3.2.0 (tag `v3.2.0`; 3.0.0 was the first mbt 3 release):
 > [docs/MIGRATION.md](docs/MIGRATION.md) takes a project from mbt 2 to mbt 3. The mbt 2 line lives on the `v2.*` tags; the
 > newest is v2.2.0.
 >

@@ -11,8 +11,8 @@
   edition: [
     #text(font: head-font, weight: "bold", size: 11pt)[First Edition (November 2026)]
 
-    This edition applies to Version 3 Release 1 of MBT, the MVS build tool
-    (mbt 3.1.0), and to all subsequent releases and modifications until
+    This edition applies to Version 3 Release 2 of MBT, the MVS build tool
+    (mbt 3.2.0), and to all subsequent releases and modifications until
     otherwise indicated in new editions.
 
     Comments on this book may be addressed to the issue tracker of the

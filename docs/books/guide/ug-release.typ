@@ -146,7 +146,7 @@ also needs #cmd("cobc370"): #cmd("with: cobc370_ref:") #var("ref") builds it
 from that tag, branch or full commit SHA of #cmd("brazilofmux/cobc370") and
 puts it on #cmd("PATH") (@ug-build-cobol).
 
-Pin #cmd("uses:") to a tag of MBT, such as #cmd("@v3.1.0"), instead of
+Pin #cmd("uses:") to a tag of MBT, such as #cmd("@v3.2.0"), instead of
 #cmd("@main"), so that workflow and tool do not drift apart.
 
 
