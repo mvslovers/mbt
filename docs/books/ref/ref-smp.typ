@@ -631,8 +631,9 @@ LPALIB").
 #idx("refreshable")
 *A copy SMP did not put there.* The #cmd("INCLUDE") of the module from the
 system library finds a member if one is there, and the #cmd("APPLY") takes it
-into the link. Measured on TK5, with the package of the example above
-(#cmd("PARM") #cmd("RENT,REUS,REFR")) installed over a system where an
+into the link. Measured on TK5, with a package with the attributes of the
+example above (#cmd("syslib"), #cmd("distlib"), #cmd("PARM")
+#cmd("RENT,REUS,REFR")) installed over a system where an
 earlier release had copied the module into #cmd("SYS1.LPALIB") by hand, not
 refreshable:
 
@@ -644,17 +645,19 @@ refreshable:
   #cmd("LPALIB").
 - The #cmd("ACCEPT") link-edit includes only the new object. The member in
   #cmd("AOST4") is refreshable (#cmd("C373")).
-- The CDS still records #cmd("LKED ATTRIBUTES = RENT REUS REFR DC"). The text
-  of the module is byte-identical in all three copies.
+- The #cmd("ACDS") (the distribution zone) still records
+  #cmd("LKED ATTRIBUTES = RENT REUS REFR DC"). The text of the module is
+  byte-identical in all three copies.
 
 The link takes the attributes from the old member, not from the #cmd("PARM"),
-and SMP records the #cmd("PARM"), so #cmd("LIST") does not show the
-difference. A first
-installation, where there is nothing to include, is not affected. The user
-takes the foreign copy out of the library before the first #cmd("APPLY") and
-reads the attributes of the result from #cmd("IEHLIST") or from the listing
-of the link edit. Not measured: what the missing #cmd("REFR") means for the LPA
-at an IPL with #cmd("CLPA"), and a foreign copy that is refreshable.
+and the #cmd("ACDS") records the #cmd("PARM"), so it does not show the
+difference. A first installation, where there is nothing to include, is not
+affected. The user takes the foreign copy out of the library before the first
+#cmd("APPLY") (not measured as a sequence\; derived from the first
+installation) and reads the attributes of the result from #cmd("IEHLIST") or
+from the listing of the link edit. Not measured: what the missing
+#cmd("REFR") means for the LPA at an IPL with #cmd("CLPA"), what the #cmd("CDS")
+records, and a foreign copy that is refreshable.
 
 A module in #cmd("SYS1.LPALIB") or #cmd("SYS1.SVCLIB") takes effect at the
 next IPL with #cmd("CLPA"), one in #cmd("SYS1.LINKLIB") at the next IPL. The
