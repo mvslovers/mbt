@@ -30,6 +30,9 @@ type Options struct {
 type Module struct {
 	Name    string
 	Aliases []string
+	// System: the module goes into a system library ([module.NAME.smp],
+	// mbt#380); nil for a module of the product's target.
+	System *SystemModule
 }
 
 func render(name string, vars map[string]string) (string, error) {
@@ -75,6 +78,11 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	out := filepath.Join(o.Root, o.DistDir)
 	stage := filepath.Join(o.Root, o.BuildDir, "dist-stage")
 	if err := os.MkdirAll(stage, 0o755); err != nil {
+		return err
+	}
+	// before the XMIT is looked for: without a module for the target
+	// library none is built, and "not found" would hide the real reason
+	if err := checkLoadModules(d, modules); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(out, loadXMIT)); err != nil {
@@ -123,11 +131,20 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		return err
 	}
 	assignDDs(d)
+	if err := setSystems(d, o.Root, modules); err != nil {
+		return err
+	}
+	if _, err := applyDDs(d); err != nil {
+		return err
+	}
 
 	// ---- the SYSMOD and the jobs ----
 	names := make([]string, 0, len(modules))
 	aliases := map[string][]string{}
 	for _, m := range modules {
+		if m.System != nil {
+			continue
+		}
 		names = append(names, m.Name)
 		if len(m.Aliases) > 0 {
 			aliases[m.Name] = m.Aliases
@@ -150,6 +167,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	for _, r := range plan {
 		summary = append(summary, fmt.Sprintf("//*   %s %s", ljust(r.step, 9), r.file), "//*               -> "+r.dsn)
 	}
+	summary = append(summary, systemSummary(d)...)
 	cleanupNote := "//*   CLEANUP   scratch the staging library, now spent"
 	loadsOnly := "//* SMP handles the load modules only. The sample library is a plain\n" +
 		"//* PDS restored by TSO RECEIVE and is none of SMP's business: the\n" +
@@ -165,6 +183,10 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	if d.hasSRC() {
 		applyChkRC = "RC<=4"
 	}
+	loadsOnly += systemScope(d)
+	// the steps before the RECV that every SMP step names (preRecvGates)
+	before := preRecvGates(d, plan[len(plan)-1].step)
+	gates := func(more ...string) []string { return append(append([]string{}, before...), more...) }
 	// With accept_fmid the install job ends after the APPLY: ACCEPT is the
 	// point without a way back, so it is a job of its own that the user
 	// submits (acceptJCL), and it takes the CLEANUP with it, since SMP reads
@@ -185,7 +207,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	} else {
 		acceptSummary = "//*   (no ACCEPT -- this level never becomes the restore base)\n" + cleanupNote
 		acceptStep = "//*"
-		cleanup, err = renderCleanupStep(d, "APPLY.HMASMP", applyCheckGate(d), recvGate)
+		cleanup, err = renderCleanupStep(d, "APPLY.HMASMP", append([]string{applyCheckGate(d), recvGate}, reversed(before)...)...)
 		if err != nil {
 			return err
 		}
@@ -194,17 +216,29 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	if err != nil {
 		return err
 	}
-	instJCL, err := render("smpinst.jcl.tpl", map[string]string{
-		"JOBCARD": jcI, "PRODUCT": name, "VERSION": ver, "FMID": d.SMP.FMID,
-		"ALLOC_JOB": allocJob, "EDIT_PREFIX": xmitEditPrefix, "LKLIB": d.SMP.LKLib,
-		"DELIM": instreamDelimiter, "MCS": strings.TrimRight(mcs, "\n"),
-		"RECEIVE_SUMMARY": strings.Join(summary, "\n"), "RECEIVE_STEPS": renderReceiveSteps(plan),
-		"LAST_RECV": plan[len(plan)-1].step, "APPLY_DDS": renderApplyDDs(d),
-		"RECV_DDS": renderRecvDDs(d), "SMP_SCOPE": loadsOnly, "APPLY_WHAT": applyWhat,
-		"APPLY_COND": condList(recvGate, applyCheckGate(d)), "CHECK_RC": applyChkRC,
-		"ACCEPT_SUMMARY": acceptSummary, "ACCEPT_STEP": acceptStep,
-		"CLEANUP_STEP": cleanup,
-	})
+	// the job twice: once without the assembler source, held to the 71
+	// columns of the job's cards (readSource has held the source to 80)
+	renderInst := func(src *string) (string, error) {
+		return render("smpinst.jcl.tpl", map[string]string{
+			"JOBCARD": jcI, "PRODUCT": name, "VERSION": ver, "FMID": d.SMP.FMID,
+			"ALLOC_JOB": allocJob, "EDIT_PREFIX": xmitEditPrefix, "LKLIB": d.SMP.LKLib,
+			"RECEIVE_SYSMOD":  receiveSysmod(d, mcs, plan[len(plan)-1].step, src),
+			"RECEIVE_SUMMARY": strings.Join(summary, "\n"), "RECEIVE_STEPS": renderReceiveSteps(plan),
+			"APPLY_DDS": renderApplyDDs(d),
+			"RECV_DDS":  renderRecvDDs(d), "SMP_SCOPE": loadsOnly, "APPLY_WHAT": applyWhat,
+			"APPLYCHK_EXEC":  condCard("//APPLYCHK EXEC SMPAPP,COND=", gates(recvGate)),
+			"APPLY_EXEC":     condCard("//APPLY   EXEC SMPAPP,COND=", gates(recvGate, applyCheckGate(d))),
+			"CHECK_RC":       applyChkRC,
+			"ACCEPT_SUMMARY": acceptSummary, "ACCEPT_STEP": acceptStep,
+			"CLEANUP_STEP": cleanup,
+		})
+	}
+	noSource := ""
+	checkJCL, err := renderInst(&noSource)
+	if err != nil {
+		return err
+	}
+	instJCL, err := renderInst(nil)
 	if err != nil {
 		return err
 	}
@@ -214,7 +248,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	if err := checkCardText(allocJCL, allocJob); err != nil {
 		return err
 	}
-	if err := checkCardText(instJCL, instJob); err != nil {
+	if err := checkCardText(checkJCL, instJob); err != nil {
 		return err
 	}
 	if acceptJCL != "" {

@@ -72,21 +72,35 @@ func AssembleMCS(d *Distribution, modules []string, product, version string, ali
 	if len(smp.Delete) > 0 {
 		ver += fmt.Sprintf(" DELETE(%s)", strings.Join(smp.Delete, ","))
 	}
+	end := " ."
+	if len(d.Systems) > 0 {
+		end = ""
+	}
 	out = append(out, ver,
 		ljust(fmt.Sprintf("   /* %s %s", product, version), 65)+"*/",
-		ljust("   /* Load modules are copied from the LKLIB, not re-bound.", 65)+"*/ .",
+		ljust("   /* Load modules are copied from the LKLIB, not re-bound.", 65)+"*/"+end,
 	)
+	for _, s := range d.Systems {
+		out = append(out, ljust(fmt.Sprintf("   /* %s is assembled at install, linked into %s.", s.Name, s.Syslib), 65)+"*/ .")
+	}
 	out = append(out, elementStatements(d)...)
 	out = append(out,
 		"++JCLIN .",
 		fmt.Sprintf("//%s JOB 1,'%s JCLIN',MSGLEVEL=1,CLASS=A", smp.FMID, upperCut(product, 20)))
 	out = append(out, copyStep("COPYLOAD", d.dd(smp.DistLib), smp.DistLib, d.dd(smp.Target), smp.Target, modules)...)
+	for _, s := range d.Systems {
+		out = append(out, linkStep(s)...)
+	}
 	for _, m := range modules {
 		lines, err := modStatement(m, d.dd(smp.LKLib), d.dd(smp.DistLib), aliases[m])
 		if err != nil {
 			return "", err
 		}
 		out = append(out, lines...)
+	}
+	// last: the install job appends the object deck right behind this card
+	for _, s := range d.Systems {
+		out = append(out, fmt.Sprintf("++MOD(%s) DISTLIB(%s) .", s.Name, s.Distlib))
 	}
 	text := strings.Join(out, "\n") + "\n"
 	if err := checkCardText(text, "generated SYSMOD "+smp.FMID); err != nil {
@@ -137,6 +151,11 @@ func arrangeApplyDDs(d *Distribution, order []string) []string {
 	var add []string
 	type card struct{ name, dsn string }
 	var cards []card
+	// the system libraries a procedure lacks, ahead of the product's own: an
+	// override on one system (AOST4 on MVS/CE), an addition on the other
+	for _, dd := range systemDDs(d) {
+		cards = append(cards, card{dd, sysDSN(dd)})
+	}
 	for _, dsn := range d.applyLibraries() {
 		cards = append(cards, card{d.dd(dsn), dsn})
 	}
@@ -197,6 +216,7 @@ func ddNames(d *Distribution) []string {
 	for _, o := range d.SMP.Predecessor {
 		names = append(names, o.DD)
 	}
+	names = append(names, systemDDs(d)...)
 	sort.Strings(names)
 	return names
 }
@@ -415,7 +435,7 @@ func renderAcceptJob(d *Distribution, jobcard, name, ver, instJob string) (strin
 	what := stagingWord(d)
 	return render("smpaccept.jcl.tpl", map[string]string{
 		"JOBCARD": jobcard, "PRODUCT": name, "VERSION": ver, "FMID": d.SMP.FMID,
-		"INSTALL_JOB": instJob, "STAGING": what, "BYPASS_NOTE": bypassNote(d),
+		"INSTALL_JOB": instJob, "STAGING": what, "BYPASS_NOTE": bypassNote(d) + systemAcceptNote(d),
 		"GUARD_STEP": renderGuardStep(d), "ACCEPT_STEP": renderAcceptStep(d), "CLEANUP_STEP": cleanup,
 	})
 }
@@ -485,15 +505,59 @@ func condList(tests ...string) string {
 	return "((" + strings.Join(tests, "),(") + "))"
 }
 
-// cleanupExec: the EXEC card of the CLEANUP. Several tests do not fit one
-// card (an MCS card is read to column 71), so the first stays on it and the
-// rest continue on the next.
-func cleanupExec(tests []string) string {
-	const exec = "//CLEANUP EXEC PGM=IDCAMS,COND="
-	if len(tests) == 1 {
-		return exec + condList(tests...)
+// preRecvGates: the COND tests on the steps before the SMP RECV that can
+// bypass it, in job order: the last TSO RECEIVE and, with a module shipped
+// as source, the two steps that write the SYSMOD and assemble the module.
+// The RECV names them; so does every SMP step behind the RECV, because a
+// COND test against a step that was bypassed is not made, and a step naming
+// only the RECV would run behind a skipped one (mbt#380: an ASSEM that ended
+// 8 bypassed the RECV, and the APPLY re-applied the SYSMOD of an earlier run).
+// The RECEIVEs before the last are not named: JCL takes eight tests on a
+// COND at most, and a package may ship six libraries. They are covered all
+// the same: DELOLD scratches every staging library first, so the APPLYCHK
+// of a run in which one of them failed has no data set to allocate under
+// that library's DD and ends the job there.
+func preRecvGates(d *Distribution, lastRecv string) []string {
+	gates := []string{"0,NE," + lastRecv}
+	if len(d.Systems) > 0 {
+		gates = append(gates, "0,NE,"+generStep, "0,NE,"+assemStep)
 	}
-	return exec + "((" + tests[0] + "),\n//             (" + strings.Join(tests[1:], "),(") + "))"
+	return gates
+}
+
+// condCard: the EXEC card of a step with its COND tests, each "rc,op,step".
+// A card is read to column 71, so the tests that do not fit continue on the
+// next card, from column 16, as many on each as fit.
+func condCard(head string, tests []string) string {
+	if len(tests) == 1 {
+		return head + condList(tests...)
+	}
+	const cont = "//             "
+	var cards []string
+	line, onCard := head+"(", 0
+	for i, t := range tests {
+		item := "(" + t + "),"
+		if i == len(tests)-1 {
+			item = "(" + t + "))"
+		}
+		if onCard > 0 && len(line)+len(item) > maxCardCol {
+			cards = append(cards, line)
+			line, onCard = cont, 0
+		}
+		line += item
+		onCard++
+	}
+	return strings.Join(append(cards, line), "\n")
+}
+
+// reversed: the tests of a CLEANUP go from the step right before it back
+// to the first one.
+func reversed(s []string) []string {
+	out := make([]string, len(s))
+	for i, v := range s {
+		out[len(s)-1-i] = v
+	}
+	return out
 }
 
 // renderCleanupStep: gates are further tests (steps before `after`) that also
@@ -506,11 +570,15 @@ func renderCleanupStep(d *Distribution, after string, gates ...string) (string, 
 	}
 	cond := "0,NE"
 	// RC 4 is how a step ends with a ++SRC (HMA4441) and, on the ACCEPT with
-	// prereq, by design (REQ BYPASSED).
-	if d.hasSRC() || (after == "ACCEPT.HMASMP" && len(d.SMP.Prereq) > 0) {
+	// prereq, by design (REQ BYPASSED). With a system module the APPLY and
+	// the ACCEPT end 4 as well, every time: the module is not in its library
+	// yet, new or taken out by the DELETE -- the APPLY's link edit ends 8 on
+	// IEW0342 (HMA2391), the ACCEPT reports HMA2471 BLDL FAILED (measured
+	// on TK5 and MVS/CE).
+	if d.hasSRC() || len(d.Systems) > 0 || (after == "ACCEPT.HMASMP" && len(d.SMP.Prereq) > 0) {
 		cond = "4,LT"
 	}
-	exec := cleanupExec(append([]string{cond + "," + after}, gates...))
+	exec := condCard("//CLEANUP EXEC PGM=IDCAMS,COND=", append([]string{cond + "," + after}, gates...))
 	if after == "ACCEPT.HMASMP" {
 		exec = "//CLEANUP EXEC PGM=IDCAMS,\n" +
 			fmt.Sprintf("//             COND=(%s,(%s,%s))", acceptGuardCond, cond, after)

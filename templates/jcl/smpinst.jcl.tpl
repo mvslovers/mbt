@@ -24,12 +24,13 @@ $ACCEPT_SUMMARY
 $SMP_SCOPE
 //*
 //* SUBMITTED AGAIN
-//*   Each SMP step names all the SMP steps before it, so none runs
-//*   behind a failed or skipped one. A SYSMOD that is already
-//*   received ends the RECV with RC 08 (HMA3862): no APPLYCHK, no
-//*   APPLY, and the job ends RC 08. Take the SYSMOD out first (REJECT
-//*   if it is only received, RESTORE if it is applied), then submit
-//*   the job again.
+//*   Each SMP step names the steps before it that it depends on (the
+//*   last RECEIVE, the assembly where there is one, and the SMP
+//*   steps), so none runs behind a failed or skipped one. A SYSMOD
+//*   that is already received ends the RECV with RC 08 (HMA3862): no
+//*   APPLYCHK, no APPLY, and the job ends RC 08. Take the SYSMOD out
+//*   first (REJECT if it is only received, RESTORE if it is applied),
+//*   then submit the job again.
 //*
 //* The SYSMOD travels inline in this job -- it is plain text, so
 //* there is no third file to upload and no dataset to allocate for
@@ -46,10 +47,7 @@ $RECEIVE_STEPS
 //* statements. Either would cut a DD * stream short. DLM= moves the
 //* terminator somewhere the SYSMOD never goes.
 //*
-//RECV    EXEC SMPREC,COND=(0,NE,$LAST_RECV)
-//SMPPTFIN DD  DATA,DLM=$DELIM
-$MCS
-$DELIM
+$RECEIVE_SYSMOD
 //SMPCNTL  DD  *
  RESETRC .
  RECEIVE SELECT($FMID) .
@@ -63,14 +61,14 @@ $DELIM
 //* quietly uses the procedure's, and the messages still name the
 //* ddname you wanted. Do not reorder them.
 //*
-//APPLYCHK EXEC SMPAPP,COND=(0,NE,RECV.HMASMP)
+$APPLYCHK_EXEC
 $APPLY_DDS
 //SMPCNTL  DD  *
  APPLY S($FMID) CHECK .
 /*
 //*
 //* ---- APPLY --------------------------------------------------------
-//APPLY   EXEC SMPAPP,COND=$APPLY_COND
+$APPLY_EXEC
 $APPLY_DDS
 //SMPCNTL  DD  *
  APPLY S($FMID) DIS(WRITE) .

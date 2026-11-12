@@ -268,6 +268,9 @@ type Distribution struct {
 	Extra     []string
 	// Warnings are what Parse accepts but the author should read.
 	Warnings []string
+	// Systems are the modules linked into a system library (system.go),
+	// set by Build from the modules, not by Parse.
+	Systems []system
 	// dds are the DD names given by a *_dd key, by data set; every other
 	// data set is addressed by its last qualifier.
 	dds map[string]string

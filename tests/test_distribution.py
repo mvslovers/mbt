@@ -440,15 +440,42 @@ class AcceptJobTest(unittest.TestCase):
     def test_steps_name_every_step_before_them(self):
         # A COND naming a step that did not run is not made (mbt#99): behind
         # a RECV that ended 8 the APPLY and the CLEANUP must still stop.
+        # A RECV bypassed behind a failed RECEIVE is not run either, so the
+        # steps behind it name the last RECEIVE as well.
         dist = D.parse(_cfg(), "V1R1M1")
-        self.assertEqual(D.cond_list(D.RECV_GATE, D.APPLYCHK_GATE),
-                         "((0,NE,RECV.HMASMP),(0,NE,APPLYCHK.HMASMP))")
-        step = D.render_cleanup_step(dist, "APPLY.HMASMP",
-                                     (D.APPLYCHK_GATE, D.RECV_GATE))
+        before = D.pre_recv_gates("RECV1")
+        self.assertEqual(
+            D.cond_card("//APPLYCHK EXEC SMPAPP,COND=", (*before, D.RECV_GATE)),
+            "//APPLYCHK EXEC SMPAPP,COND=((0,NE,RECV1),(0,NE,RECV.HMASMP))")
+        self.assertEqual(
+            D.cond_card("//APPLY   EXEC SMPAPP,COND=",
+                        (*before, D.RECV_GATE, D.APPLYCHK_GATE)),
+            "//APPLY   EXEC SMPAPP,COND=((0,NE,RECV1),(0,NE,RECV.HMASMP),\n"
+            "//             (0,NE,APPLYCHK.HMASMP))")
+        step = D.render_cleanup_step(
+            dist, "APPLY.HMASMP", (D.APPLYCHK_GATE, D.RECV_GATE, *before))
         self.assertIn("//CLEANUP EXEC PGM=IDCAMS,COND=((0,NE,APPLY.HMASMP),\n"
-                      "//             (0,NE,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP))\n",
+                      "//             (0,NE,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP),"
+                      "(0,NE,RECV1))\n",
                       step)
         D.check_card_text(step, "cleanup")
+
+    def test_cond_card_wraps_after_a_comma(self):
+        # A card is read to column 71; JCL takes eight tests at most.
+        tests = tuple(f"0,NE,STEP{i}.HMASMP" for i in range(1, 9))
+        card = D.cond_card("//CLEANUP EXEC PGM=IDCAMS,COND=", tests)
+        lines = card.splitlines()
+        self.assertGreaterEqual(len(lines), 3)
+        for i, l in enumerate(lines):
+            self.assertLessEqual(len(l), D.MAX_CARD_COL, l)
+            if i:
+                self.assertTrue(l.startswith("//             ("), l)
+            if i < len(lines) - 1:
+                self.assertTrue(l.endswith(","), l)
+        self.assertEqual(card.replace("\n//             ", ""),
+                         "//CLEANUP EXEC PGM=IDCAMS,COND=" + D.cond_list(*tests))
+        self.assertEqual(D.cond_card("//RECV    EXEC SMPREC,COND=", ("0,NE,RECV1",)),
+                         "//RECV    EXEC SMPREC,COND=(0,NE,RECV1)")
 
     def test_allocation_looks_in_the_catalog_first(self):
         # mbt#96: allocating over a cataloged name ends RC 0 with NOT CATLGD 2.

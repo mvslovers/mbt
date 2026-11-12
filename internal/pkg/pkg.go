@@ -55,7 +55,9 @@ func Run(p *project.Project, o Options) error {
 		return err
 	}
 	prefix := Prefix(p)
-	if mods := p.Shipped(); len(mods) > 0 {
+	// a module shipped as source (smp.source) is assembled by the install
+	// job and has no place in the load library
+	if mods := p.ShippedAsLoad(); len(mods) > 0 {
 		dsn, err := LoadDSN(p)
 		if err != nil {
 			return err

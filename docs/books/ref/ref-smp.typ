@@ -17,14 +17,16 @@ one directory #var("n")#cmd("-")#var("v")#cmd("/") with:
   [File], [Contents],
   [#cmd("README.md")], [#cmd("[distribution] readme").],
   [#var("n")#cmd("-")#var("v")#cmd("-load.xmit")], [the load modules: a
-    TSO TRANSMIT file of a load library.],
+    TSO TRANSMIT file of a load library. A module shipped as source
+    (@ref-smp-system) is not in it.],
   [#var("n")#cmd("-")#var("v")#cmd("-")#var("q")#cmd(".xmit")], [one per
     #cmd("[distribution.library.")#var("dir")#cmd("]"): a TRANSMIT file of a
     text library, #var("q") the DD name of its target (its last qualifier,
     @ref-smp-ddnames) in lower case.],
   [#var("n")#cmd("-")#var("v")#cmd("-alloc.jcl")], [the allocation job.],
   [#var("n")#cmd("-")#var("v")#cmd("-inst.jcl")], [the installation job,
-    with the SYSMOD inline. It ends after the #cmd("APPLY").],
+    with the SYSMOD inline, and the source of a module shipped as source.
+    It ends after the #cmd("APPLY").],
   [#var("n")#cmd("-")#var("v")#cmd("-accept.jcl")], [the accept job:
     #cmd("GUARD"), #cmd("ACCEPT") and #cmd("CLEANUP") (@ref-smp-accept). Not written with
     #cmd("accept_fmid = false").],
@@ -265,6 +267,14 @@ reads by name (#cmd("SMP...")) and those JCL gives a meaning
   #cmd("MACLIB") or #cmd("SAMPLIB"): #cmd("AMACLIB") and #cmd("ASAMPLIB") are
   distribution libraries of MVS/CE. #cmd("SMPTLIB") is an error either way.
 
+*On purpose: a module in a system library.* The one place a procedure's DD
+name is right is a module that belongs in the system library itself:
+#cmd("[module.")#var("NAME")#cmd(".smp] syslib") and #cmd("distlib")
+(@ref-toml-module-smp) name #cmd("LPALIB") and #cmd("AOST4"), for example,
+and the module is recorded under them, as IBM's own modules are
+(@ref-smp-system). They are checked against a list of their own, and a
+product library may still not use them.
+
 Changing the DD name of a library that is already installed does not move
 the elements SMP has recorded: they stay under the old name. Choose the
 names before the first install. A release that has to move a library
@@ -361,23 +371,44 @@ the table is removed again.
     #cmd("VOLUME('CHANGE.ME')") line: harmless as shipped (TK5), to be
     uncommented and given a volume where #cmd("RECEIVE") needs one (usually
     MVS/CE, #cmd("PUB000") on a stock system).],
+  [#cmd("GENER1")], [only with a module shipped as source
+    (@ref-smp-system): IEBGENER writes the SYSMOD, inline in the job
+    (#cmd("DD DATA,DLM=@@")), to the temporary data set #cmd("&&MCS"), if
+    the last #cmd("RECV")#var("n") ended with 0.],
+  [#cmd("ASSEM")], [only with a module shipped as source: IFOX00 assembles
+    its source, inline in the job, against #cmd("SYS1.MACLIB") and
+    #cmd("SYS1.AMODGEN"), and appends the object deck to #cmd("&&MCS")
+    (#cmd("SYSGO DISP=(MOD,PASS)")), if #cmd("GENER1") ended with 0.],
   [#cmd("RECV")], [SMP #cmd("RESETRC") and #cmd("RECEIVE SELECT(")#var("fmid")#cmd(")")
     of the SYSMOD, inline in the job (#cmd("DD DATA,DLM=@@")), if the last
-    #cmd("RECV")#var("n") ended with 0.],
-  [#cmd("APPLYCHK")], [#cmd("APPLY CHECK"), if #cmd("RECV") ended with 0.],
-  [#cmd("APPLY")], [#cmd("APPLY"), only after a clean check: if #cmd("RECV")
-    and #cmd("APPLYCHK") ended with 0.],
+    #cmd("RECV")#var("n") ended with 0. With a module shipped as source the
+    SYSMOD is read from #cmd("&&MCS"), and the step also needs
+    #cmd("GENER1") and #cmd("ASSEM") to have ended with 0.],
+  [#cmd("APPLYCHK")], [#cmd("APPLY CHECK"), if the last #cmd("RECV")#var("n"),
+    #cmd("GENER1") and #cmd("ASSEM") (where the job has them) and
+    #cmd("RECV") ended with 0.],
+  [#cmd("APPLY")], [#cmd("APPLY"), only after a clean check: if the same
+    steps and #cmd("APPLYCHK") ended with 0.],
   [#cmd("CLEANUP")], [only with #cmd("accept_fmid = false"): IDCAMS deletes
-    the staging library, if #cmd("RECV"), #cmd("APPLYCHK") and the
+    the staging library, if the same steps, #cmd("APPLYCHK") and the
     #cmd("APPLY") ended with 0 (with 4 for the #cmd("APPLYCHK") and the
-    #cmd("APPLY") of a package with a library of #cmd("SRC") elements).],
+    #cmd("APPLY") of a package with a library of #cmd("SRC") elements, and
+    for the #cmd("APPLY") of a package with a module in a system library).],
 )
 
 JCL does not test a #cmd("COND") against a step that did not run. So each
-SMP step names every SMP step before it, not only the one before: behind a
-#cmd("RECV") that ended with 8, the #cmd("APPLYCHK") is bypassed, and an
-#cmd("APPLY") that named only the #cmd("APPLYCHK") would run without the
-check.
+SMP step names every SMP step before it, not only the one before, and also
+the steps that can bypass the #cmd("RECV") (the last #cmd("RECV")#var("n"),
+with a module shipped as source also #cmd("GENER1") and #cmd("ASSEM")):
+behind a #cmd("RECV") that ended with 8, the #cmd("APPLYCHK") is bypassed,
+and an #cmd("APPLY") that named only the #cmd("APPLYCHK") would run without
+the check; behind an #cmd("ASSEM") that ended with 8, the #cmd("RECV") is
+bypassed, and an #cmd("APPLYCHK") that named only the #cmd("RECV") would go
+on to apply a SYSMOD that an earlier run had received. The earlier
+#cmd("RECV")#var("n") are not named (JCL takes eight tests on a
+#cmd("COND") at most): #cmd("DELOLD") scratches every staging library first,
+so after a failed #cmd("RECEIVE") the #cmd("APPLYCHK") has no data set to
+allocate under that library's DD, and the job ends there.
 
 With #cmd("accept_fmid") (the default) the job has no #cmd("ACCEPT") and no
 #cmd("CLEANUP"). It ends after the #cmd("APPLY"), and its closing comment
@@ -391,7 +422,8 @@ site that takes the function out with a #cmd("RESTORE") or never accepts it.
 with #cmd("prereq"): a prerequisite that is not applied ends them with return
 code 12 and #cmd("HMA3590     --- ") followed by the identifier and #cmd("REQ")
 (@ref-smp-prereq), and the job ends with 12. With #cmd("delete") the
-#cmd("APPLY") ends with 4 (#cmd("HMA2461"), @ref-smp-sysmod).
+#cmd("APPLY") ends with 4 (#cmd("HMA2461"), @ref-smp-sysmod), and with a
+module in a system library as well (@ref-smp-system).
 
 == The Accept Job <ref-smp-accept>
 
@@ -414,8 +446,9 @@ installation job.
     Runs only if the #cmd("GUARD") ended with 0.],
   [#cmd("CLEANUP")], [IDCAMS: deletes the staging library, and those of the
     element libraries, if the #cmd("GUARD") ended with 0 and the
-    #cmd("ACCEPT") ended with 0. With #cmd("prereq"), the #cmd("ACCEPT") ends
-    with 4 by design, and the step runs at 4 as well, but not above.],
+    #cmd("ACCEPT") ended with 0. With #cmd("prereq"), or with a module in a
+    system library (@ref-smp-system), the #cmd("ACCEPT") ends with 4 by
+    design, and the step runs at 4 as well, but not above.],
 )
 
 *The guard.* The #cmd("APPLY") enters the SYSMOD in the target zone (CDS) and
@@ -479,8 +512,9 @@ received and not applied, so the job ends in #cmd("NOTAPPL") and does not take
 the #cmd("ACCEPT") with the requisite bypassed. Submit it after an
 installation job whose #cmd("APPLY CHECK") and #cmd("APPLY") ended with return
 code 0, or with 4 for #cmd("HMA2461") (a predecessor in #cmd("delete"), the
-normal end of an upgrade) or #cmd("HMA4441") (a library of #cmd("SRC")
-elements) alone, and not after 8 or 12, as the header of the job says. The
+normal end of an upgrade), #cmd("HMA4441") (a library of #cmd("SRC")
+elements) or #cmd("HMA2391") with #cmd("RETURN CODE=08") (a module in a
+system library, @ref-smp-system) alone, and not after 8 or 12, as the header of the job says. The
 guard looks for the SYSMOD in the target zone, not at the return code of the
 installation job.
 
@@ -519,6 +553,85 @@ The #cmd("++JCLIN") is a copy, so SMP copies each module as it was linked
 and keeps its attributes, entry point and authorization code. Aliases
 travel as #cmd("TALIAS").
 
+== A Module in a System Library <ref-smp-system>
+
+#idx("system library")
+#idx("LPALIB")
+#idx("IFOX00")
+A module with #cmd("[module.")#var("NAME")#cmd(".smp]") (@ref-toml-module-smp)
+is not copied into the product's target. The JCLIN link-edits it into the
+system library, and it travels as its assembler source. For
+#cmd("syslib = \"LPALIB\""), #cmd("distlib = \"AOST4\""), the SYSMOD of
+@ref-smp-sysmod gets a third comment card, a step of its own in the JCLIN
+behind the #cmd("COPYLOAD"), and the module's #cmd("++MOD") as its last
+statement:
+
+```
+   /* Load modules are copied from the LKLIB, not re-bound.      */
+   /* IGX00011 is assembled at install, linked into LPALIB.      */ .
+++JCLIN .
+...
+//IGX00011 EXEC PGM=IEWL,PARM='MAP,LIST,NCAL,RENT,REUS,REFR'
+//AOST4    DD  DISP=SHR,DSN=SYS1.AOST4
+//SYSLMOD  DD  DISP=SHR,DSN=SYS1.LPALIB
+//SYSLIN   DD  *
+  INCLUDE AOST4(IGX00011)
+  NAME IGX00011(R)
+/*
+++MOD(ABCSRV) LKLIB(LKLIB) DISTLIB(AABCLOD) .
+++MOD(IGX00011) DISTLIB(AOST4) .
+```
+
+The module is in neither the load TRANSMIT file nor the #cmd("COPYLOAD").
+The installation job carries its source, and before the #cmd("RECEIVE") it
+writes the SYSMOD to #cmd("&&MCS") (#cmd("GENER1")) and assembles the source
+with IFOX00 against the system's own #cmd("SYS1.MACLIB") and
+#cmd("SYS1.AMODGEN") (#cmd("ASSEM")). The object deck lands behind the last
+card of the SYSMOD, the module's #cmd("++MOD"), and SMP receives a plain
+object deck. The #cmd("PARM") of the link-edit gives SMP the attributes of the
+module: SMP links it with them and records them for the load module
+(#cmd("LIST CDS LMOD"), #cmd("LKED ATTRIBUTES")). The source has at most 80
+columns, plain ASCII, no tabs and no line beginning with #cmd("@@"); the
+job's own cards are still held to column 71.
+
+*The DD cards.* #cmd("SYS1.AOST4") is a DD of the SMPAPP procedure of
+MVS/CE but not of TK5, and the #cmd("ACCEPT") writes the module there. The
+#cmd("APPLY CHECK"), #cmd("APPLY") and #cmd("ACCEPT") steps therefore carry
+a card #cmd("//HMASMP.AOST4") ahead of the product's own: an override on
+MVS/CE, an addition on TK5, the same text on both. A library every
+procedure has (#cmd("LPALIB")) gets no card. With #cmd("procedure") set, the
+card is written only where that procedure lacks the library. When the
+product's own libraries override procedure DDs as well, the order differs
+between the systems, and #cmd("mbt package") asks for #cmd("procedure").
+
+*Return codes.* The #cmd("APPLY") link-edits the module with an
+#cmd("INCLUDE") of the module from the system library, where it is not: new,
+or taken out by the #cmd("DELETE") of the level before. The link edit ends
+with 8 on #cmd("IEW0342"), SMP reports #cmd("HMA2391") #cmd("LINK
+SUCCESSFUL") with #cmd("RETURN CODE=08"), and the #cmd("APPLY") ends with 4.
+The #cmd("ACCEPT") ends with 4 for the same reason, with #cmd("HMA2471 BLDL
+FAILED IN LIBRARY AOST4") before #cmd("HMA2390 LINK SUCCESSFUL"). Both are
+the normal end, and the #cmd("CLEANUP") steps run at 4. The #cmd("APPLY
+CHECK") ends with 0.
+
+*The upgrade.* A #cmd("DELETE") takes the module of the level before out of
+the library its LMOD entry names. Measured on TK5, with the module shipped
+before through #cmd("COPYLOAD") into the product's target: the
+#cmd("APPLY") deleted it there (#cmd("HMA2240") on the target's DD) and
+linked the new one into #cmd("SYS1.LPALIB"), the #cmd("ACCEPT") deleted it
+from the product's distribution library and linked it into
+#cmd("SYS1.AOST4"). From one level in #cmd("LPALIB") to the next, the
+#cmd("APPLY") deletes it from #cmd("LPALIB") and links it again, the
+#cmd("ACCEPT") does the same in #cmd("AOST4"). Both zones then record the new
+level as the module's #cmd("FMID") and #cmd("RMID") with
+#cmd("DISTLIB=AOST4"), and the load module with #cmd("SYSTEM LIBRARY =
+LPALIB").
+
+A module in #cmd("SYS1.LPALIB") or #cmd("SYS1.SVCLIB") takes effect at the
+next IPL with #cmd("CLPA"), one in #cmd("SYS1.LINKLIB") at the next IPL. The
+installation job says so in its header\; the IPL is the operator's. Measured
+is #cmd("LPALIB") with #cmd("AOST4"), on TK5 and MVS/CE\; #cmd("LINKLIB")
+and #cmd("SVCLIB") are accepted by the same rules and not measured.
 
 == Libraries as SMP Elements <ref-smp-elements>
 

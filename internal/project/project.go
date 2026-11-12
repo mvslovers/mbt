@@ -40,7 +40,10 @@ type Unit struct {
 	Attrs         []string // ld370 flags: --rent/--norent/--reus/--noreus/--refr
 	Aliases       []string
 	// NoShip: ship = false, the module stays out of the SMP package (mbt#373)
-	NoShip  bool
+	NoShip bool
+	// SMP: [module.NAME.smp], the module goes into a system library of the
+	// SMP procedures (mbt#380); nil for every other module.
+	SMP     *ModuleSMP
 	Sources []string
 	// Raw keeps the unit's table for checks that read more than the model
 	// (module-data reads rent and ac).
@@ -53,6 +56,18 @@ func (p *Project) Shipped() []*Unit {
 	var out []*Unit
 	for _, m := range p.Modules {
 		if !m.NoShip {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// ShippedAsLoad lists the shipped modules that travel as load modules, in the
+// load XMIT: all but those shipped as source (smp.source, mbt#380).
+func (p *Project) ShippedAsLoad() []*Unit {
+	var out []*Unit
+	for _, m := range p.Shipped() {
+		if m.SMP == nil || !m.SMP.Source {
 			out = append(out, m)
 		}
 	}

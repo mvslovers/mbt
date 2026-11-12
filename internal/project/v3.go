@@ -49,7 +49,7 @@ var v3Keys = map[string][]string{
 	"build.host":   {"cc", "cflags", "sources", "replace"},
 	"lib":          {"name", "sources", "headers"},
 	"internal":     {"sources", "exclude"},
-	"module":       {"sources", "exclude", "rent", "reus", "refr", "entry", "startup", "dep_startup", "ac", "aliases", "ship"},
+	"module":       {"sources", "exclude", "rent", "reus", "refr", "entry", "startup", "dep_startup", "ac", "aliases", "ship", "smp"},
 	"tests":        {"rent", "reus", "refr", "exclude"},
 	"test":         {"sources", "exclude", "rent", "reus", "refr", "entry", "startup", "dep_startup", "ac", "host", "mvs", "parm", "fixtures"},
 	"deploy":       {"target", "test_target"},

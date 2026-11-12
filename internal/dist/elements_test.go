@@ -462,7 +462,7 @@ func TestBuildEndToEnd(t *testing.T) {
 		"RECEIVE INDSN('CHANGE.ME.TRXLIB')",
 		"DATASET('ABC.TRXLIB')",
 		"//ALPHA    DD  DISP=SHR,DSN=ABC.TRXLIB(ALPHA)\n//BETA ",
-		"//APPLY   EXEC SMPAPP,COND=((0,NE,RECV.HMASMP),(4,LT,APPLYCHK.HMASMP))",
+		"//APPLY   EXEC SMPAPP,COND=((0,NE,RECV3),(0,NE,RECV.HMASMP),\n//             (4,LT,APPLYCHK.HMASMP))",
 		"//*     DELETE ABC.TSAMPLES NONVSAM SCRATCH PURGE",
 	}, []string{"//ACCEPT ", "//CLEANUP "})
 	if n := strings.Count(text, "DSN=ABC.TRXLIB(ALPHA)"); n != 3 {
@@ -756,9 +756,9 @@ func TestInstallJobGatesEveryStepOnAllBefore(t *testing.T) {
 	}
 	inst, _ := buildJobs(t, map[string]any{"accept_fmid": false})
 	for _, want := range []string{
-		"//APPLY   EXEC SMPAPP,COND=((0,NE,RECV.HMASMP),(0,NE,APPLYCHK.HMASMP))\n",
-		"//CLEANUP EXEC PGM=IDCAMS,COND=((0,NE,APPLY.HMASMP),\n//             (0,NE,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP))\n",
-		"//APPLYCHK EXEC SMPAPP,COND=(0,NE,RECV.HMASMP)\n",
+		"//APPLY   EXEC SMPAPP,COND=((0,NE,RECV1),(0,NE,RECV.HMASMP),\n//             (0,NE,APPLYCHK.HMASMP))\n",
+		"//CLEANUP EXEC PGM=IDCAMS,COND=((0,NE,APPLY.HMASMP),\n//             (0,NE,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP),(0,NE,RECV1))\n",
+		"//APPLYCHK EXEC SMPAPP,COND=((0,NE,RECV1),(0,NE,RECV.HMASMP))\n",
 	} {
 		if !strings.Contains(inst, want) {
 			t.Errorf("install job lacks %q:\n%s", want, inst)
@@ -770,14 +770,15 @@ func TestInstallJobGatesEveryStepOnAllBefore(t *testing.T) {
 // and the gates tolerate it; a failed RECV still stops everything.
 func TestGatesWithSRCLibrary(t *testing.T) {
 	d := parseElem(t, map[string]any{"dir": "samples", "target": "ABC.SAMPLES", "element": "SRC"})
-	if got := condList(recvGate, applyCheckGate(d)); got != "((0,NE,RECV.HMASMP),(4,LT,APPLYCHK.HMASMP))" {
-		t.Errorf("APPLY COND %s", got)
+	before := preRecvGates(d, "RECV2")
+	if got := condCard("//APPLY   EXEC SMPAPP,COND=", append(before, recvGate, applyCheckGate(d))); got != "//APPLY   EXEC SMPAPP,COND=((0,NE,RECV2),(0,NE,RECV.HMASMP),\n//             (4,LT,APPLYCHK.HMASMP))" {
+		t.Errorf("APPLY card:\n%s", got)
 	}
-	c, err := renderCleanupStep(d, "APPLY.HMASMP", applyCheckGate(d), recvGate)
+	c, err := renderCleanupStep(d, "APPLY.HMASMP", applyCheckGate(d), recvGate, "0,NE,RECV2")
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "//CLEANUP EXEC PGM=IDCAMS,COND=((4,LT,APPLY.HMASMP),\n//             (4,LT,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP))\n"
+	want := "//CLEANUP EXEC PGM=IDCAMS,COND=((4,LT,APPLY.HMASMP),\n//             (4,LT,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP),(0,NE,RECV2))\n"
 	if !strings.Contains(c, want) {
 		t.Errorf("cleanup lacks %q:\n%s", want, c)
 	}

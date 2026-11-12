@@ -944,14 +944,35 @@ def cond_list(*tests: str) -> str:
     return "((" + "),(".join(tests) + "))"
 
 
-def cleanup_exec(*tests: str) -> str:
-    """The EXEC card of the CLEANUP.  Several tests do not fit one card (an MCS
-    card is read to column 71), so the first stays on it and the rest continue
-    on the next."""
-    head = "//CLEANUP EXEC PGM=IDCAMS,COND="
+def pre_recv_gates(last_recv: str) -> tuple:
+    """The COND tests on the steps before the SMP RECV that can bypass it:
+    the last TSO RECEIVE.  The RECV names it; so does every SMP step behind
+    the RECV, because a COND test against a step that was bypassed is not
+    made, and a step naming only the RECV would run behind a skipped one.
+    The RECEIVEs before the last are not named (JCL takes eight tests on a
+    COND at most): DELOLD scratches every staging library first, so the
+    APPLYCHK of a run in which one of them failed has no data set to
+    allocate under that library's DD and ends the job there."""
+    return (f"0,NE,{last_recv}",)
+
+
+def cond_card(head: str, tests: tuple) -> str:
+    """The EXEC card of a step with its COND tests, each "rc,op,step".  A card
+    is read to column 71, so the tests that do not fit continue on the next
+    card, from column 16, as many on each as fit."""
     if len(tests) == 1:
         return head + cond_list(*tests)
-    return head + "((" + tests[0] + "),\n//             (" + "),(".join(tests[1:]) + "))"
+    cont = "//             "
+    cards: list[str] = []
+    line, on_card = head + "(", 0
+    for i, t in enumerate(tests):
+        item = f"({t})" + (")" if i == len(tests) - 1 else ",")
+        if on_card and len(line) + len(item) > MAX_CARD_COL:
+            cards.append(line)
+            line, on_card = cont, 0
+        line += item
+        on_card += 1
+    return "\n".join([*cards, line])
 
 
 def render_cleanup_step(dist: Distribution, after_step: str,
@@ -983,7 +1004,8 @@ def render_cleanup_step(dist: Distribution, after_step: str,
         step = ["//CLEANUP EXEC PGM=IDCAMS,",
                 f"//             COND=({ACCEPT_GUARD_COND},({rc},{after_step}))"]
     else:
-        step = [cleanup_exec(f"{rc},{after_step}", *gates)]
+        step = [cond_card("//CLEANUP EXEC PGM=IDCAMS,COND=",
+                          (f"{rc},{after_step}", *gates))]
     return "\n".join([
         "//*",
         "//* ---- remove the staging library -----------------------------------",
