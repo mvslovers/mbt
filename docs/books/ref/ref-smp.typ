@@ -627,6 +627,38 @@ level as the module's #cmd("FMID") and #cmd("RMID") with
 #cmd("DISTLIB=AOST4"), and the load module with #cmd("SYSTEM LIBRARY =
 LPALIB").
 
+#idx("REFR")
+#idx("refreshable")
+*A copy SMP did not put there.* The #cmd("INCLUDE") of the module from the
+system library finds a member if one is there, and the #cmd("APPLY") takes it
+into the link. Measured on TK5, with a package with the attributes of the
+example above (#cmd("syslib"), #cmd("distlib"), #cmd("PARM")
+#cmd("RENT,REUS,REFR")) installed over a system where an
+earlier release had copied the module into #cmd("SYS1.LPALIB") by hand, not
+refreshable:
+
+- The #cmd("APPLY") link-edit has #cmd("INCLUDE SMPWRK3(IGX00011)"), then
+  #cmd("INCLUDE LPALIB(IGX00011)"). SMP reports #cmd("HMA2390") with
+  #cmd("RETURN CODE=00"), not #cmd("HMA2391") with 8, and the listing says
+  #cmd("MODULE HAS BEEN MARKED REENTERABLE, REUSABLE, AND NOT REFRESHABLE").
+  #cmd("IEHLIST") shows the attribute bytes #cmd("C3F2") for the member in
+  #cmd("LPALIB").
+- The #cmd("ACCEPT") link-edit includes only the new object. The member in
+  #cmd("AOST4") is refreshable (#cmd("C373")).
+- The #cmd("ACDS") (the distribution zone) still records
+  #cmd("LKED ATTRIBUTES = RENT REUS REFR DC"). The text of the module is
+  byte-identical in all three copies.
+
+The link takes the attributes from the old member, not from the #cmd("PARM"),
+and the #cmd("ACDS") records the #cmd("PARM"), so it does not show the
+difference. A first installation, where there is nothing to include, is not
+affected. The user takes the foreign copy out of the library before the first
+#cmd("APPLY") (not measured as a sequence\; derived from the first
+installation) and reads the attributes of the result from #cmd("IEHLIST") or
+from the listing of the link edit. Not measured: what the missing
+#cmd("REFR") means for the LPA at an IPL with #cmd("CLPA"), what the #cmd("CDS")
+records, and a foreign copy that is refreshable.
+
 A module in #cmd("SYS1.LPALIB") or #cmd("SYS1.SVCLIB") takes effect at the
 next IPL with #cmd("CLPA"), one in #cmd("SYS1.LINKLIB") at the next IPL. The
 installation job says so in its header\; the IPL is the operator's. Measured

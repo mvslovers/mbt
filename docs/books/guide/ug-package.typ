@@ -157,6 +157,19 @@ because the module is not yet in the library SMP links it into
 #cmd("CLPA"), which the operator does\; say so in the product's installation
 guide.
 
+#idx("REFR")
+#note[*A copy of the module already in the library.* Take it out before the
+first #cmd("APPLY") (not measured as a sequence\; derived from the first
+installation, where nothing is there to include). If #cmd("SYS1.LPALIB")
+holds a copy of the module that SMP did not put there (one copied by hand for an earlier release, say), the
+#cmd("APPLY") links that copy into the new module. Measured on TK5 with a
+copy that was not refreshable: the module in the library is reentrant and
+reusable but *not* refreshable, although the #cmd("PARM") says #cmd("REFR").
+SMP does not report it, and the #cmd("ACDS") still records #cmd("REFR"). Check
+the attributes of the module in the library itself, with #cmd("IEHLIST"), or
+in the listing of the link edit (_MBT Reference_, "A Module in a System
+Library").]
+
 == The Installation Jobs <ug-package-jobs>
 
 #idx("installation job")
