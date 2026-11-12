@@ -83,7 +83,7 @@ func TestSystemModuleInstallJob(t *testing.T) {
 		"//*   GENER1    write the SYSMOD to a temporary data set\n//*   ASSEM     assemble IGX00099 behind its ++MOD (IFOX00)\n//*   RECV ",
 		"SYS1.LPALIB", "CLPA",
 		// AOST4 is not in TK5's SMPAPP: a card of its own, ahead of the product's
-		"//APPLYCHK EXEC SMPAPP,COND=(0,NE,RECV.HMASMP)\n//HMASMP.AOST4    DD  DISP=SHR,DSN=SYS1.AOST4\n//HMASMP.ABCLINK ",
+		"//APPLYCHK EXEC SMPAPP,COND=((0,NE,RECV1),(0,NE,GENER1),(0,NE,ASSEM),\n//             (0,NE,RECV.HMASMP))\n//HMASMP.AOST4    DD  DISP=SHR,DSN=SYS1.AOST4\n//HMASMP.ABCLINK ",
 	}, []string{"//SMPPTFIN DD  DATA", "HMASMP.LPALIB", "SELECT MEMBER=(ABCMOD,IGX00099)"})
 	checkJobText(t, "accept job", acc, []string{
 		"//ACCEPT  EXEC SMPAPP,COND=(0,NE,GUARD.HMASMP)\n//HMASMP.AOST4    DD  DISP=SHR,DSN=SYS1.AOST4\n",

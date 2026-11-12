@@ -208,6 +208,8 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
                for m in cfg.get("module", []) if m.get("aliases")}
     mcs = D.assemble_mcs(dist, modules, name, version, aliases)
     plan = D.receive_plan(dist, xmit_files)
+    # the steps before the RECV that every SMP step names (pre_recv_gates)
+    before = D.pre_recv_gates(plan[-1][0])
 
     alloc_jcl = render_template("smpalloc.jcl.tpl", {
         "JOBCARD": D.jobcard(D.job_name(name, "ALC"), f"{name.upper()[:12]} ALLOC"),
@@ -255,7 +257,8 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
                           "restore base)\n" + cleanup_note)
         accept_step = "//*"
         cleanup_step = D.render_cleanup_step(
-            dist, "APPLY.HMASMP", (D.APPLYCHK_GATE, D.RECV_GATE))
+            dist, "APPLY.HMASMP",
+            (D.APPLYCHK_GATE, D.RECV_GATE, *reversed(before)))
 
     inst_jcl = render_template("smpinst.jcl.tpl", {
         "JOBCARD": D.jobcard(D.job_name(name, "INS"), f"{name.upper()[:12]} INSTALL"),
@@ -279,7 +282,10 @@ def build(project_file: str, distdir: str, builddir: str) -> int:
             "//* product owns those patterns, the site owns the copies it makes of\n"
             "//* them. See the README for which member goes where."),
         "APPLY_WHAT": "copy the load modules into the target library",
-        "APPLY_COND": D.cond_list(D.RECV_GATE, D.APPLYCHK_GATE),
+        "APPLYCHK_EXEC": D.cond_card("//APPLYCHK EXEC SMPAPP,COND=",
+                                     (*before, D.RECV_GATE)),
+        "APPLY_EXEC": D.cond_card("//APPLY   EXEC SMPAPP,COND=",
+                                  (*before, D.RECV_GATE, D.APPLYCHK_GATE)),
         "CHECK_RC": "RC=0",
         "ACCEPT_SUMMARY": accept_summary,
         "ACCEPT_STEP": accept_step,

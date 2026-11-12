@@ -79,10 +79,8 @@ func setSystems(d *Distribution, root string, modules []Module) error {
 	for _, o := range d.SMP.Predecessor {
 		own[o.DD] = o.DSN
 	}
-	load := 0
 	for _, m := range modules {
 		if m.System == nil {
-			load++
 			continue
 		}
 		s := m.System
@@ -110,10 +108,19 @@ func setSystems(d *Distribution, root string, modules []Module) error {
 		}
 		d.Systems = append(d.Systems, system{Name: m.Name, SystemModule: *s, text: text})
 	}
-	if len(d.Systems) > 0 && load == 0 {
-		return errf("[distribution]: every shipped module goes into a system library; at least one has to go into the product's target %s (the COPYLOAD step of the JCLIN needs one)", d.SMP.Target)
-	}
 	return nil
+}
+
+// checkLoadModules: at least one shipped module has to go into the product's
+// target library. It runs before the load XMIT is looked for: without such a
+// module mbt package builds none, and "XMIT not found" would be the message.
+func checkLoadModules(d *Distribution, modules []Module) error {
+	for _, m := range modules {
+		if m.System == nil {
+			return nil
+		}
+	}
+	return errf("[distribution]: every shipped module goes into a system library; at least one has to go into the product's target %s (the COPYLOAD step of the JCLIN needs one)", d.SMP.Target)
 }
 
 func sortedSet(m map[string]bool) []string {

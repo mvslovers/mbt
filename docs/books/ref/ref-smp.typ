@@ -384,21 +384,31 @@ the table is removed again.
     #cmd("RECV")#var("n") ended with 0. With a module shipped as source the
     SYSMOD is read from #cmd("&&MCS"), and the step also needs
     #cmd("GENER1") and #cmd("ASSEM") to have ended with 0.],
-  [#cmd("APPLYCHK")], [#cmd("APPLY CHECK"), if #cmd("RECV") ended with 0.],
-  [#cmd("APPLY")], [#cmd("APPLY"), only after a clean check: if #cmd("RECV")
-    and #cmd("APPLYCHK") ended with 0.],
+  [#cmd("APPLYCHK")], [#cmd("APPLY CHECK"), if the last #cmd("RECV")#var("n"),
+    #cmd("GENER1") and #cmd("ASSEM") (where the job has them) and
+    #cmd("RECV") ended with 0.],
+  [#cmd("APPLY")], [#cmd("APPLY"), only after a clean check: if the same
+    steps and #cmd("APPLYCHK") ended with 0.],
   [#cmd("CLEANUP")], [only with #cmd("accept_fmid = false"): IDCAMS deletes
-    the staging library, if #cmd("RECV"), #cmd("APPLYCHK") and the
+    the staging library, if the same steps, #cmd("APPLYCHK") and the
     #cmd("APPLY") ended with 0 (with 4 for the #cmd("APPLYCHK") and the
     #cmd("APPLY") of a package with a library of #cmd("SRC") elements, and
     for the #cmd("APPLY") of a package with a module in a system library).],
 )
 
 JCL does not test a #cmd("COND") against a step that did not run. So each
-SMP step names every SMP step before it, not only the one before: behind a
-#cmd("RECV") that ended with 8, the #cmd("APPLYCHK") is bypassed, and an
-#cmd("APPLY") that named only the #cmd("APPLYCHK") would run without the
-check.
+SMP step names every SMP step before it, not only the one before, and also
+the steps that can bypass the #cmd("RECV") (the last #cmd("RECV")#var("n"),
+with a module shipped as source also #cmd("GENER1") and #cmd("ASSEM")):
+behind a #cmd("RECV") that ended with 8, the #cmd("APPLYCHK") is bypassed,
+and an #cmd("APPLY") that named only the #cmd("APPLYCHK") would run without
+the check; behind an #cmd("ASSEM") that ended with 8, the #cmd("RECV") is
+bypassed, and an #cmd("APPLYCHK") that named only the #cmd("RECV") would go
+on to apply a SYSMOD that an earlier run had received. The earlier
+#cmd("RECV")#var("n") are not named (JCL takes eight tests on a
+#cmd("COND") at most): #cmd("DELOLD") scratches every staging library first,
+so after a failed #cmd("RECEIVE") the #cmd("APPLYCHK") has no data set to
+allocate under that library's DD, and the job ends there.
 
 With #cmd("accept_fmid") (the default) the job has no #cmd("ACCEPT") and no
 #cmd("CLEANUP"). It ends after the #cmd("APPLY"), and its closing comment

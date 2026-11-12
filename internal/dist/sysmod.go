@@ -505,15 +505,59 @@ func condList(tests ...string) string {
 	return "((" + strings.Join(tests, "),(") + "))"
 }
 
-// cleanupExec: the EXEC card of the CLEANUP. Several tests do not fit one
-// card (an MCS card is read to column 71), so the first stays on it and the
-// rest continue on the next.
-func cleanupExec(tests []string) string {
-	const exec = "//CLEANUP EXEC PGM=IDCAMS,COND="
-	if len(tests) == 1 {
-		return exec + condList(tests...)
+// preRecvGates: the COND tests on the steps before the SMP RECV that can
+// bypass it, in job order: the last TSO RECEIVE and, with a module shipped
+// as source, the two steps that write the SYSMOD and assemble the module.
+// The RECV names them; so does every SMP step behind the RECV, because a
+// COND test against a step that was bypassed is not made, and a step naming
+// only the RECV would run behind a skipped one (mbt#380: an ASSEM that ended
+// 8 bypassed the RECV, and the APPLY re-applied the SYSMOD of an earlier run).
+// The RECEIVEs before the last are not named: JCL takes eight tests on a
+// COND at most, and a package may ship six libraries. They are covered all
+// the same: DELOLD scratches every staging library first, so the APPLYCHK
+// of a run in which one of them failed has no data set to allocate under
+// that library's DD and ends the job there.
+func preRecvGates(d *Distribution, lastRecv string) []string {
+	gates := []string{"0,NE," + lastRecv}
+	if len(d.Systems) > 0 {
+		gates = append(gates, "0,NE,"+generStep, "0,NE,"+assemStep)
 	}
-	return exec + "((" + tests[0] + "),\n//             (" + strings.Join(tests[1:], "),(") + "))"
+	return gates
+}
+
+// condCard: the EXEC card of a step with its COND tests, each "rc,op,step".
+// A card is read to column 71, so the tests that do not fit continue on the
+// next card, from column 16, as many on each as fit.
+func condCard(head string, tests []string) string {
+	if len(tests) == 1 {
+		return head + condList(tests...)
+	}
+	const cont = "//             "
+	var cards []string
+	line, onCard := head+"(", 0
+	for i, t := range tests {
+		item := "(" + t + "),"
+		if i == len(tests)-1 {
+			item = "(" + t + "))"
+		}
+		if onCard > 0 && len(line)+len(item) > maxCardCol {
+			cards = append(cards, line)
+			line, onCard = cont, 0
+		}
+		line += item
+		onCard++
+	}
+	return strings.Join(append(cards, line), "\n")
+}
+
+// reversed: the tests of a CLEANUP go from the step right before it back
+// to the first one.
+func reversed(s []string) []string {
+	out := make([]string, len(s))
+	for i, v := range s {
+		out[len(s)-1-i] = v
+	}
+	return out
 }
 
 // renderCleanupStep: gates are further tests (steps before `after`) that also
@@ -534,7 +578,7 @@ func renderCleanupStep(d *Distribution, after string, gates ...string) (string, 
 	if d.hasSRC() || len(d.Systems) > 0 || (after == "ACCEPT.HMASMP" && len(d.SMP.Prereq) > 0) {
 		cond = "4,LT"
 	}
-	exec := cleanupExec(append([]string{cond + "," + after}, gates...))
+	exec := condCard("//CLEANUP EXEC PGM=IDCAMS,COND=", append([]string{cond + "," + after}, gates...))
 	if after == "ACCEPT.HMASMP" {
 		exec = "//CLEANUP EXEC PGM=IDCAMS,\n" +
 			fmt.Sprintf("//             COND=(%s,(%s,%s))", acceptGuardCond, cond, after)

@@ -80,6 +80,11 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	if err := os.MkdirAll(stage, 0o755); err != nil {
 		return err
 	}
+	// before the XMIT is looked for: without a module for the target
+	// library none is built, and "not found" would hide the real reason
+	if err := checkLoadModules(d, modules); err != nil {
+		return err
+	}
 	if _, err := os.Stat(filepath.Join(out, loadXMIT)); err != nil {
 		return errf("%s not found -- the load library XMIT is built by 'mbt package' and must exist before the package is assembled", filepath.Join(o.DistDir, loadXMIT))
 	}
@@ -179,6 +184,9 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 		applyChkRC = "RC<=4"
 	}
 	loadsOnly += systemScope(d)
+	// the steps before the RECV that every SMP step names (preRecvGates)
+	before := preRecvGates(d, plan[len(plan)-1].step)
+	gates := func(more ...string) []string { return append(append([]string{}, before...), more...) }
 	// With accept_fmid the install job ends after the APPLY: ACCEPT is the
 	// point without a way back, so it is a job of its own that the user
 	// submits (acceptJCL), and it takes the CLEANUP with it, since SMP reads
@@ -199,7 +207,7 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 	} else {
 		acceptSummary = "//*   (no ACCEPT -- this level never becomes the restore base)\n" + cleanupNote
 		acceptStep = "//*"
-		cleanup, err = renderCleanupStep(d, "APPLY.HMASMP", applyCheckGate(d), recvGate)
+		cleanup, err = renderCleanupStep(d, "APPLY.HMASMP", append([]string{applyCheckGate(d), recvGate}, reversed(before)...)...)
 		if err != nil {
 			return err
 		}
@@ -218,7 +226,9 @@ func Build(raw map[string]any, name, ver string, modules []Module, o Options) er
 			"RECEIVE_SUMMARY": strings.Join(summary, "\n"), "RECEIVE_STEPS": renderReceiveSteps(plan),
 			"APPLY_DDS": renderApplyDDs(d),
 			"RECV_DDS":  renderRecvDDs(d), "SMP_SCOPE": loadsOnly, "APPLY_WHAT": applyWhat,
-			"APPLY_COND": condList(recvGate, applyCheckGate(d)), "CHECK_RC": applyChkRC,
+			"APPLYCHK_EXEC":  condCard("//APPLYCHK EXEC SMPAPP,COND=", gates(recvGate)),
+			"APPLY_EXEC":     condCard("//APPLY   EXEC SMPAPP,COND=", gates(recvGate, applyCheckGate(d))),
+			"CHECK_RC":       applyChkRC,
 			"ACCEPT_SUMMARY": acceptSummary, "ACCEPT_STEP": acceptStep,
 			"CLEANUP_STEP": cleanup,
 		})

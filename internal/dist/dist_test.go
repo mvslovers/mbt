@@ -116,7 +116,7 @@ func TestAcceptJobWithoutPrereq(t *testing.T) {
 			t.Errorf("install job has %q", not)
 		}
 	}
-	for _, want := range []string{"//APPLY   EXEC SMPAPP,COND=((0,NE,RECV.HMASMP),(0,NE,APPLYCHK.HMASMP))", "abc-1.0.0-accept.jcl", "DELETE ABC.LKLIB NONVSAM SCRATCH PURGE"} {
+	for _, want := range []string{"//APPLY   EXEC SMPAPP,COND=((0,NE,RECV1),(0,NE,RECV.HMASMP),\n//             (0,NE,APPLYCHK.HMASMP))", "abc-1.0.0-accept.jcl", "DELETE ABC.LKLIB NONVSAM SCRATCH PURGE"} {
 		if !strings.Contains(inst, want) {
 			t.Errorf("install job lacks %q", want)
 		}
@@ -177,7 +177,7 @@ func TestAcceptJobBypassesReqOnly(t *testing.T) {
 		if strings.Contains(inst, "BYPASS") || strings.Contains(inst, "//ACCEPT ") || strings.Contains(inst, "//CLEANUP ") {
 			t.Errorf("%v: install job bypasses, accepts or cleans up", ids)
 		}
-		if !strings.Contains(inst, "//APPLY   EXEC SMPAPP,COND=((0,NE,RECV.HMASMP),(0,NE,APPLYCHK.HMASMP))") {
+		if !strings.Contains(inst, "//APPLY   EXEC SMPAPP,COND=((0,NE,RECV1),(0,NE,RECV.HMASMP),\n//             (0,NE,APPLYCHK.HMASMP))") {
 			t.Errorf("%v: APPLY changed", ids)
 		}
 		if n := strings.Count(acc, " ACCEPT S(TABC100) BYPASS(REQ) DIS(WRITE) .\n"); n != 1 {
@@ -204,7 +204,7 @@ func TestNoAcceptJobWithoutAcceptFMID(t *testing.T) {
 		t.Errorf("accept job written:\n%s", acc)
 	}
 	if strings.Contains(inst, "//ACCEPT ") || strings.Contains(inst, "WHAT NEXT") ||
-		!strings.Contains(inst, "//CLEANUP EXEC PGM=IDCAMS,COND=((0,NE,APPLY.HMASMP),\n//             (0,NE,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP))") {
+		!strings.Contains(inst, "//CLEANUP EXEC PGM=IDCAMS,COND=((0,NE,APPLY.HMASMP),\n//             (0,NE,APPLYCHK.HMASMP),(0,NE,RECV.HMASMP),(0,NE,RECV1))") {
 		t.Errorf("install job:\n%s", inst)
 	}
 }
